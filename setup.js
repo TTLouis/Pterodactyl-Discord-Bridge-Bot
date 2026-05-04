@@ -16,7 +16,7 @@ const rl = readline.createInterface({ input: process.stdin, output: process.stdo
 function ask(label, def) {
   return new Promise(resolve => {
     const suffix = def !== undefined ? ` ${C.dim}[${def}]${C.reset}` : '';
-    rl.question(`  ${label}${suffix}: `, ans => resolve(ans.trim() || def ?? ''));
+    rl.question(`  ${label}${suffix}: `, ans => resolve(ans.trim() || (def ?? '')));
   });
 }
 
