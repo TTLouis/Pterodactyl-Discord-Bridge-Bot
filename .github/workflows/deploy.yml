@@ -1,0 +1,27 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: main-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, Linux, X64, DiscordBot]
+    timeout-minutes: 15
+
+    steps:
+      - name: Deploy Discord bot
+        run: |
+          cd /opt/DiscordBot
+          git fetch --prune origin main
+          git switch -C main origin/main
+          docker compose up -d --build --remove-orphans
+          docker image prune -f

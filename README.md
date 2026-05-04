@@ -66,7 +66,7 @@ The setup wizard creates `.env` and `servers.json` interactively. It will ask be
 On Linux or macOS:
 
 ```bash
-curl -fsSL https://github.com/TTLouis/Pterodactyl-Discord-Bridge-Bot/releases/latest/download/bootstrap.sh -o bootstrap.sh || wget -O bootstrap.sh https://github.com/TTLouis/Pterodactyl-Discord-Bridge-Bot/releases/latest/download/bootstrap.sh && bash bootstrap.sh || echo "Bootstrap failed. Install Node.js 20+, npm, and unzip, then try again."
+curl -fsSL https://github.com/TTLouis/Pterodactyl-Discord-Bridge-Bot/releases/latest/download/bootstrap.sh -o bootstrap.sh && bash bootstrap.sh
 ```
 
 Do not prefix the whole command with `sudo`. Run it as your normal user so the downloaded files and generated config files are owned by your account.
@@ -74,7 +74,7 @@ Do not prefix the whole command with `sudo`. Run it as your normal user so the d
 On Windows PowerShell:
 
 ```powershell
-Invoke-WebRequest -Uri https://github.com/TTLouis/Pterodactyl-Discord-Bridge-Bot/releases/latest/download/bootstrap.ps1 -OutFile bootstrap.ps1; if ($?) { powershell -ExecutionPolicy Bypass -File .\bootstrap.ps1 } else { Write-Host "Bootstrap download failed. Install Node.js 20+ and npm, then try again." -ForegroundColor Red }
+Invoke-WebRequest -Uri https://github.com/TTLouis/Pterodactyl-Discord-Bridge-Bot/releases/latest/download/bootstrap.ps1 -OutFile bootstrap.ps1 -ErrorAction SilentlyContinue; if ($?) { powershell -ExecutionPolicy Bypass -File .\bootstrap.ps1 } else { Write-Host "Bootstrap download failed. Install Node.js 20+ and npm, then try again." -ForegroundColor Red }
 ```
 
 The bootstrap scripts:
@@ -156,19 +156,57 @@ npm start
 
 ## Releasing Setup Scripts
 
-The recommended release model is to publish these GitHub Release assets:
+The recommended release model is to publish `bootstrap.sh` and `bootstrap.ps1` as GitHub Release assets. That gives users stable `releases/latest/download/...` URLs without asking them to browse the repository or clone it manually.
 
-- `bootstrap.sh`
-- `bootstrap.ps1`
-- `discord-pterodactyl-bridge.zip`
+## Branch Model
 
-The bootstrap scripts download `discord-pterodactyl-bridge.zip` from `releases/latest/download/...`, extract it, install npm dependencies, and run the setup wizard. Users do not need Git.
+This repository uses a single long-lived branch:
 
-Create the package asset with:
+- `main` is the stable branch. Pushing to `main` triggers the self-hosted deployment workflow.
+
+### Self-Hosted Runner Safety
+
+Treat push access to `main` as trusted access to the deployment VM. A workflow running on a self-hosted runner can execute commands on that machine.
+
+Recommended safeguards:
+
+- keep `.env`, `servers.json`, and `runtime-state.json` out of git
+- keep production tokens off the VM
+- use a dedicated low-privilege VM or container host for the runner
+- rotate Discord, Pterodactyl, and Satisfactory tokens before going public if there is any chance they were pasted into a commit, issue, PR, or log
+
+Before creating a release:
+
+- confirm `bootstrap.sh`, `bootstrap.ps1`, `setup.js`, `package.json`, and `package-lock.json` are committed
+- update `package.json` to the release version
+- do not commit `.env`, `servers.json`, or `runtime-state.json`
+- test the wizard locally with `npm run setup`
+
+Create and publish a release from the command line with GitHub CLI:
 
 ```bash
-npm run package:release
+git tag v0.1.0
+git push origin v0.1.0
+gh release create v0.1.0 bootstrap.sh bootstrap.ps1 --title "v0.1.0" --notes "Setup helper scripts are attached for fresh installs."
 ```
+
+Or publish it through GitHub:
+
+1. Open the repository on GitHub.
+2. Go to **Releases**.
+3. Choose **Draft a new release**.
+4. Create or select a version tag, for example `v0.1.0`.
+5. Attach `bootstrap.sh` and `bootstrap.ps1` as release assets.
+6. Publish the release.
+
+After publishing, verify these URLs work:
+
+```text
+https://github.com/TTLouis/Pterodactyl-Discord-Bridge-Bot/releases/latest/download/bootstrap.sh
+https://github.com/TTLouis/Pterodactyl-Discord-Bridge-Bot/releases/latest/download/bootstrap.ps1
+```
+
+GitHub automatically provides source code archives for each release. You only need to upload the bootstrap scripts manually unless you add a release workflow later.
 
 ## Hosting Model
 

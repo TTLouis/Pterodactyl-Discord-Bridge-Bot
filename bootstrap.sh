@@ -202,7 +202,7 @@ cd "$INSTALL_DIR"
 
 echo ""
 echo -e "  Installing dependencies..."
-npm install --silent
+npm install
 echo -e "  ${green}✔${reset} Dependencies installed"
 
 # ── Setup wizard ───────────────────────────────────────────────────────────────

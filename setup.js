@@ -16,7 +16,7 @@ const rl = readline.createInterface({ input: process.stdin, output: process.stdo
 function ask(label, def) {
   return new Promise(resolve => {
     const suffix = def !== undefined ? ` ${C.dim}[${def}]${C.reset}` : '';
-    rl.question(`  ${label}${suffix}: `, ans => resolve(ans.trim() || (def ?? '')));
+    rl.question(`  ${label}${suffix}: `, ans => resolve(ans.trim() || def ?? ''));
   });
 }
 
@@ -163,7 +163,9 @@ async function main() {
   }
 
   // ── Write files ───────────────────────────────────────────────────────────
-  section('Writing files');
+  if (envData || serversConfig) {
+    section('Writing files');
+  }
 
   if (envData) {
     const lines = Object.entries(envData).map(([k, v]) => `${k}=${v}`).join('\n');
