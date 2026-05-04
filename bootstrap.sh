@@ -120,16 +120,62 @@ download_file() {
   fi
 }
 
+install_docker() {
+  if command -v apt-get &>/dev/null; then
+    echo -e "  Installing Docker with apt..."
+    curl -fsSL https://get.docker.com | sudo sh
+    sudo apt-get install -y docker-compose-plugin
+    sudo systemctl enable --now docker
+  elif command -v dnf &>/dev/null; then
+    echo -e "  Installing Docker with dnf..."
+    sudo dnf install -y docker docker-compose-plugin
+    sudo systemctl enable --now docker
+  elif command -v brew &>/dev/null; then
+    echo -e "  Installing Docker Desktop with Homebrew..."
+    brew install --cask docker
+    echo -e "${yellow}  Open Docker Desktop once to finish setup, then re-run this script.${reset}"
+    exit 0
+  else
+    echo -e "${red}Automatic Docker install is not supported on this system.${reset}"
+    show_prereq_help
+    exit 1
+  fi
+}
+
+install_docker_compose() {
+  if command -v apt-get &>/dev/null; then
+    echo -e "  Installing Docker Compose plugin with apt..."
+    sudo apt-get install -y docker-compose-plugin
+  elif command -v dnf &>/dev/null; then
+    echo -e "  Installing Docker Compose plugin with dnf..."
+    sudo dnf install -y docker-compose-plugin
+  else
+    echo -e "${red}Automatic Docker Compose install is not supported on this system.${reset}"
+    show_prereq_help
+    exit 1
+  fi
+}
+
 warn_optional_docker() {
   if ! command -v docker &>/dev/null; then
     echo -e "${yellow}Warning: Docker is not installed.${reset}"
     echo "  Docker is only needed if you plan to run the bot with Docker Compose."
     echo "  You can still use npm start without Docker."
-    read -rp "  Continue without Docker? [Y/n]: " CONTINUE_WITHOUT_DOCKER
-    CONTINUE_WITHOUT_DOCKER="${CONTINUE_WITHOUT_DOCKER:-Y}"
-    if [[ ! "$CONTINUE_WITHOUT_DOCKER" =~ ^[Yy] ]]; then
-      show_prereq_help
-      exit 1
+    read -rp "  Install Docker now? [y/N]: " INSTALL_DOCKER
+    INSTALL_DOCKER="${INSTALL_DOCKER:-N}"
+    if [[ "$INSTALL_DOCKER" =~ ^[Yy] ]]; then
+      install_docker
+      echo ""
+      if command -v docker &>/dev/null; then
+        echo -e "  ${green}✔${reset} Docker $(docker --version)"
+      fi
+    else
+      read -rp "  Continue without Docker? [Y/n]: " CONTINUE_WITHOUT_DOCKER
+      CONTINUE_WITHOUT_DOCKER="${CONTINUE_WITHOUT_DOCKER:-Y}"
+      if [[ ! "$CONTINUE_WITHOUT_DOCKER" =~ ^[Yy] ]]; then
+        show_prereq_help
+        exit 1
+      fi
     fi
     echo ""
     return
@@ -138,11 +184,21 @@ warn_optional_docker() {
   if ! docker compose version &>/dev/null; then
     echo -e "${yellow}Warning: Docker is installed, but Docker Compose is not available.${reset}"
     echo "  Docker Compose is only needed for docker compose up --build -d."
-    read -rp "  Continue without Docker Compose? [Y/n]: " CONTINUE_WITHOUT_COMPOSE
-    CONTINUE_WITHOUT_COMPOSE="${CONTINUE_WITHOUT_COMPOSE:-Y}"
-    if [[ ! "$CONTINUE_WITHOUT_COMPOSE" =~ ^[Yy] ]]; then
-      show_prereq_help
-      exit 1
+    read -rp "  Install Docker Compose plugin now? [y/N]: " INSTALL_COMPOSE
+    INSTALL_COMPOSE="${INSTALL_COMPOSE:-N}"
+    if [[ "$INSTALL_COMPOSE" =~ ^[Yy] ]]; then
+      install_docker_compose
+      echo ""
+      if docker compose version &>/dev/null; then
+        echo -e "  ${green}✔${reset} $(docker compose version)"
+      fi
+    else
+      read -rp "  Continue without Docker Compose? [Y/n]: " CONTINUE_WITHOUT_COMPOSE
+      CONTINUE_WITHOUT_COMPOSE="${CONTINUE_WITHOUT_COMPOSE:-Y}"
+      if [[ ! "$CONTINUE_WITHOUT_COMPOSE" =~ ^[Yy] ]]; then
+        show_prereq_help
+        exit 1
+      fi
     fi
     echo ""
   fi
