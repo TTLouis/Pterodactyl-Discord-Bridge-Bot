@@ -5,16 +5,23 @@ on:
     branches:
       - testing
 
+permissions:
+  contents: read
+
+concurrency:
+  group: testing-deploy
+  cancel-in-progress: true
+
 jobs:
   deploy:
     runs-on: [self-hosted, Linux, X64, DiscordBot]
+    timeout-minutes: 15
 
     steps:
       - name: Deploy Discord bot
         run: |
           cd /opt/DiscordBot
-          git fetch origin testing
-          git switch testing
-          git pull --ff-only origin testing
+          git fetch --prune origin testing
+          git switch -C testing origin/testing
           docker compose up -d --build
           docker image prune -f
