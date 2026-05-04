@@ -1,6 +1,8 @@
 const ONLINE_PLAYERS_COMMAND = "/players o";
 const TIME_COMMAND = "/time";
-const FACTORIO_CHAT_LINE_PATTERN = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \[CHAT\] ([^:]+):\s*(.*)$/;
+const ANSI_CONTROL_PATTERN = /\u001B\[[0-?]*[ -/]*[@-~]/g;
+const FACTORIO_CHAT_LINE_PATTERN = /^(?:\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\s+)?\[CHAT\]\s+([^:]+):\s*(.*)$/;
+const FACTORIO_GPS_ONLY_PATTERN = /^\[gps=[^\]]+\]$/i;
 const FACTORIO_PLAYER_EVENT_PATTERN = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \[(JOIN|LEAVE)\] .+ (joined|left) the game$/;
 const FACTORIO_INFO_LOG_LINE_PATTERN = /^\d+(?:\.\d+)?\s+Info\b/;
 
@@ -25,8 +27,12 @@ function renderTemplate(template, values) {
 function normalizeConsoleLines(lines) {
   return lines
     .flatMap((line) => String(line ?? "").split(/\r?\n/))
-    .map((line) => line.trim())
+    .map(normalizeConsoleLine)
     .filter(Boolean);
+}
+
+function normalizeConsoleLine(line) {
+  return String(line ?? "").replace(ANSI_CONTROL_PATTERN, "").trim();
 }
 
 function isFactorioInfoLogLine(line) {
@@ -70,8 +76,18 @@ function isDiscordRelayName(authorName) {
   return /^DISCORD<.+>$/.test(authorName);
 }
 
-function isServerConsoleName(authorName) {
-  return /^<.+>$/.test(authorName);
+function isDiscordRelayContent(content) {
+  return /^DISCORD<.+>:\s*/.test(content);
+}
+
+function isGpsOnlyContent(content) {
+  return FACTORIO_GPS_ONLY_PATTERN.test(String(content ?? "").trim());
+}
+
+function normalizeChatAuthorName(authorName) {
+  const value = String(authorName ?? "").trim();
+  const angleMatch = value.match(/^<(.+)>$/);
+  return (angleMatch?.[1] ?? value).trim();
 }
 
 function parseGameDuration(lines) {
@@ -263,16 +279,36 @@ export class FactorioAdapter {
     return FACTORIO_PLAYER_EVENT_PATTERN.test(String(line ?? "").trim());
   }
 
-  parseConsoleChatLine(line) {
+  applyPlayerEvent(line) {
+    if (this.onlinePlayers === null) return false;
     const normalized = String(line ?? "").trim();
+    const joinMatch = normalized.match(/\[JOIN\] (.+) joined the game$/);
+    if (joinMatch) {
+      const name = joinMatch[1];
+      if (!this.onlinePlayers.includes(name)) {
+        this.onlinePlayers = [...this.onlinePlayers, name];
+      }
+      return true;
+    }
+    const leaveMatch = normalized.match(/\[LEAVE\] (.+) left the game$/);
+    if (leaveMatch) {
+      this.onlinePlayers = this.onlinePlayers.filter((p) => p !== leaveMatch[1]);
+      return true;
+    }
+    return false;
+  }
+
+  parseConsoleChatLine(line) {
+    const normalized = normalizeConsoleLine(line);
     const match = normalized.match(FACTORIO_CHAT_LINE_PATTERN);
     if (!match) {
       return null;
     }
 
-    const authorName = match[1].trim();
+    const rawAuthorName = match[1].trim();
+    const authorName = normalizeChatAuthorName(rawAuthorName);
     const content = match[2].trim();
-    if (!authorName || !content || isDiscordRelayName(authorName) || isServerConsoleName(authorName)) {
+    if (!authorName || !content || isDiscordRelayName(authorName) || isDiscordRelayContent(content) || isGpsOnlyContent(content)) {
       return null;
     }
 
