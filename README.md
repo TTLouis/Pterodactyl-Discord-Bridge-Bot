@@ -2,7 +2,7 @@
 
 This project supports Factorio, Minecraft, and Satisfactory servers managed by Pterodactyl.
 
-It does two things:
+It does the following things:
 
 - keeps a single Discord status panel updated every minute
 - relays Discord and game-server events where the selected adapter supports them
