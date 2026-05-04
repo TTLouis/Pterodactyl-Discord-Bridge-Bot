@@ -66,20 +66,20 @@ The setup wizard creates `.env` and `servers.json` interactively. It will ask be
 On Linux or macOS:
 
 ```bash
-curl -fsSLO https://github.com/TTLouis/Pterodactyl-Discord-Bridge-Bot/releases/latest/download/bootstrap.sh
-bash bootstrap.sh
+(curl -fsSLO https://github.com/TTLouis/Pterodactyl-Discord-Bridge-Bot/releases/latest/download/bootstrap.sh || wget -O bootstrap.sh https://github.com/TTLouis/Pterodactyl-Discord-Bridge-Bot/releases/latest/download/bootstrap.sh) && bash bootstrap.sh || echo "Bootstrap failed. Install Git, Node.js 20+, and npm, then try again."
 ```
 
 On Windows PowerShell:
 
 ```powershell
-Invoke-WebRequest -Uri https://github.com/TTLouis/Pterodactyl-Discord-Bridge-Bot/releases/latest/download/bootstrap.ps1 -OutFile bootstrap.ps1
-powershell -ExecutionPolicy Bypass -File .\bootstrap.ps1
+Invoke-WebRequest -Uri https://github.com/TTLouis/Pterodactyl-Discord-Bridge-Bot/releases/latest/download/bootstrap.ps1 -OutFile bootstrap.ps1; if ($?) { powershell -ExecutionPolicy Bypass -File .\bootstrap.ps1 } else { Write-Host "Bootstrap download failed. Install Git, Node.js 20+, and npm, then try again." -ForegroundColor Red }
 ```
 
 The bootstrap scripts:
 
 - check for Git, Node.js 20 or newer, and npm
+- prompt with install guidance if a required tool is missing
+- warn if Docker or Docker Compose is missing, then let you continue with npm-based setup
 - clone this repository
 - install dependencies
 - run the interactive setup wizard
