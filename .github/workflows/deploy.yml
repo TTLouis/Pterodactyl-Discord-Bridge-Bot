@@ -3,7 +3,7 @@ name: Deploy
 on:
   push:
     branches:
-      - main
+      - testing
 
 jobs:
   deploy:
@@ -13,6 +13,8 @@ jobs:
       - name: Deploy Discord bot
         run: |
           cd /opt/DiscordBot
-          git pull --ff-only
+          git fetch origin testing
+          git switch testing
+          git pull --ff-only origin testing
           docker compose up -d --build
           docker image prune -f
