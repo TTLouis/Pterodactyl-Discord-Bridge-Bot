@@ -25,8 +25,6 @@ function Show-PrereqHelp {
 }
 
 function Confirm-ContinueWithoutOptionalTool($toolName, $why) {
-    Write-Host "Warning: $toolName is not installed." -ForegroundColor Yellow
-    Write-Host "  $why"
     $answer = Read-Host "  Continue without $toolName? [Y/n]"
     if ([string]::IsNullOrWhiteSpace($answer)) {
         $answer = "Y"
@@ -35,6 +33,19 @@ function Confirm-ContinueWithoutOptionalTool($toolName, $why) {
         Show-PrereqHelp
         exit 1
     }
+    Write-Host ""
+}
+
+function Install-Docker {
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+        Write-Host "Automatic Docker install requires winget." -ForegroundColor Red
+        Show-PrereqHelp
+        exit 1
+    }
+    Write-Host "  Installing Docker Desktop with winget..." -ForegroundColor DarkGray
+    winget install --id Docker.DockerDesktop -e --accept-package-agreements --accept-source-agreements
+    Write-Host "  Docker Desktop installed. Start Docker Desktop and wait for it to finish" -ForegroundColor Yellow
+    Write-Host "  initializing before running: docker compose up --build -d" -ForegroundColor Yellow
     Write-Host ""
 }
 
@@ -106,12 +117,29 @@ if (-not (Test-RequiredPrereqs)) {
 Write-Host "  OK  node $(node --version)" -ForegroundColor Green
 Write-Host "  OK  npm  $(npm --version)" -ForegroundColor Green
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
-    Confirm-ContinueWithoutOptionalTool "Docker" "Docker is only needed if you plan to run the bot with Docker Compose. You can still use npm start without Docker."
+    Write-Host "Warning: Docker is not installed." -ForegroundColor Yellow
+    Write-Host "  Docker is only needed if you plan to run the bot with Docker Compose."
+    Write-Host "  You can still use npm start without Docker."
+    $answer = Read-Host "  Install Docker Desktop now? [y/N]"
+    if ($answer -match "^[Yy]") {
+        Install-Docker
+    }
+    else {
+        Confirm-ContinueWithoutOptionalTool "Docker"
+    }
 }
 else {
     docker compose version *> $null
     if ($LASTEXITCODE -ne 0) {
-        Confirm-ContinueWithoutOptionalTool "Docker Compose" "Docker Compose is only needed for docker compose up --build -d."
+        Write-Host "Warning: Docker is installed, but Docker Compose is not available." -ForegroundColor Yellow
+        Write-Host "  Docker Compose is only needed for docker compose up --build -d."
+        $answer = Read-Host "  Install Docker Desktop (includes Compose) now? [y/N]"
+        if ($answer -match "^[Yy]") {
+            Install-Docker
+        }
+        else {
+            Confirm-ContinueWithoutOptionalTool "Docker Compose"
+        }
     }
 }
 Write-Host ""
