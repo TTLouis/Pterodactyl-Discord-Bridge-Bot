@@ -3,8 +3,24 @@ import { MinecraftAdapter } from "../adapters/minecraft-adapter.js";
 import { SatisfactoryAdapter } from "../adapters/satisfactory-adapter.js";
 import { buildStatusPanel } from "../lib/formatters.js";
 
+const DEBOUNCE_MS = 500;
+const CONSOLE_RELAY_WARMUP_MS = 5000;
+
 function formatDiscordRelayMessage(message) {
   return `**${message.authorName}**: ${message.content}`;
+}
+
+function snapshotKey(snapshot) {
+  const players = [...(snapshot.onlinePlayers ?? [])].sort().join(",");
+  return `${snapshot.currentState}|${snapshot.playerCount}|${players}`;
+}
+
+function isConsoleRelayWarmingUp(connectedAt) {
+  if (!connectedAt) {
+    return false;
+  }
+
+  return Date.now() - connectedAt < CONSOLE_RELAY_WARMUP_MS;
 }
 
 const SLASH_COMMANDS = [
@@ -20,8 +36,10 @@ export class StatusSyncService {
     this.autoStopService = autoStopService;
     this.logger = logger;
     this.intervalHandle = null;
+    this.debounceHandle = null;
     this.consoleUnsubscribers = [];
     this.serverOnlineStates = new Map();
+    this.lastSnapshotKeys = new Map();
     this.adapters = new Map(
       config.servers.map((server) => [
         server.pterodactylServerId,
@@ -57,6 +75,11 @@ export class StatusSyncService {
       clearInterval(this.intervalHandle);
     }
 
+    if (this.debounceHandle) {
+      clearTimeout(this.debounceHandle);
+      this.debounceHandle = null;
+    }
+
     for (const adapter of this.adapters.values()) {
       adapter.stop?.();
     }
@@ -68,8 +91,9 @@ export class StatusSyncService {
     this.consoleUnsubscribers = [];
   }
 
-  async syncOnce() {
+  async syncOnce({ force = false } = {}) {
     const snapshots = [];
+    let anyChanged = force || this.lastSnapshotKeys.size === 0;
 
     for (const server of this.config.servers) {
       const adapter = this.adapters.get(server.pterodactylServerId);
@@ -78,6 +102,13 @@ export class StatusSyncService {
         const resources = await this.pterodactylClient.getServerResources(server.pterodactylServerId);
         const snapshot = await adapter.fetchSnapshot(resources);
         snapshots.push(snapshot);
+
+        const key = snapshotKey(snapshot);
+        if (key !== this.lastSnapshotKeys.get(server.pterodactylServerId)) {
+          anyChanged = true;
+          this.lastSnapshotKeys.set(server.pterodactylServerId, key);
+        }
+
         await this.#checkServerStateChange(server, snapshot.currentState);
         if (snapshot.currentState === "running") {
           await this.autoStopService.onRunningSnapshot(server, snapshot.playerCount ?? 0);
@@ -87,7 +118,7 @@ export class StatusSyncService {
       }
     }
 
-    if (snapshots.length === 0) {
+    if (snapshots.length === 0 || !anyChanged) {
       return;
     }
 
@@ -97,6 +128,16 @@ export class StatusSyncService {
         displayTimeZone: this.config.discord.displayTimeZone
       })
     );
+  }
+
+  #scheduleUpdate() {
+    if (this.debounceHandle) {
+      clearTimeout(this.debounceHandle);
+    }
+    this.debounceHandle = setTimeout(() => {
+      this.debounceHandle = null;
+      void this.syncOnce();
+    }, DEBOUNCE_MS);
   }
 
   #createAdapter(server) {
@@ -132,8 +173,12 @@ export class StatusSyncService {
         onConnected: () => {
           void this.#handleConsoleConnected(server, adapter);
         },
-        onLine: (line) => {
-          void this.#handleConsoleLine(server, adapter, line);
+        onLine: (line, metadata) => {
+          void this.#handleConsoleLine(server, adapter, line, metadata);
+        },
+        onStatusChange: (newState) => {
+          this.logger.info(`${server.name} power state changed to: ${newState}`);
+          this.#scheduleUpdate();
         },
         onError: (error) => {
           this.logger.warn(`Console bridge issue for ${server.name}`, error);
@@ -156,13 +201,17 @@ export class StatusSyncService {
     }
   }
 
-  async #handleConsoleLine(server, adapter, line) {
+  async #handleConsoleLine(server, adapter, line, { connectedAt = null, isBacklog = false } = {}) {
+    if (isBacklog || isConsoleRelayWarmingUp(connectedAt)) {
+      return;
+    }
+
     if (adapter.shouldRefreshOnlinePlayers(line)) {
-      try {
-        await adapter.refreshOnlinePlayers();
-      } catch (error) {
+      adapter.applyPlayerEvent?.(line);
+      this.#scheduleUpdate();
+      adapter.refreshOnlinePlayers().catch((error) => {
         this.logger.warn(`Failed refreshing online players for ${server.name}`, error);
-      }
+      });
     }
 
     const relayMessage = adapter.parseConsoleChatLine(line);
@@ -255,4 +304,3 @@ export class StatusSyncService {
     }
   }
 }
-

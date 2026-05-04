@@ -68,10 +68,12 @@ export class PterodactylClient {
     return credentials;
   }
 
-  subscribeToConsole(serverId, { onConnected, onLine, onError, reconnectDelayMs = 5000 } = {}) {
+  subscribeToConsole(serverId, { onConnected, onLine, onError, onStatusChange, reconnectDelayMs = 5000 } = {}) {
     let ws = null;
     let reconnectHandle = null;
     let stopped = false;
+    let awaitingInitialLogs = false;
+    let consoleConnectedAt = null;
 
     const clearReconnect = () => {
       if (!reconnectHandle) {
@@ -106,7 +108,7 @@ export class PterodactylClient {
       } catch {}
     };
 
-    const handleConsoleOutput = (payloadArgs) => {
+    const handleConsoleOutput = (payloadArgs, metadata = {}) => {
       const rawLine = Array.isArray(payloadArgs) ? payloadArgs.join("\n") : String(payloadArgs ?? "");
       const lines = rawLine
         .split(/\r?\n/)
@@ -114,7 +116,7 @@ export class PterodactylClient {
         .filter(Boolean);
 
       for (const line of lines) {
-        onLine?.(line);
+        onLine?.(line, metadata);
       }
     };
 
@@ -155,6 +157,9 @@ export class PterodactylClient {
           }
 
           if (payload.event === "auth success") {
+            consoleConnectedAt = Date.now();
+            awaitingInitialLogs = true;
+            nextSocket.send(JSON.stringify({ event: "send logs", args: [null] }));
             onConnected?.();
             return;
           }
@@ -164,8 +169,16 @@ export class PterodactylClient {
             return;
           }
 
+          if (payload.event === "status") {
+            const newState = Array.isArray(payload.args) ? payload.args[0] : null;
+            if (newState) onStatusChange?.(newState);
+            return;
+          }
+
           if (payload.event === "console output") {
-            handleConsoleOutput(payload.args);
+            const isBacklog = awaitingInitialLogs;
+            awaitingInitialLogs = false;
+            handleConsoleOutput(payload.args, { connectedAt: consoleConnectedAt, isBacklog });
           }
         });
 
