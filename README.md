@@ -163,7 +163,7 @@ The recommended release model is to publish `bootstrap.sh` and `bootstrap.ps1` a
 This repository uses two long-lived branches:
 
 - `main` is the stable branch. Updating `main` does not automatically deploy the bot.
-- `testing` is the VM test branch. Pushing to `testing` triggers the private self-hosted deployment workflow that lives on that branch.
+- `testing` is the VM test branch. Pushing to `testing` triggers the self-hosted deployment workflow that lives on that branch.
 
 If you are setting up the branch model from scratch, create the test branch once:
 
@@ -182,6 +182,21 @@ git push origin testing
 ```
 
 After the change is verified on the test VM, merge it back to `main` and create a GitHub Release from `main`.
+
+### Public Repo And Self-Hosted Runner Safety
+
+GitHub repository visibility applies to the whole repository, not individual branches. If this repository is public, both `main` and `testing` are public.
+
+The self-hosted runner can still provide a hands-free testing environment, but treat push access to `testing` as trusted access to the test VM. A workflow running on a self-hosted runner can execute commands on that machine. Public users who can only read the repository cannot trigger the deploy by themselves, but anyone with write access to `testing` can.
+
+Recommended safeguards:
+
+- keep `.env`, `servers.json`, and `runtime-state.json` out of git
+- keep production tokens off the test VM
+- use a dedicated low-privilege VM or container host for the runner
+- protect the `testing` branch and require pull requests before merging friends' changes
+- do not run pull requests from unknown forks on the self-hosted runner
+- rotate Discord, Pterodactyl, and Satisfactory tokens before going public if there is any chance they were pasted into a commit, issue, PR, or log
 
 Before creating a release:
 
@@ -326,9 +341,8 @@ On each push to `testing`, it runs:
 
 ```bash
 cd /opt/DiscordBot
-git fetch origin testing
-git switch testing
-git pull --ff-only origin testing
+git fetch --prune origin testing
+git switch -C testing origin/testing
 docker compose up -d --build
 docker image prune -f
 ```
