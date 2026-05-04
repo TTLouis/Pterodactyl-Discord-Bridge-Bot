@@ -80,13 +80,13 @@ Invoke-WebRequest -Uri https://github.com/TTLouis/Pterodactyl-Discord-Bridge-Bot
 The bootstrap scripts:
 
 - check for Git, Node.js 20 or newer, and npm
-- prompt with install guidance if a required tool is missing
+- offer to install Git, Node.js 20+, and npm if a required tool is missing
 - warn if Docker or Docker Compose is missing, then let you continue with npm-based setup
 - clone this repository
 - install dependencies
 - run the interactive setup wizard
 
-They do not install Git, Node.js, npm, Docker, or Docker Compose for you.
+They do not install Docker or Docker Compose for you.
 
 ### Existing Checkout
 
