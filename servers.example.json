@@ -1,0 +1,52 @@
+{
+  "discord": {
+    "guildId": "YOUR_GUILD_ID",
+    "statusChannelId": "GLOBAL_STATUS_CHANNEL_ID",
+    "displayTimeZone": "America/Toronto"
+  },
+  "pterodactyl": {
+    "baseUrl": "https://panel.example.com",
+    "apiKey": "ptlc_your_client_api_key",
+    "pollIntervalSeconds": 60
+  },
+  "servers": [
+    {
+      "name": "Factorio Main",
+      "asciiTitleLines": [
+        "______         _             _         ",
+        "|  ___|_ _  ___| |_ ___  _ __(_) ___    ",
+        "| |_ / _` |/ __| __/ _ \\| '__| |/ _ \\ ",
+        "|  _| (_| | (__| || (_) | |  | | (_) |",
+        "|_|  \\__,_|\\___|\\__\\___/|_|  |_|\\___/ "
+      ],
+      "description": "Main public factory server",
+      "pterodactylServerId": "a1b2c3d4",
+      "discordChannelId": "FACTORIO_DISCORD_CHANNEL_ID",
+      "publicAddress": "play.example.com",
+      "publicPort": 34197,
+      "maxPlayers": 32,
+      "game": {
+        "type": "factorio",
+        "chatCommandTemplate": "/shout DISCORD<{author}>: {content}",
+        "playerListRefreshIntervalSeconds": 900
+      }
+    },
+    {
+      "name": "Satisfactory Main",
+      "asciiTitleLines": [],
+      "description": "Main factory world",
+      "pterodactylServerId": "e5f6g7h8",
+      "discordChannelId": "SATISFACTORY_DISCORD_CHANNEL_ID",
+      "publicAddress": "satisfactory.example.com",
+      "publicPort": 7777,
+      "maxPlayers": 16,
+      "game": {
+        "type": "satisfactory",
+        "apiToken": "YOUR_SATISFACTORY_API_TOKEN",
+        "allowInsecureTls": true,
+        "chatCommandTemplate": null
+      }
+    }
+  ]
+}
+
