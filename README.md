@@ -66,23 +66,23 @@ The setup wizard creates `.env` and `servers.json` interactively. It will ask be
 On Linux or macOS:
 
 ```bash
-curl -fsSL https://github.com/TTLouis/Pterodactyl-Discord-Bridge-Bot/releases/latest/download/bootstrap.sh -o bootstrap.sh || wget -O bootstrap.sh https://github.com/TTLouis/Pterodactyl-Discord-Bridge-Bot/releases/latest/download/bootstrap.sh && bash bootstrap.sh || echo "Bootstrap failed. Install Git, Node.js 20+, and npm, then try again."
+curl -fsSL https://github.com/TTLouis/Pterodactyl-Discord-Bridge-Bot/releases/latest/download/bootstrap.sh -o bootstrap.sh || wget -O bootstrap.sh https://github.com/TTLouis/Pterodactyl-Discord-Bridge-Bot/releases/latest/download/bootstrap.sh && bash bootstrap.sh || echo "Bootstrap failed. Install Node.js 20+, npm, and unzip, then try again."
 ```
 
-Do not prefix the whole command with `sudo`. Run it as your normal user so the cloned repository and generated config files are owned by your account.
+Do not prefix the whole command with `sudo`. Run it as your normal user so the downloaded files and generated config files are owned by your account.
 
 On Windows PowerShell:
 
 ```powershell
-Invoke-WebRequest -Uri https://github.com/TTLouis/Pterodactyl-Discord-Bridge-Bot/releases/latest/download/bootstrap.ps1 -OutFile bootstrap.ps1; if ($?) { powershell -ExecutionPolicy Bypass -File .\bootstrap.ps1 } else { Write-Host "Bootstrap download failed. Install Git, Node.js 20+, and npm, then try again." -ForegroundColor Red }
+Invoke-WebRequest -Uri https://github.com/TTLouis/Pterodactyl-Discord-Bridge-Bot/releases/latest/download/bootstrap.ps1 -OutFile bootstrap.ps1; if ($?) { powershell -ExecutionPolicy Bypass -File .\bootstrap.ps1 } else { Write-Host "Bootstrap download failed. Install Node.js 20+ and npm, then try again." -ForegroundColor Red }
 ```
 
 The bootstrap scripts:
 
-- check for Git, Node.js 20 or newer, and npm
-- offer to install Git, Node.js 20+, and npm if a required tool is missing
+- check for Node.js 20 or newer, npm, and archive extraction support
+- offer to install Node.js 20+, npm, and any required archive tool if a required tool is missing
 - warn if Docker or Docker Compose is missing, then let you continue with npm-based setup
-- clone this repository
+- download and extract the latest release package
 - install dependencies
 - run the interactive setup wizard
 
@@ -156,7 +156,19 @@ npm start
 
 ## Releasing Setup Scripts
 
-The recommended release model is to publish `bootstrap.sh` and `bootstrap.ps1` as GitHub Release assets. That gives users stable `releases/latest/download/...` URLs without asking them to browse the repository or clone it manually.
+The recommended release model is to publish these GitHub Release assets:
+
+- `bootstrap.sh`
+- `bootstrap.ps1`
+- `discord-pterodactyl-bridge.zip`
+
+The bootstrap scripts download `discord-pterodactyl-bridge.zip` from `releases/latest/download/...`, extract it, install npm dependencies, and run the setup wizard. Users do not need Git.
+
+Create the package asset with:
+
+```bash
+npm run package:release
+```
 
 ## Hosting Model
 
