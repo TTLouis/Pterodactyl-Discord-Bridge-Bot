@@ -66,7 +66,7 @@ The setup wizard creates `.env` and `servers.json` interactively. It will ask be
 On Linux or macOS:
 
 ```bash
-(curl -fsSLO https://github.com/TTLouis/Pterodactyl-Discord-Bridge-Bot/releases/latest/download/bootstrap.sh || wget -O bootstrap.sh https://github.com/TTLouis/Pterodactyl-Discord-Bridge-Bot/releases/latest/download/bootstrap.sh) && bash bootstrap.sh || echo "Bootstrap failed. Install Git, Node.js 20+, and npm, then try again."
+(curl -fsSLO https://github.com/TTLouis/Pterodactyl-Discord-Bridge-Bot/releases/latest/download/bootstrap.sh || wget -O bootstrap.sh https://github.com/TTLouis/Pterodactyl-Discord-Bridge-Bot/releases/latest/download/bootstrap.sh) && bash bootstrap.sh"
 ```
 
 On Windows PowerShell:
