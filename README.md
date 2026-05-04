@@ -101,17 +101,31 @@ Satisfactory API tokens are application tokens. Per the current official wiki/do
 npm start
 ```
 
-## Docker
+## Hosting Model
+
+This bot is intended to run outside of Pterodactyl, usually on a small separate VM or host.
+It talks to Pterodactyl through the client API and WebSocket, then posts status and relay messages into Discord.
+
+Keeping the bot separate from the game panel has a few practical advantages:
+
+- the bot has its own logs and console, independent of any single game server
+- one bot process can manage several Pterodactyl servers
+- updates and restarts do not depend on a Pterodactyl egg or game-server allocation
+- Docker Compose can persist runtime state without mixing it into a game server container
+
+A Pterodactyl egg may be possible later, but the recommended deployment path is currently Docker Compose on a separate host.
+
+## Docker Compose
 
 1. Prepare the local files:
 
 ```bash
 copy .env.example .env
 copy servers.example.json servers.json
-copy NUL runtime-state.json
 ```
 
-If `runtime-state.json` already exists, keep it. The bot stores the Discord status panel message IDs there.
+The bot stores Discord status panel message IDs and auto-stop state in `/data/runtime-state.json`.
+With the provided compose file, that file lives in the named Docker volume `bot-data`, so you do not need to create it manually.
 
 2. Build and start the container:
 
@@ -130,12 +144,12 @@ docker compose logs -f
 The compose file mounts:
 
 - `.env` as container environment variables
-- `./servers.json` to `/data/servers.json` read-only
-- `./runtime-state.json` to `/data/runtime-state.json` read-write
+- `./servers.json` to `/config/servers.json` read-only
+- the `bot-data` Docker volume to `/data`
 
 The container then runs with:
 
-- `CONFIG_PATH=/data/servers.json`
+- `CONFIG_PATH=/config/servers.json`
 - `STATE_PATH=/data/runtime-state.json`
 
 To stop it:
@@ -144,15 +158,28 @@ To stop it:
 docker compose down
 ```
 
-## Deploy Elsewhere
-
-After you change application code, rebuild the image locally:
+Use this command only if you want to remove the persisted status-message and auto-stop state too:
 
 ```bash
-docker compose build
+docker compose down -v
 ```
 
-You can then deploy it on another machine in either of these ways.
+## Deploy on a Separate VM
+
+The simplest production setup is:
+
+- a small VM or host with Docker and Docker Compose installed
+- a checkout of this repository
+- local `.env` and `servers.json` files on that host
+- a persistent Docker volume for runtime state
+
+After you change application code, rebuild and restart the container:
+
+```bash
+docker compose up -d --build
+```
+
+You can deploy the project on another machine in either of these ways.
 
 ### Option 1: Copy the project and rebuild on the target host
 
@@ -166,17 +193,32 @@ Copy these files to the target machine:
 - `src/`
 - `.env`
 - `servers.json`
-- `runtime-state.json` if you want to preserve the existing Discord panel message IDs
-
-If you are not copying an existing `runtime-state.json`, create an empty one on the target host before starting the container.
 
 Then run:
 
 ```bash
-docker compose up --build -d
+docker compose up -d --build
 ```
 
-### Option 2: Build once, ship the image, and run it on the target host
+If you need to preserve existing Discord status panel message IDs from another Docker Compose install, migrate the `bot-data` volume or copy `/data/runtime-state.json` out of the old container before replacing it.
+
+### Option 2: Use a private self-hosted GitHub Actions runner
+
+This repository includes a private deployment workflow at `.github/workflows/deploy.yml`.
+It assumes a self-hosted Linux runner with the `DiscordBot` label and a checkout at `/opt/DiscordBot`.
+
+On each push to `main`, it runs:
+
+```bash
+cd /opt/DiscordBot
+git pull --ff-only
+docker compose up -d --build
+docker image prune -f
+```
+
+That is useful for your own VM, but it is intentionally host-specific. Other users should treat it as an example, not a portable deployment workflow.
+
+### Option 3: Build once, ship the image, and run it on the target host
 
 Save the image to a tarball:
 
@@ -189,18 +231,28 @@ Copy these files to the target host:
 - `discord-pterodactyl-bridge.tar`
 - `.env`
 - `servers.json`
-- `runtime-state.json` if you want to preserve the existing Discord panel message IDs
-
-If you are not copying an existing `runtime-state.json`, create it as an empty file on the target host first.
 
 Load and run the image on the target host:
 
 ```bash
 docker load -i discord-pterodactyl-bridge.tar
-docker run -d --name discord-bot --restart unless-stopped --init --env-file .env -e CONFIG_PATH=/data/servers.json -e STATE_PATH=/data/runtime-state.json -v /opt/discord-bot/servers.json:/data/servers.json:ro -v /opt/discord-bot/runtime-state.json:/data/runtime-state.json discord-pterodactyl-bridge:latest
+docker volume create discord-bot-data
+docker run -d --name discord-bot --restart unless-stopped --init --env-file .env -e CONFIG_PATH=/config/servers.json -e STATE_PATH=/data/runtime-state.json -v /opt/discord-bot/servers.json:/config/servers.json:ro -v discord-bot-data:/data discord-pterodactyl-bridge:latest
 ```
 
-On Linux, make sure the mounted `runtime-state.json` is writable by container user `1000:1000`, because the image runs as the non-root `node` user.
+The image runs as the non-root `node` user. A Docker-managed named volume avoids most host file permission issues for runtime state.
+
+## Pterodactyl Egg Status
+
+This bot is not currently packaged as a Pterodactyl egg.
+That may be worth investigating later for users who want to run the bot inside a panel-managed container, but it is not the main deployment target today.
+
+If an egg is added later, it should still preserve the same basic contract:
+
+- `DISCORD_TOKEN` is provided as a secret environment variable
+- `servers.json` is supplied as user configuration
+- runtime state is persisted across restarts
+- the bot remains independent from any single game server
 
 ## Config Shape
 
@@ -291,4 +343,3 @@ Notes:
 - The bot stores Discord status panel message IDs and auto-stop state in `runtime-state.json`.
 - `asciiTitleLines` is easier to maintain in JSON because each array entry becomes one line in the Discord code block.
 - `asciiTitle` also works if you prefer a single string with embedded `\n` line breaks.
-
