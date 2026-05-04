@@ -123,7 +123,7 @@ if ([string]::IsNullOrWhiteSpace($installDir)) {
     $installDir = $DEFAULT_DIR
 }
 
-if (Test-Path $installDir) {
+if (Test-Path "$installDir") {
     Write-Host "Error: '$installDir' already exists. Remove it or choose a different name." -ForegroundColor Red
     exit 1
 }
@@ -143,7 +143,7 @@ try {
         Write-Host "Error: release package did not contain a project directory." -ForegroundColor Red
         exit 1
     }
-    Move-Item -Path $packageRoot.FullName -Destination $installDir
+    Move-Item -Path $packageRoot.FullName -Destination "$installDir"
 }
 finally {
     Remove-Item -Recurse -Force $tmpDir -ErrorAction SilentlyContinue
@@ -151,13 +151,17 @@ finally {
 
 Write-Host "  Installed files into $installDir" -ForegroundColor Green
 
-Set-Location $installDir
+Set-Location "$installDir"
 
 # ── Install ────────────────────────────────────────────────────────────────────
 
 Write-Host ""
 Write-Host "  Installing dependencies..." -ForegroundColor DarkGray
-npm install --silent
+npm install
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Error: npm install failed." -ForegroundColor Red
+    exit 1
+}
 Write-Host "  Dependencies installed" -ForegroundColor Green
 
 # ── Setup wizard ───────────────────────────────────────────────────────────────

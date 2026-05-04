@@ -7,8 +7,7 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "setup": "node setup.js",
-    "package:release": "powershell -ExecutionPolicy Bypass -File scripts/create-release-package.ps1"
+    "setup": "node setup.js"
   },
   "engines": {
     "node": ">=20"
