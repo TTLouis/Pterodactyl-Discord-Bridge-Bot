@@ -3,6 +3,44 @@ $ErrorActionPreference = "Stop"
 $REPO_URL = "https://github.com/TTLouis/Pterodactyl-Discord-Bridge-Bot.git"
 $DEFAULT_DIR = "Pterodactyl-Discord-Bridge-Bot"
 
+function Show-PrereqHelp {
+    Write-Host ""
+    Write-Host "Install the missing prerequisites, then run this bootstrap command again." -ForegroundColor White
+    Write-Host ""
+    Write-Host "  Required:"
+    Write-Host "    - Git"
+    Write-Host "    - Node.js 20 or newer"
+    Write-Host "    - npm, which normally comes with Node.js"
+    Write-Host ""
+    Write-Host "  Optional for Docker Compose hosting:"
+    Write-Host "    - Docker Desktop"
+    Write-Host ""
+    Write-Host "  Windows winget commands:"
+    Write-Host "    winget install --id Git.Git -e"
+    Write-Host "    winget install --id OpenJS.NodeJS.LTS -e"
+    Write-Host "    winget install --id Docker.DockerDesktop -e"
+    Write-Host ""
+    Write-Host "  Downloads:"
+    Write-Host "    Git:     https://git-scm.com/downloads"
+    Write-Host "    Node.js: https://nodejs.org"
+    Write-Host "    Docker:  https://docs.docker.com/desktop/install/windows-install/"
+    Write-Host ""
+}
+
+function Confirm-ContinueWithoutOptionalTool($toolName, $why) {
+    Write-Host "Warning: $toolName is not installed." -ForegroundColor Yellow
+    Write-Host "  $why"
+    $answer = Read-Host "  Continue without $toolName? [Y/n]"
+    if ([string]::IsNullOrWhiteSpace($answer)) {
+        $answer = "Y"
+    }
+    if ($answer -notmatch "^[Yy]") {
+        Show-PrereqHelp
+        exit 1
+    }
+    Write-Host ""
+}
+
 Write-Host ""
 Write-Host "╔══════════════════════════════════════════════════╗" -ForegroundColor Cyan
 Write-Host "║   Pterodactyl Discord Bridge Bot — Bootstrap     ║" -ForegroundColor Cyan
@@ -12,29 +50,42 @@ Write-Host ""
 # ── Prereq checks ─────────────────────────────────────────────────────────────
 
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-    Write-Host "Error: git is not installed. Install it and re-run this script." -ForegroundColor Red
+    Write-Host "Error: git is not installed." -ForegroundColor Red
+    Show-PrereqHelp
     exit 1
 }
 
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
-    Write-Host "Error: Node.js is not installed. Install Node >= 20 and re-run." -ForegroundColor Red
-    Write-Host "  https://nodejs.org" -ForegroundColor DarkGray
+    Write-Host "Error: Node.js is not installed." -ForegroundColor Red
+    Show-PrereqHelp
     exit 1
 }
 
 $nodeMajor = [int](node -e "console.log(parseInt(process.version.slice(1)))")
 if ($nodeMajor -lt 20) {
     Write-Host "Error: Node.js >= 20 required. Current: $(node --version)" -ForegroundColor Red
+    Show-PrereqHelp
     exit 1
 }
 
 if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
     Write-Host "Error: npm is not installed. It should come with Node.js." -ForegroundColor Red
+    Show-PrereqHelp
     exit 1
 }
 
 Write-Host "  OK  git  $(git --version)" -ForegroundColor Green
 Write-Host "  OK  node $(node --version)" -ForegroundColor Green
+Write-Host "  OK  npm  $(npm --version)" -ForegroundColor Green
+if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+    Confirm-ContinueWithoutOptionalTool "Docker" "Docker is only needed if you plan to run the bot with Docker Compose. You can still use npm start without Docker."
+}
+else {
+    docker compose version *> $null
+    if ($LASTEXITCODE -ne 0) {
+        Confirm-ContinueWithoutOptionalTool "Docker Compose" "Docker Compose is only needed for docker compose up --build -d."
+    }
+}
 Write-Host ""
 
 # ── Clone ──────────────────────────────────────────────────────────────────────
