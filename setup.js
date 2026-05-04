@@ -163,7 +163,9 @@ async function main() {
   }
 
   // ── Write files ───────────────────────────────────────────────────────────
-  section('Writing files');
+  if (envData || serversConfig) {
+    section('Writing files');
+  }
 
   if (envData) {
     const lines = Object.entries(envData).map(([k, v]) => `${k}=${v}`).join('\n');

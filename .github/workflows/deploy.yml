@@ -3,13 +3,13 @@ name: Deploy
 on:
   push:
     branches:
-      - testing
+      - main
 
 permissions:
   contents: read
 
 concurrency:
-  group: testing-deploy
+  group: main-deploy
   cancel-in-progress: true
 
 jobs:
@@ -21,7 +21,7 @@ jobs:
       - name: Deploy Discord bot
         run: |
           cd /opt/DiscordBot
-          git fetch --prune origin testing
-          git switch -C testing origin/testing
-          docker compose up -d --build
+          git fetch --prune origin main
+          git switch -C main origin/main
+          docker compose up -d --build --remove-orphans
           docker image prune -f

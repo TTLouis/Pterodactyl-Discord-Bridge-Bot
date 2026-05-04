@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_URL="https://github.com/TTLouis/Pterodactyl-Discord-Bridge-Bot.git"
+PACKAGE_URL="https://github.com/TTLouis/Pterodactyl-Discord-Bridge-Bot/releases/latest/download/discord-pterodactyl-bridge.zip"
 DEFAULT_DIR="Pterodactyl-Discord-Bridge-Bot"
 
 bold="\033[1m"
@@ -17,9 +17,9 @@ show_prereq_help() {
   echo -e "${bold}Install the missing prerequisites, then run this bootstrap command again.${reset}"
   echo ""
   echo "  Required:"
-  echo "    - Git"
   echo "    - Node.js 20 or newer"
   echo "    - npm, which normally comes with Node.js"
+  echo "    - unzip"
   echo ""
   echo "  Optional for Docker Compose hosting:"
   echo "    - Docker"
@@ -28,24 +28,96 @@ show_prereq_help() {
 
   if command -v apt-get &>/dev/null; then
     echo "  Debian/Ubuntu:"
-    echo "    sudo apt-get update && sudo apt-get install -y git"
+    echo "    sudo apt-get update && sudo apt-get install -y unzip"
     echo "    Install Node.js 20 LTS from https://nodejs.org or NodeSource."
     echo "    Install Docker from https://docs.docker.com/engine/install/"
   elif command -v dnf &>/dev/null; then
     echo "  Fedora/RHEL:"
-    echo "    sudo dnf install -y git nodejs npm"
+    echo "    sudo dnf install -y nodejs npm unzip"
     echo "    Install Docker from https://docs.docker.com/engine/install/"
   elif command -v brew &>/dev/null; then
     echo "  macOS/Homebrew:"
-    echo "    brew install git node"
+    echo "    brew install node"
     echo "    brew install --cask docker"
   else
     echo "  Downloads:"
-    echo "    Git:     https://git-scm.com/downloads"
     echo "    Node.js: https://nodejs.org"
     echo "    Docker:  https://docs.docker.com/get-docker/"
   fi
   echo ""
+}
+
+install_required_prereqs() {
+  echo ""
+  echo -e "${yellow}One or more required tools are missing or too old.${reset}"
+  read -rp "  Try to install Node.js 20+, npm, and unzip now? [y/N]: " INSTALL_PREREQS
+  INSTALL_PREREQS="${INSTALL_PREREQS:-N}"
+  if [[ ! "$INSTALL_PREREQS" =~ ^[Yy] ]]; then
+    show_prereq_help
+    exit 1
+  fi
+
+  if command -v apt-get &>/dev/null; then
+    echo ""
+    echo -e "  Installing prerequisites with apt..."
+    sudo apt-get update
+    sudo apt-get install -y ca-certificates curl gnupg unzip
+    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+  elif command -v dnf &>/dev/null; then
+    echo ""
+    echo -e "  Installing prerequisites with dnf..."
+    sudo dnf install -y nodejs npm unzip
+  elif command -v brew &>/dev/null; then
+    echo ""
+    echo -e "  Installing prerequisites with Homebrew..."
+    brew install node
+  else
+    echo -e "${red}Automatic prerequisite install is not supported on this system.${reset}"
+    show_prereq_help
+    exit 1
+  fi
+}
+
+validate_prereqs() {
+  local missing=0
+
+  if ! command -v node &>/dev/null; then
+    echo -e "${red}Error: Node.js is not installed.${reset}"
+    missing=1
+  else
+    NODE_MAJOR=$(node -e "console.log(parseInt(process.version.slice(1)))")
+    if [ "$NODE_MAJOR" -lt 20 ]; then
+      echo -e "${red}Error: Node.js >= 20 required. Current: $(node --version)${reset}"
+      missing=1
+    fi
+  fi
+
+  if ! command -v npm &>/dev/null; then
+    echo -e "${red}Error: npm is not installed. It should come with Node.js.${reset}"
+    missing=1
+  fi
+
+  if ! command -v unzip &>/dev/null; then
+    echo -e "${red}Error: unzip is not installed.${reset}"
+    missing=1
+  fi
+
+  return "$missing"
+}
+
+download_file() {
+  local url="$1"
+  local output="$2"
+
+  if command -v curl &>/dev/null; then
+    curl -fsSL "$url" -o "$output"
+  elif command -v wget &>/dev/null; then
+    wget -q -O "$output" "$url"
+  else
+    echo -e "${red}Error: curl or wget is required to download the release package.${reset}"
+    exit 1
+  fi
 }
 
 warn_optional_docker() {
@@ -84,38 +156,23 @@ echo ""
 
 # ── Prereq checks ─────────────────────────────────────────────────────────────
 
-if ! command -v git &>/dev/null; then
-  echo -e "${red}Error: git is not installed.${reset}"
-  show_prereq_help
-  exit 1
+if ! validate_prereqs; then
+  install_required_prereqs
+  echo ""
+  echo -e "  Rechecking prerequisites..."
+  if ! validate_prereqs; then
+    show_prereq_help
+    exit 1
+  fi
 fi
 
-if ! command -v node &>/dev/null; then
-  echo -e "${red}Error: Node.js is not installed.${reset}"
-  show_prereq_help
-  exit 1
-fi
-
-NODE_MAJOR=$(node -e "console.log(parseInt(process.version.slice(1)))")
-if [ "$NODE_MAJOR" -lt 20 ]; then
-  echo -e "${red}Error: Node.js >= 20 required. Current: $(node --version)${reset}"
-  show_prereq_help
-  exit 1
-fi
-
-if ! command -v npm &>/dev/null; then
-  echo -e "${red}Error: npm is not installed. It should come with Node.js.${reset}"
-  show_prereq_help
-  exit 1
-fi
-
-echo -e "  ${green}✔${reset} git  $(git --version)"
 echo -e "  ${green}✔${reset} node $(node --version)"
 echo -e "  ${green}✔${reset} npm  $(npm --version)"
+echo -e "  ${green}✔${reset} unzip $(unzip -v | head -n 1)"
 warn_optional_docker
 echo ""
 
-# ── Clone ──────────────────────────────────────────────────────────────────────
+# ── Download ───────────────────────────────────────────────────────────────────
 
 read -rp "  Install directory [$DEFAULT_DIR]: " INSTALL_DIR
 INSTALL_DIR="${INSTALL_DIR:-$DEFAULT_DIR}"
@@ -126,9 +183,18 @@ if [ -d "$INSTALL_DIR" ]; then
 fi
 
 echo ""
-echo -e "  Cloning repository..."
-git clone "$REPO_URL" "$INSTALL_DIR" --quiet
-echo -e "  ${green}✔${reset} Cloned into $INSTALL_DIR"
+echo -e "  Downloading release package..."
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TMP_DIR"' EXIT
+download_file "$PACKAGE_URL" "$TMP_DIR/package.zip"
+unzip -q "$TMP_DIR/package.zip" -d "$TMP_DIR/package"
+PACKAGE_ROOT="$(find "$TMP_DIR/package" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+if [ -z "$PACKAGE_ROOT" ]; then
+  echo -e "${red}Error: release package did not contain a project directory.${reset}"
+  exit 1
+fi
+mv "$PACKAGE_ROOT" "$INSTALL_DIR"
+echo -e "  ${green}✔${reset} Installed files into $INSTALL_DIR"
 
 cd "$INSTALL_DIR"
 
@@ -136,7 +202,7 @@ cd "$INSTALL_DIR"
 
 echo ""
 echo -e "  Installing dependencies..."
-npm install --silent
+npm install
 echo -e "  ${green}✔${reset} Dependencies installed"
 
 # ── Setup wizard ───────────────────────────────────────────────────────────────
