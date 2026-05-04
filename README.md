@@ -311,20 +311,20 @@ If you need to preserve existing Discord status panel message IDs from another D
 
 ### Option 2: Use a private self-hosted GitHub Actions runner
 
-The `testing` branch includes a private deployment workflow at `.github/workflows/deploy.yml`.
+This repository includes a private deployment workflow at `.github/workflows/deploy.yml`.
 It assumes a self-hosted Linux runner with the `DiscordBot` label and a checkout at `/opt/DiscordBot`.
 
-On each push to `testing`, it runs:
+On each push to `main`, it runs:
 
 ```bash
 cd /opt/DiscordBot
-git fetch --prune origin testing
-git switch -C testing origin/testing
-docker compose up -d --build
+git fetch --prune origin main
+git switch -C main origin/main
+docker compose up -d --build --remove-orphans
 docker image prune -f
 ```
 
-That is useful for your own VM, but it is intentionally host-specific. Other users should treat it as an example, not a portable deployment workflow. The stable `main` branch intentionally does not auto-deploy.
+That is useful for your own VM, but it is intentionally host-specific. Other users should treat it as an example, not a portable deployment workflow.
 
 ### Option 3: Build once, ship the image, and run it on the target host
 
