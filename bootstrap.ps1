@@ -41,6 +41,59 @@ function Confirm-ContinueWithoutOptionalTool($toolName, $why) {
     Write-Host ""
 }
 
+function Test-RequiredPrereqs {
+    $missing = $false
+
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+        Write-Host "Error: git is not installed." -ForegroundColor Red
+        $missing = $true
+    }
+
+    if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+        Write-Host "Error: Node.js is not installed." -ForegroundColor Red
+        $missing = $true
+    }
+    else {
+        $nodeMajor = [int](node -e "console.log(parseInt(process.version.slice(1)))")
+        if ($nodeMajor -lt 20) {
+            Write-Host "Error: Node.js >= 20 required. Current: $(node --version)" -ForegroundColor Red
+            $missing = $true
+        }
+    }
+
+    if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+        Write-Host "Error: npm is not installed. It should come with Node.js." -ForegroundColor Red
+        $missing = $true
+    }
+
+    return -not $missing
+}
+
+function Install-RequiredPrereqs {
+    Write-Host ""
+    Write-Host "One or more required tools are missing or too old." -ForegroundColor Yellow
+    $answer = Read-Host "  Try to install Git, Node.js 20+, and npm now? [y/N]"
+    if ($answer -notmatch "^[Yy]") {
+        Show-PrereqHelp
+        exit 1
+    }
+
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+        Write-Host "Automatic prerequisite install requires winget." -ForegroundColor Red
+        Show-PrereqHelp
+        exit 1
+    }
+
+    Write-Host ""
+    Write-Host "  Installing prerequisites with winget..." -ForegroundColor DarkGray
+    winget install --id Git.Git -e --accept-package-agreements --accept-source-agreements
+    winget install --id OpenJS.NodeJS.LTS -e --accept-package-agreements --accept-source-agreements
+
+    $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+    $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+    $env:Path = "$machinePath;$userPath"
+}
+
 Write-Host ""
 Write-Host "╔══════════════════════════════════════════════════╗" -ForegroundColor Cyan
 Write-Host "║   Pterodactyl Discord Bridge Bot — Bootstrap     ║" -ForegroundColor Cyan
@@ -49,29 +102,14 @@ Write-Host ""
 
 # ── Prereq checks ─────────────────────────────────────────────────────────────
 
-if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-    Write-Host "Error: git is not installed." -ForegroundColor Red
-    Show-PrereqHelp
-    exit 1
-}
-
-if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
-    Write-Host "Error: Node.js is not installed." -ForegroundColor Red
-    Show-PrereqHelp
-    exit 1
-}
-
-$nodeMajor = [int](node -e "console.log(parseInt(process.version.slice(1)))")
-if ($nodeMajor -lt 20) {
-    Write-Host "Error: Node.js >= 20 required. Current: $(node --version)" -ForegroundColor Red
-    Show-PrereqHelp
-    exit 1
-}
-
-if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
-    Write-Host "Error: npm is not installed. It should come with Node.js." -ForegroundColor Red
-    Show-PrereqHelp
-    exit 1
+if (-not (Test-RequiredPrereqs)) {
+    Install-RequiredPrereqs
+    Write-Host ""
+    Write-Host "  Rechecking prerequisites..." -ForegroundColor DarkGray
+    if (-not (Test-RequiredPrereqs)) {
+        Show-PrereqHelp
+        exit 1
+    }
 }
 
 Write-Host "  OK  git  $(git --version)" -ForegroundColor Green

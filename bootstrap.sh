@@ -48,6 +48,65 @@ show_prereq_help() {
   echo ""
 }
 
+install_required_prereqs() {
+  echo ""
+  echo -e "${yellow}One or more required tools are missing or too old.${reset}"
+  read -rp "  Try to install Git, Node.js 20+, and npm now? [y/N]: " INSTALL_PREREQS
+  INSTALL_PREREQS="${INSTALL_PREREQS:-N}"
+  if [[ ! "$INSTALL_PREREQS" =~ ^[Yy] ]]; then
+    show_prereq_help
+    exit 1
+  fi
+
+  if command -v apt-get &>/dev/null; then
+    echo ""
+    echo -e "  Installing prerequisites with apt..."
+    sudo apt-get update
+    sudo apt-get install -y ca-certificates curl gnupg git
+    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+  elif command -v dnf &>/dev/null; then
+    echo ""
+    echo -e "  Installing prerequisites with dnf..."
+    sudo dnf install -y git nodejs npm
+  elif command -v brew &>/dev/null; then
+    echo ""
+    echo -e "  Installing prerequisites with Homebrew..."
+    brew install git node
+  else
+    echo -e "${red}Automatic prerequisite install is not supported on this system.${reset}"
+    show_prereq_help
+    exit 1
+  fi
+}
+
+validate_prereqs() {
+  local missing=0
+
+  if ! command -v git &>/dev/null; then
+    echo -e "${red}Error: git is not installed.${reset}"
+    missing=1
+  fi
+
+  if ! command -v node &>/dev/null; then
+    echo -e "${red}Error: Node.js is not installed.${reset}"
+    missing=1
+  else
+    NODE_MAJOR=$(node -e "console.log(parseInt(process.version.slice(1)))")
+    if [ "$NODE_MAJOR" -lt 20 ]; then
+      echo -e "${red}Error: Node.js >= 20 required. Current: $(node --version)${reset}"
+      missing=1
+    fi
+  fi
+
+  if ! command -v npm &>/dev/null; then
+    echo -e "${red}Error: npm is not installed. It should come with Node.js.${reset}"
+    missing=1
+  fi
+
+  return "$missing"
+}
+
 warn_optional_docker() {
   if ! command -v docker &>/dev/null; then
     echo -e "${yellow}Warning: Docker is not installed.${reset}"
@@ -84,29 +143,14 @@ echo ""
 
 # ── Prereq checks ─────────────────────────────────────────────────────────────
 
-if ! command -v git &>/dev/null; then
-  echo -e "${red}Error: git is not installed.${reset}"
-  show_prereq_help
-  exit 1
-fi
-
-if ! command -v node &>/dev/null; then
-  echo -e "${red}Error: Node.js is not installed.${reset}"
-  show_prereq_help
-  exit 1
-fi
-
-NODE_MAJOR=$(node -e "console.log(parseInt(process.version.slice(1)))")
-if [ "$NODE_MAJOR" -lt 20 ]; then
-  echo -e "${red}Error: Node.js >= 20 required. Current: $(node --version)${reset}"
-  show_prereq_help
-  exit 1
-fi
-
-if ! command -v npm &>/dev/null; then
-  echo -e "${red}Error: npm is not installed. It should come with Node.js.${reset}"
-  show_prereq_help
-  exit 1
+if ! validate_prereqs; then
+  install_required_prereqs
+  echo ""
+  echo -e "  Rechecking prerequisites..."
+  if ! validate_prereqs; then
+    show_prereq_help
+    exit 1
+  fi
 fi
 
 echo -e "  ${green}✔${reset} git  $(git --version)"
