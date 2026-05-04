@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PACKAGE_URL="https://github.com/TTLouis/Pterodactyl-Discord-Bridge-Bot/releases/latest/download/discord-pterodactyl-bridge.zip"
+PACKAGE_URL="https://github.com/TTLouis/Pterodactyl-Discord-Bridge-Bot/archive/refs/heads/main.zip"
 DEFAULT_DIR="Pterodactyl-Discord-Bridge-Bot"
 
 bold="\033[1m"
