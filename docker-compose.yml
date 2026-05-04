@@ -1,0 +1,18 @@
+services:
+  discord-bot:
+    image: discord-pterodactyl-bridge:latest
+    build:
+      context: .
+    restart: unless-stopped
+    init: true
+    env_file:
+      - .env
+    environment:
+      CONFIG_PATH: /config/servers.json
+      STATE_PATH: /data/runtime-state.json
+    volumes:
+      - ./servers.json:/config/servers.json:ro
+      - bot-data:/data
+
+volumes:
+  bot-data:
