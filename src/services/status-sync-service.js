@@ -66,8 +66,8 @@ export class StatusSyncService {
     this.#startConsoleBridges();
     await this.syncOnce();
     this.intervalHandle = setInterval(() => {
-      void this.syncOnce();
-    }, this.config.pterodactyl.pollIntervalSeconds * 1000);
+      void this.syncOnce({ force: true });
+    }, 5 * 60 * 1000);
   }
 
   async stop() {
