@@ -82,7 +82,7 @@ The bootstrap scripts:
 - check for Node.js 20 or newer, npm, and archive extraction support
 - offer to install Node.js 20+, npm, and any required archive tool if a required tool is missing
 - warn if Docker or Docker Compose is missing, then let you continue with npm-based setup
-- download and extract the latest release package
+- download and extract the latest source from the `main` branch
 - install dependencies
 - run the interactive setup wizard
 
