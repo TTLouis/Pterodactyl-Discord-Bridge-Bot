@@ -54,6 +54,57 @@ If a server was stopped outside of the bot, `/start-server` requires the user to
 
 ## Setup
 
+There are two supported setup paths:
+
+- use the bootstrap script when installing the bot on a new machine
+- use `npm run setup` when you already have the repository checked out
+
+The setup wizard creates `.env` and `servers.json` interactively. It will ask before overwriting either file.
+
+### Fresh Install
+
+On Linux or macOS:
+
+```bash
+curl -fsSLO https://github.com/TTLouis/Pterodactyl-Discord-Bridge-Bot/releases/latest/download/bootstrap.sh
+bash bootstrap.sh
+```
+
+On Windows PowerShell:
+
+```powershell
+Invoke-WebRequest -Uri https://github.com/TTLouis/Pterodactyl-Discord-Bridge-Bot/releases/latest/download/bootstrap.ps1 -OutFile bootstrap.ps1
+powershell -ExecutionPolicy Bypass -File .\bootstrap.ps1
+```
+
+The bootstrap scripts:
+
+- check for Git, Node.js 20 or newer, and npm
+- clone this repository
+- install dependencies
+- run the interactive setup wizard
+
+They do not install Git, Node.js, npm, Docker, or Docker Compose for you.
+
+### Existing Checkout
+
+If you already cloned the repository, run:
+
+```bash
+npm install
+npm run setup
+```
+
+Then start the bot:
+
+```bash
+npm start
+```
+
+You can rerun `npm run setup` later to regenerate `.env` or `servers.json`. The wizard asks before replacing existing files.
+
+### Manual Setup
+
 1. Install dependencies:
 
 ```bash
@@ -100,6 +151,68 @@ Satisfactory API tokens are application tokens. Per the current official wiki/do
 ```bash
 npm start
 ```
+
+## Releasing Setup Scripts
+
+The recommended release model is to publish `bootstrap.sh` and `bootstrap.ps1` as GitHub Release assets. That gives users stable `releases/latest/download/...` URLs without asking them to browse the repository or clone it manually.
+
+## Branch Model
+
+This repository uses two long-lived branches:
+
+- `main` is the stable branch. Updating `main` does not automatically deploy the bot.
+- `testing` is the VM test branch. Pushing to `testing` triggers the private self-hosted deployment workflow that lives on that branch.
+
+If you are setting up the branch model from scratch, create the test branch once:
+
+```bash
+git checkout -b testing main
+git push -u origin testing
+```
+
+Suggested flow:
+
+```bash
+git checkout testing
+git merge main
+# make or merge the change to test
+git push origin testing
+```
+
+After the change is verified on the test VM, merge it back to `main` and create a GitHub Release from `main`.
+
+Before creating a release:
+
+- confirm `bootstrap.sh`, `bootstrap.ps1`, `setup.js`, `package.json`, and `package-lock.json` are committed
+- update `package.json` to the release version
+- do not commit `.env`, `servers.json`, or `runtime-state.json`
+- test the wizard locally with `npm run setup`
+
+Create and publish a release from the command line with GitHub CLI:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+gh release create v0.1.0 bootstrap.sh bootstrap.ps1 --title "v0.1.0" --notes "Setup helper scripts are attached for fresh installs."
+```
+
+Or publish it through GitHub:
+
+1. Open the repository on GitHub.
+2. Go to **Releases**.
+3. Choose **Draft a new release**.
+4. Create or select a version tag, for example `v0.1.0`.
+5. Attach `bootstrap.sh` and `bootstrap.ps1` as release assets.
+6. Publish the release.
+
+After publishing, verify these URLs work:
+
+```text
+https://github.com/TTLouis/Pterodactyl-Discord-Bridge-Bot/releases/latest/download/bootstrap.sh
+https://github.com/TTLouis/Pterodactyl-Discord-Bridge-Bot/releases/latest/download/bootstrap.ps1
+```
+
+GitHub automatically provides source code archives for each release. You only need to upload the bootstrap scripts manually unless you add a release workflow later.
 
 ## Hosting Model
 
@@ -204,19 +317,21 @@ If you need to preserve existing Discord status panel message IDs from another D
 
 ### Option 2: Use a private self-hosted GitHub Actions runner
 
-This repository includes a private deployment workflow at `.github/workflows/deploy.yml`.
+The `testing` branch includes a private deployment workflow at `.github/workflows/deploy.yml`.
 It assumes a self-hosted Linux runner with the `DiscordBot` label and a checkout at `/opt/DiscordBot`.
 
-On each push to `main`, it runs:
+On each push to `testing`, it runs:
 
 ```bash
 cd /opt/DiscordBot
-git pull --ff-only
+git fetch origin testing
+git switch testing
+git pull --ff-only origin testing
 docker compose up -d --build
 docker image prune -f
 ```
 
-That is useful for your own VM, but it is intentionally host-specific. Other users should treat it as an example, not a portable deployment workflow.
+That is useful for your own VM, but it is intentionally host-specific. Other users should treat it as an example, not a portable deployment workflow. The stable `main` branch intentionally does not auto-deploy.
 
 ### Option 3: Build once, ship the image, and run it on the target host
 
