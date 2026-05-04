@@ -2,6 +2,7 @@
   "discord": {
     "guildId": "YOUR_GUILD_ID",
     "statusChannelId": "GLOBAL_STATUS_CHANNEL_ID",
+    "logChannelId": "OPTIONAL_LOG_CHANNEL_ID",
     "displayTimeZone": "America/Toronto"
   },
   "pterodactyl": {
@@ -29,6 +30,25 @@
         "type": "factorio",
         "chatCommandTemplate": "/shout DISCORD<{author}>: {content}",
         "playerListRefreshIntervalSeconds": 900
+      },
+      "autoStop": {
+        "enabled": true,
+        "emptyTimeoutHours": 24,
+        "warningMinutesBefore": 60
+      }
+    },
+    {
+      "name": "Minecraft Main",
+      "asciiTitleLines": [],
+      "description": "Main survival world",
+      "pterodactylServerId": "m1n2o3p4",
+      "discordChannelId": "MINECRAFT_DISCORD_CHANNEL_ID",
+      "publicAddress": "minecraft.example.com",
+      "publicPort": 25565,
+      "maxPlayers": 20,
+      "game": {
+        "type": "minecraft",
+        "chatCommandTemplate": "/say [Discord] {author}: {content}"
       }
     },
     {

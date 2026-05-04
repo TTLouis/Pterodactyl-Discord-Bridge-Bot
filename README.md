@@ -1,21 +1,24 @@
 # Discord + Pterodactyl Bridge
 
-This project supports Factorio and Satisfactory servers managed by Pterodactyl.
+This project supports Factorio, Minecraft, and Satisfactory servers managed by Pterodactyl.
 
 It does two things:
 
 - keeps a single Discord status panel updated every minute
 - relays Discord and game-server events where the selected adapter supports them
+- can optionally auto-stop idle servers and let users restart them from Discord
 
 ## Current Capabilities
 
-- Factorio: status, player list, Discord -> game relay, and game -> Discord chat relay
-- Satisfactory: status through the HTTPS API and optional Discord -> server relay through `RunCommand`
+- Factorio: status, player list, game duration, Discord -> game relay, and game -> Discord chat relay
+- Minecraft: status, player list, game duration, Discord -> game relay, and game -> Discord chat relay
+- Satisfactory: status through the HTTPS API, player count, game duration, best-effort player names through `ListPlayers`, and optional Discord -> server relay through `RunCommand`
+- Optional idle auto-stop with `/start-server` and `/cancel-stop` slash commands
 
 Current Satisfactory limitations in this bot:
 
 - no game -> Discord chat relay yet
-- no online player name list yet, only player count
+- player names depend on the server accepting a `ListPlayers` command through the HTTPS API
 
 ## Status Panel
 
@@ -32,10 +35,22 @@ The main panel is updated in place in your configured Discord status channel. Ea
 - online player names when the adapter can provide them
 - simplified status
 - CPU and memory
+- game duration when the adapter can provide it
 
 Factorio player names are bootstrapped from `/players o` and then refreshed when live `[JOIN]` or `[LEAVE]` console events are seen over the Pterodactyl WebSocket.
 
+Minecraft player names are bootstrapped from `/list` and then refreshed when live join or leave console events are seen over the Pterodactyl WebSocket.
+
 Satisfactory player counts come from the Dedicated Server HTTPS API `QueryServerState` response.
+
+## Discord Commands
+
+The bot registers these guild slash commands on startup:
+
+- `/start-server` starts the server associated with the current Discord channel.
+- `/cancel-stop` cancels a pending auto-stop warning for the server associated with the current Discord channel.
+
+If a server was stopped outside of the bot, `/start-server` requires the user to have Discord Administrator permission. Bot-initiated auto-stops can be restarted by users in the configured server channel.
 
 ## Setup
 
@@ -56,11 +71,13 @@ copy servers.example.json servers.json
 
 - `DISCORD_TOKEN` in `.env`
 - your Discord guild ID, status channel ID, and optional `discord.displayTimeZone` in `servers.json`
+- optionally `discord.logChannelId` if you want bot logs mirrored into Discord
 - your Pterodactyl panel URL and client API key in `servers.json`
 - one entry in `servers[]` for each server
 - `description`, `publicAddress`, `publicPort`, and `maxPlayers` for each server if you want them shown in the panel
 - optionally `asciiTitleLines` for a larger manual ASCII-art server title above the embed
 - optionally `asciiTitle` if you prefer a single string with embedded `\n` line breaks
+- optionally `autoStop` for idle server shutdown behavior
 - optionally override `CONFIG_PATH` and `STATE_PATH` if you want the config or runtime state somewhere else
 
 4. For each Satisfactory server, also fill in:
@@ -72,7 +89,13 @@ copy servers.example.json servers.json
 
 Satisfactory API tokens are application tokens. Per the current official wiki/doc mirror, third-party tools should use Bearer application tokens, and they are generated from the dedicated server console with `server.GenerateAPIToken`.
 
-5. Start the bot:
+5. For each Minecraft server, set `game.type` to `minecraft`. The default relay command is:
+
+```text
+/say [Discord] {author}: {content}
+```
+
+6. Start the bot:
 
 ```bash
 npm start
@@ -186,6 +209,7 @@ On Linux, make sure the mounted `runtime-state.json` is writable by container us
   "discord": {
     "guildId": "YOUR_GUILD_ID",
     "statusChannelId": "GLOBAL_STATUS_CHANNEL_ID",
+    "logChannelId": "OPTIONAL_LOG_CHANNEL_ID",
     "displayTimeZone": "America/Toronto"
   },
   "pterodactyl": {
@@ -211,7 +235,26 @@ On Linux, make sure the mounted `runtime-state.json` is writable by container us
       "maxPlayers": 32,
       "game": {
         "type": "factorio",
-        "chatCommandTemplate": "/shout DISCORD<{author}>: {content}"
+        "chatCommandTemplate": "/shout DISCORD<{author}>: {content}",
+        "playerListRefreshIntervalSeconds": 900
+      },
+      "autoStop": {
+        "enabled": true,
+        "emptyTimeoutHours": 24,
+        "warningMinutesBefore": 60
+      }
+    },
+    {
+      "name": "Minecraft Main",
+      "description": "Main survival world",
+      "pterodactylServerId": "m1n2o3p4",
+      "discordChannelId": "MINECRAFT_DISCORD_CHANNEL_ID",
+      "publicAddress": "minecraft.example.com",
+      "publicPort": 25565,
+      "maxPlayers": 20,
+      "game": {
+        "type": "minecraft",
+        "chatCommandTemplate": "/say [Discord] {author}: {content}"
       }
     },
     {
@@ -238,14 +281,14 @@ Notes:
 
 - `pterodactylServerId` must be the client server identifier used by `/api/client/servers/{id}`.
 - `discord.displayTimeZone` should be an IANA timezone such as `America/Toronto`. You can also override it with the `DISCORD_DISPLAY_TIMEZONE` environment variable.
+- `discord.logChannelId` is optional. When configured, logger output is also sent to that Discord channel.
 - Factorio chat is relayed into the game through the Pterodactyl WebSocket.
+- Minecraft chat is relayed into the game through the Pterodactyl WebSocket.
 - Satisfactory status is queried from the HTTPS API endpoint at `/api/v1` with Bearer auth.
 - If `game.apiUrl` is omitted for Satisfactory, the bot derives it from `publicAddress` and `publicPort`.
 - Satisfactory often uses self-signed TLS certificates; `game.allowInsecureTls` defaults to `true` in this runtime.
-- The bot stores the Discord status panel message IDs in `runtime-state.json` so it can edit the same server panels on the next refresh.
+- `autoStop.enabled` turns on idle shutdown for that server. `emptyTimeoutHours` defaults to `24`, and `warningMinutesBefore` defaults to `60`.
+- The bot stores Discord status panel message IDs and auto-stop state in `runtime-state.json`.
 - `asciiTitleLines` is easier to maintain in JSON because each array entry becomes one line in the Discord code block.
 - `asciiTitle` also works if you prefer a single string with embedded `\n` line breaks.
-
-
-
 
