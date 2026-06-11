@@ -71,8 +71,7 @@ export class DiscordBridge {
 
   async deleteMessage(channelId, messageId) {
     const channel = await this.#getTextChannel(channelId);
-    const message = await channel.messages.fetch(messageId);
-    await message.delete();
+    await channel.messages.delete(messageId);
   }
 
   async upsertStatusPanel(channelId, panel) {
@@ -83,10 +82,9 @@ export class DiscordBridge {
 
     if (knownMessageId) {
       try {
-        const message = await channel.messages.fetch(knownMessageId);
-        await message.edit(payload);
+        await channel.messages.edit(knownMessageId, payload);
         await this.#deleteStaleStatusMessages(channel, knownMessageIds.slice(1));
-        this.stateStore.setStatusMessageIds(channelId, [message.id]);
+        this.stateStore.setStatusMessageIds(channelId, [knownMessageId]);
         return;
       } catch (error) {
         this.logger.warn(`Failed to edit status panel message ${knownMessageId}, sending a new one instead.`, error);
@@ -101,8 +99,7 @@ export class DiscordBridge {
   async #deleteStaleStatusMessages(channel, messageIds) {
     for (const staleMessageId of messageIds) {
       try {
-        const staleMessage = await channel.messages.fetch(staleMessageId);
-        await staleMessage.delete();
+        await channel.messages.delete(staleMessageId);
       } catch (error) {
         this.logger.warn(`Failed to delete stale status panel message ${staleMessageId}.`, error);
       }

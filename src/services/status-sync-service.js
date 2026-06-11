@@ -37,7 +37,7 @@ export class StatusSyncService {
     this.logger = logger;
     this.intervalHandle = null;
     this.debounceHandle = null;
-    this.consoleUnsubscribers = [];
+    this.consoleUnsubscribers = new Map();
     this.serverOnlineStates = new Map();
     this.lastSnapshotKeys = new Map();
     this.adapters = new Map(
@@ -63,7 +63,6 @@ export class StatusSyncService {
       adapter.start?.();
     }
 
-    this.#startConsoleBridges();
     await this.syncOnce();
     this.intervalHandle = setInterval(() => {
       void this.syncOnce({ force: true });
@@ -84,11 +83,11 @@ export class StatusSyncService {
       adapter.stop?.();
     }
 
-    for (const unsubscribe of this.consoleUnsubscribers) {
+    for (const unsubscribe of this.consoleUnsubscribers.values()) {
       unsubscribe();
     }
 
-    this.consoleUnsubscribers = [];
+    this.consoleUnsubscribers.clear();
   }
 
   async syncOnce({ force = false } = {}) {
@@ -100,6 +99,7 @@ export class StatusSyncService {
 
       try {
         const resources = await this.pterodactylClient.getServerResources(server.pterodactylServerId);
+        this.#syncConsoleBridge(server, adapter, resources.currentState);
         const snapshot = await adapter.fetchSnapshot(resources);
         snapshots.push(snapshot);
 
@@ -162,31 +162,43 @@ export class StatusSyncService {
     }
   }
 
-  #startConsoleBridges() {
-    for (const server of this.config.servers) {
-      const adapter = this.adapters.get(server.pterodactylServerId);
-      if (!adapter?.supportsConsoleSubscription()) {
-        continue;
+  #syncConsoleBridge(server, adapter, currentState) {
+    const serverId = server.pterodactylServerId;
+    const existing = this.consoleUnsubscribers.get(serverId);
+    const shouldSubscribe = currentState === "running" && adapter?.supportsConsoleSubscription();
+
+    if (!shouldSubscribe) {
+      if (existing) {
+        existing();
+        this.consoleUnsubscribers.delete(serverId);
       }
-
-      const unsubscribe = this.pterodactylClient.subscribeToConsole(server.pterodactylServerId, {
-        onConnected: () => {
-          void this.#handleConsoleConnected(server, adapter);
-        },
-        onLine: (line, metadata) => {
-          void this.#handleConsoleLine(server, adapter, line, metadata);
-        },
-        onStatusChange: (newState) => {
-          this.logger.info(`${server.name} power state changed to: ${newState}`);
-          this.#scheduleUpdate();
-        },
-        onError: (error) => {
-          this.logger.warn(`Console bridge issue for ${server.name}`, error);
-        }
-      });
-
-      this.consoleUnsubscribers.push(unsubscribe);
+      return;
     }
+
+    if (existing) {
+      return;
+    }
+
+    const unsubscribe = this.pterodactylClient.subscribeToConsole(serverId, {
+      onConnected: () => {
+        void this.#handleConsoleConnected(server, adapter);
+      },
+      onLine: (line, metadata) => {
+        void this.#handleConsoleLine(server, adapter, line, metadata);
+      },
+      onStatusChange: (newState) => {
+        this.logger.info(`${server.name} power state changed to: ${newState}`);
+        if (newState !== "running") {
+          this.#syncConsoleBridge(server, adapter, newState);
+        }
+        this.#scheduleUpdate();
+      },
+      onError: (error) => {
+        this.logger.warn(`Console bridge issue for ${server.name}`, error);
+      }
+    });
+
+    this.consoleUnsubscribers.set(serverId, unsubscribe);
   }
 
   async #handleConsoleConnected(server, adapter) {

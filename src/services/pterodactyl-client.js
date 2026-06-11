@@ -1,11 +1,26 @@
 import WebSocket from "ws";
+import { logger } from "../lib/logger.js";
 
 export class PterodactylClient {
-  constructor({ baseUrl, apiKey }) {
+  constructor({ baseUrl, apiKey, wingsFqdn, wingsWsScheme, wingsWsPort }) {
     this.baseUrl = baseUrl.replace(/\/+$/, "");
     this.apiKey = apiKey;
+    this.wingsFqdn = wingsFqdn ?? null;
+    this.wingsWsScheme = wingsWsScheme ?? null;
+    this.wingsWsPort = wingsWsPort ?? null;
     this.commandQueues = new Map();
     this.websocketCredentialCache = new Map();
+
+    try {
+      logger.info("PterodactylClient initialized", {
+        panelHost: new URL(this.baseUrl).host,
+        wingsFqdnOverride: this.wingsFqdn ?? "(none)",
+        wingsWsSchemeOverride: this.wingsWsScheme ?? "(none)",
+        wingsWsPortOverride: this.wingsWsPort ?? "(none)"
+      });
+    } catch {
+      // baseUrl parse failure will surface naturally on first API call
+    }
   }
 
   async getServerResources(serverId) {
@@ -32,6 +47,44 @@ export class PterodactylClient {
 
   #invalidateWebsocketCredentials(serverId) {
     this.websocketCredentialCache.delete(serverId);
+  }
+
+  #rewriteWingsSocketUrl(rawSocket) {
+    let url;
+    try {
+      url = new URL(rawSocket);
+    } catch {
+      throw new Error("Pterodactyl returned an unparseable websocket URL");
+    }
+
+    const originalScheme = url.protocol.replace(/:$/, "");
+    const originalHost = url.hostname;
+    const originalPort = url.port;
+
+    const hasOverride = this.wingsFqdn !== null || this.wingsWsScheme !== null || this.wingsWsPort !== null;
+
+    if (this.wingsWsScheme !== null) {
+      url.protocol = this.wingsWsScheme + ":";
+    }
+    if (this.wingsFqdn !== null) {
+      url.hostname = this.wingsFqdn;
+    }
+    if (this.wingsWsPort !== null) {
+      url.port = this.wingsWsPort;
+    } else if (this.wingsFqdn !== null || this.wingsWsScheme !== null) {
+      url.port = "";
+    }
+
+    const finalScheme = url.protocol.replace(/:$/, "");
+    const changed = finalScheme !== originalScheme || url.hostname !== originalHost || url.port !== originalPort;
+    if (changed) {
+      logger.info("Wings websocket URL rewritten", {
+        returned: { scheme: originalScheme, host: originalHost, port: originalPort || "(default)" },
+        final: { scheme: finalScheme, host: url.hostname, port: url.port || "(default)" }
+      });
+    }
+
+    return url.toString();
   }
 
   async getServerWebsocket(serverId) {
@@ -127,7 +180,8 @@ export class PterodactylClient {
           return;
         }
 
-        const nextSocket = new WebSocket(socket, {
+        const rewrittenSocket = this.#rewriteWingsSocketUrl(socket);
+        const nextSocket = new WebSocket(rewrittenSocket, {
           headers: {
             Origin: origin
           }
@@ -239,9 +293,10 @@ export class PterodactylClient {
   async #executeCommand(serverId, command, options = {}) {
     const { captureMs = 2500 } = options;
     const { socket, token, origin } = await this.getServerWebsocket(serverId);
+    const rewrittenSocket = this.#rewriteWingsSocketUrl(socket);
 
     return new Promise((resolve, reject) => {
-      const ws = new WebSocket(socket, {
+      const ws = new WebSocket(rewrittenSocket, {
         headers: {
           Origin: origin
         }

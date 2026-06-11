@@ -129,6 +129,11 @@ function validateConfig(config) {
     throw new Error("Config must include pterodactyl.baseUrl and pterodactyl.apiKey");
   }
 
+  const scheme = config.pterodactyl?.wingsWsScheme;
+  if (scheme !== null && scheme !== "ws" && scheme !== "wss") {
+    throw new Error(`PTERODACTYL_WINGS_WS_SCHEME must be "ws" or "wss" if set. Received: ${scheme}`);
+  }
+
   if (!Array.isArray(config.servers) || config.servers.length === 0) {
     throw new Error("Config must include at least one server");
   }
@@ -172,7 +177,10 @@ export function loadConfig() {
     },
     pterodactyl: {
       ...rawConfig.pterodactyl,
-      pollIntervalSeconds: Number(process.env.PANEL_UPDATE_INTERVAL_SECONDS ?? rawConfig.pterodactyl?.pollIntervalSeconds ?? 60)
+      pollIntervalSeconds: Number(process.env.PANEL_UPDATE_INTERVAL_SECONDS ?? rawConfig.pterodactyl?.pollIntervalSeconds ?? 60),
+      wingsFqdn: process.env.PTERODACTYL_WINGS_FQDN || null,
+      wingsWsScheme: process.env.PTERODACTYL_WINGS_WS_SCHEME || null,
+      wingsWsPort: process.env.PTERODACTYL_WINGS_WS_PORT || null
     },
     servers: rawConfig.servers.map(normalizeServer)
   };
