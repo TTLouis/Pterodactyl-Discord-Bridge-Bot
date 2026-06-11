@@ -5,14 +5,38 @@ services:
       context: .
     restart: unless-stopped
     init: true
+
+    # Give NPM / Pterodactyl / DNS time to come up after VM reboot
+    command: sh -c "echo 'Waiting 60s before starting Discord bot...'; sleep 60; exec node src/index.js"
+
     env_file:
       - .env
+
     environment:
       CONFIG_PATH: /config/servers.json
       STATE_PATH: /data/runtime-state.json
+
     volumes:
       - ./servers.json:/config/servers.json:ro
-      - bot-data:/data
+      - bot_data:/data
+
+    mem_limit: 256m
+    cpus: "0.50"
+    pids_limit: 128
+
+    security_opt:
+      - no-new-privileges:true
+
+    cap_drop:
+      - ALL
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    stop_grace_period: 30s
 
 volumes:
-  bot-data:
+  bot_data:

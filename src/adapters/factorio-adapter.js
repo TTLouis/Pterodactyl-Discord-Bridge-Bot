@@ -124,6 +124,10 @@ export class FactorioAdapter {
 
   start() {
     this.backupRefreshHandle = setInterval(() => {
+      if (this.onlinePlayers === null) {
+        return;
+      }
+
       void this.refreshOnlinePlayers().catch(() => {});
     }, BACKUP_REFRESH_INTERVAL_MS);
   }

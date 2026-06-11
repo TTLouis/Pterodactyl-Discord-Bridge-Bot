@@ -1,6 +1,10 @@
 import http from "node:http";
 import https from "node:https";
 
+const HTTP_AGENT = new http.Agent({ keepAlive: true });
+const HTTPS_AGENT = new https.Agent({ keepAlive: true });
+const HTTPS_INSECURE_AGENT = new https.Agent({ keepAlive: true, rejectUnauthorized: false });
+
 function normalizeApiUrl(value) {
   const url = new URL(value);
   const normalizedPath = url.pathname.replace(/\/+$/, "");
@@ -23,6 +27,11 @@ function parseJsonResponse(text, url, statusCode) {
 
 function requestJson(url, { headers, body, allowInsecureTls }) {
   const transport = url.protocol === "http:" ? http : https;
+  const agent = url.protocol === "http:"
+    ? HTTP_AGENT
+    : allowInsecureTls
+      ? HTTPS_INSECURE_AGENT
+      : HTTPS_AGENT;
 
   return new Promise((resolve, reject) => {
     const request = transport.request(
@@ -30,7 +39,7 @@ function requestJson(url, { headers, body, allowInsecureTls }) {
       {
         method: "POST",
         headers,
-        rejectUnauthorized: url.protocol === "https:" ? !allowInsecureTls : undefined
+        agent
       },
       (response) => {
         const chunks = [];
