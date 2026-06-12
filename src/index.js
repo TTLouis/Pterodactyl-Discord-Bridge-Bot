@@ -1,8 +1,9 @@
 import "dotenv/config";
-import { loadConfig } from "./lib/config.js";
+import { getConfigPath, loadConfig } from "./lib/config.js";
 import { logger } from "./lib/logger.js";
 import { StateStore } from "./lib/state-store.js";
 import { AutoStopService } from "./services/auto-stop-service.js";
+import { applyReloadedConfig, ConfigReloadService } from "./services/config-reload-service.js";
 import { DiscordBridge } from "./services/discord-bridge.js";
 import { PterodactylClient } from "./services/pterodactyl-client.js";
 import { StatusSyncService } from "./services/status-sync-service.js";
@@ -44,8 +45,20 @@ async function main() {
 
   await statusSyncService.start();
 
+  const configReloadService = new ConfigReloadService({
+    configPath: getConfigPath(),
+    loadConfig,
+    logger,
+    async onReload(nextConfig) {
+      applyReloadedConfig(runtime.config, nextConfig);
+      await statusSyncService.syncOnce({ force: true });
+    }
+  });
+  configReloadService.start();
+
   const shutdown = async (signal) => {
     logger.info(`Received ${signal}. Shutting down.`);
+    configReloadService.stop();
     await statusSyncService.stop();
     await discordBridge.stop();
     process.exit(0);

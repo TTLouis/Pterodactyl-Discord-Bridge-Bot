@@ -92,7 +92,8 @@ The bot runs outside of Pterodactyl — on a separate VM or host — and talks t
   "pterodactyl": {
     "baseUrl": "https://panel.example.com",
     "apiKey": "ptlc_your_client_api_key",
-    "pollIntervalSeconds": 60
+    "pollIntervalSeconds": 60,
+    "activePlayerPollIntervalSeconds": 15
   },
   "servers": [
     {
@@ -104,7 +105,12 @@ The bot runs outside of Pterodactyl — on a separate VM or host — and talks t
         "|  _| (_| | (__| || (_) | |  | | (_) |",
         "|_|  \\__,_|\\___|\\__\\___/|_|  |_|\\___/ "
       ],
-      "description": "Main public factory server",
+      "descriptionLines": [
+        "**Main public factory server**",
+        "Vanilla settings with no required mods.",
+        "",
+        "New players are welcome."
+      ],
       "pterodactylServerId": "a1b2c3d4",
       "discordChannelId": "FACTORIO_DISCORD_CHANNEL_ID",
       "publicAddress": "play.example.com",
@@ -123,7 +129,10 @@ The bot runs outside of Pterodactyl — on a separate VM or host — and talks t
     },
     {
       "name": "Minecraft Main",
-      "description": "Main survival world",
+      "descriptionLines": [
+        "**Main survival world**",
+        "Join from Java Edition using the address above."
+      ],
       "pterodactylServerId": "m1n2o3p4",
       "discordChannelId": "MINECRAFT_DISCORD_CHANNEL_ID",
       "publicAddress": "minecraft.example.com",
@@ -137,7 +146,10 @@ The bot runs outside of Pterodactyl — on a separate VM or host — and talks t
     {
       "name": "Satisfactory Main",
       "asciiTitle": "Satisfactory\\nMain",
-      "description": "Main factory world",
+      "descriptionLines": [
+        "**Main factory world**",
+        "Use the current experimental game version."
+      ],
       "pterodactylServerId": "e5f6g7h8",
       "discordChannelId": "SATISFACTORY_DISCORD_CHANNEL_ID",
       "publicAddress": "satisfactory.example.com",
@@ -162,5 +174,10 @@ Key notes:
 - Satisfactory API tokens are application tokens generated from the server console with `server.GenerateAPIToken`
 - Satisfactory often uses self-signed TLS; `game.allowInsecureTls` defaults to `true`
 - `asciiTitleLines` (array) or `asciiTitle` (single string with `\n`) both work for the ASCII title block
+- `descriptionLines` preserves manual line breaks, blank lines, Unicode, and Discord Markdown; the older `description` string remains supported
+- `pterodactyl.pollIntervalSeconds` controls empty-server refreshes; `activePlayerPollIntervalSeconds` defaults to `15` seconds while any server has players
+- Saving a valid `servers.json` automatically refreshes display settings such as descriptions, names, addresses, player limits, timezone, and auto-stop values
+- Server additions/removals, IDs, channel mappings, game settings, Discord channel IDs, and Pterodactyl connection changes require a bot restart
+- Invalid JSON or an invalid live change is logged and the bot continues using the previous configuration
 - `autoStop.emptyTimeoutHours` defaults to `24`; `warningMinutesBefore` defaults to `60`
 - Override `CONFIG_PATH` and `STATE_PATH` env vars if you want config or runtime state at custom paths

@@ -20,6 +20,24 @@ function ask(label, def) {
   });
 }
 
+function askRaw(label) {
+  return new Promise(resolve => {
+    rl.question(`  ${label}: `, resolve);
+  });
+}
+
+async function askDescriptionLines() {
+  console.log('\n  Enter description lines exactly as they should appear in Discord.');
+  hint('Blank lines and Discord Markdown are supported; enter a single . when finished');
+  const lines = [];
+  for (;;) {
+    const line = await askRaw(`Description line ${lines.length + 1}`);
+    if (line === '.') break;
+    lines.push(line);
+  }
+  return lines;
+}
+
 async function askRequired(label) {
   for (;;) {
     const val = await ask(label);
@@ -58,6 +76,7 @@ async function collectServer(index) {
   console.log(`\n  ${C.bold}Server #${index}${C.reset}`);
 
   const name = await askRequired('Display name');
+  const descriptionLines = await askDescriptionLines();
   const pterodactylServerId = await askRequired('Pterodactyl server UUID');
   hint('Found in the Pterodactyl panel URL when viewing the server, or under Settings');
   const discordChannelId = await askRequired('Discord channel ID for this server\'s status panel');
@@ -85,7 +104,7 @@ async function collectServer(index) {
   }
 
   console.log('');
-  const server = { name, pterodactylServerId, discordChannelId, game };
+  const server = { name, descriptionLines, pterodactylServerId, discordChannelId, game };
 
   const enableAutoStop = await askYN('Enable auto-stop when server is idle?', 'n');
   if (enableAutoStop) {
@@ -127,7 +146,8 @@ async function main() {
     hint('Go to https://discord.com/developers/applications → your app → Bot → Reset Token');
     const discordToken = await askRequired('Discord bot token');
     const intervalSecs = await askInt('Panel poll interval (seconds)', 60);
-    envData = { DISCORD_TOKEN: discordToken, PANEL_UPDATE_INTERVAL_SECONDS: intervalSecs, CONFIG_PATH: './servers.json', STATE_PATH: './runtime-state.json' };
+    const activeIntervalSecs = await askInt('Panel poll interval while players are online (seconds)', 15);
+    envData = { DISCORD_TOKEN: discordToken, PANEL_UPDATE_INTERVAL_SECONDS: intervalSecs, ACTIVE_PLAYER_UPDATE_INTERVAL_SECONDS: activeIntervalSecs, CONFIG_PATH: './servers.json', STATE_PATH: './runtime-state.json' };
   }
 
   // ── servers.json ──────────────────────────────────────────────────────────
@@ -148,6 +168,7 @@ async function main() {
     const baseUrl = await askRequired('Pterodactyl panel URL (e.g. https://panel.example.com)');
     const apiKey = await askRequired('Pterodactyl client API key');
     const pollIntervalSeconds = await askInt('Pterodactyl poll interval (seconds)', 60);
+    const activePlayerPollIntervalSeconds = await askInt('Poll interval while players are online (seconds)', 15);
 
     section('servers.json — Game servers');
     console.log('\n  Add at least one game server.\n');
@@ -162,7 +183,7 @@ async function main() {
     if (logChannelId) discord.logChannelId = logChannelId;
     if (serverAdminRoleId) discord.serverAdminRoleId = serverAdminRoleId;
 
-    serversConfig = { discord, pterodactyl: { baseUrl, apiKey, pollIntervalSeconds }, servers };
+    serversConfig = { discord, pterodactyl: { baseUrl, apiKey, pollIntervalSeconds, activePlayerPollIntervalSeconds }, servers };
   }
 
   // ── Write files ───────────────────────────────────────────────────────────
