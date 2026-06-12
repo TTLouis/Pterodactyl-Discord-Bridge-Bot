@@ -110,6 +110,10 @@ export class StatusSyncService {
     this.consoleUnsubscribers.clear();
   }
 
+  refreshPeriodicSchedule() {
+    this.#scheduleNextPeriodicSync();
+  }
+
   async syncOnce({ force = false } = {}) {
     const snapshots = [];
     let anyChanged = force || this.lastSnapshotKeys.size === 0;
@@ -213,7 +217,8 @@ export class StatusSyncService {
   #syncConsoleBridge(server, adapter, currentState) {
     const serverId = server.pterodactylServerId;
     const existing = this.consoleUnsubscribers.get(serverId);
-    const shouldSubscribe = currentState === "running" && adapter?.supportsConsoleSubscription();
+    const supportsConsole = Boolean(adapter?.supportsConsoleSubscription());
+    const shouldSubscribe = Boolean(adapter);
 
     if (!shouldSubscribe) {
       if (existing) {
@@ -229,21 +234,23 @@ export class StatusSyncService {
 
     const unsubscribe = this.pterodactylClient.subscribeToConsole(serverId, {
       onConnected: () => {
-        void this.#handleConsoleConnected(server, adapter);
+        if (supportsConsole && currentState === "running") {
+          void this.#handleConsoleConnected(server, adapter);
+        }
       },
-      onLine: (line, metadata) => {
-        void this.#handleConsoleLine(server, adapter, line, metadata);
-      },
+      onLine: supportsConsole
+        ? (line, metadata) => {
+            void this.#handleConsoleLine(server, adapter, line, metadata);
+          }
+        : undefined,
       onStatusChange: (newState) => {
         this.logger.info(`${server.name} power state changed to: ${newState}`);
-        if (newState !== "running") {
-          this.#syncConsoleBridge(server, adapter, newState);
-        }
         this.#scheduleUpdate();
       },
       onError: (error) => {
         this.logger.warn(`Console bridge issue for ${server.name}`, error);
-      }
+      },
+      sendLogs: supportsConsole
     });
 
     this.consoleUnsubscribers.set(serverId, unsubscribe);

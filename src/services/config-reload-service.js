@@ -6,6 +6,16 @@ function stableJson(value) {
   return JSON.stringify(value);
 }
 
+function fixedPterodactylSettings(config) {
+  return {
+    baseUrl: config.baseUrl,
+    apiKey: config.apiKey,
+    wingsFqdn: config.wingsFqdn,
+    wingsWsScheme: config.wingsWsScheme,
+    wingsWsPort: config.wingsWsPort
+  };
+}
+
 export function validateReloadCompatibility(currentConfig, nextConfig) {
   const fixedDiscordKeys = ["guildId", "statusChannelId", "logChannelId"];
   for (const key of fixedDiscordKeys) {
@@ -14,7 +24,7 @@ export function validateReloadCompatibility(currentConfig, nextConfig) {
     }
   }
 
-  if (stableJson(currentConfig.pterodactyl) !== stableJson(nextConfig.pterodactyl)) {
+  if (stableJson(fixedPterodactylSettings(currentConfig.pterodactyl)) !== stableJson(fixedPterodactylSettings(nextConfig.pterodactyl))) {
     throw new Error("Pterodactyl connection settings changed; restart the bot to apply them.");
   }
 
@@ -46,6 +56,7 @@ export function applyReloadedConfig(currentConfig, nextConfig) {
   validateReloadCompatibility(currentConfig, nextConfig);
 
   Object.assign(currentConfig.discord, nextConfig.discord);
+  Object.assign(currentConfig.pterodactyl, nextConfig.pterodactyl);
   const currentServers = new Map(
     currentConfig.servers.map((server) => [server.pterodactylServerId, server])
   );

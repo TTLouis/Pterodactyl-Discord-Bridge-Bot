@@ -236,6 +236,9 @@ test("status sync tracks whether any configured server has players", async () =>
     },
     discordBridge,
     pterodactylClient: {
+      subscribeToConsole() {
+        return () => {};
+      },
       async getServerResources() {
         return { currentState: "running", cpuPercent: 1, memoryBytes: 1024 };
       }
@@ -301,6 +304,9 @@ test("Satisfactory count changes emit generic join and leave notifications", asy
     },
     discordBridge,
     pterodactylClient: {
+      subscribeToConsole() {
+        return () => {};
+      },
       async getServerResources() {
         return { currentState: "running", cpuPercent: 1, memoryBytes: 1024 };
       }
@@ -336,4 +342,85 @@ test("Satisfactory count changes emit generic join and leave notifications", asy
     { channelId: "factory-channel", content: "2 players joined **Factory**. (2/8)" },
     { channelId: "factory-channel", content: "1 player left **Factory**. (1/8)" }
   ]);
+});
+
+test("Satisfactory power-state events trigger a debounced status refresh", async () => {
+  let currentState = "running";
+  let statusHandler = null;
+  let resourceRequests = 0;
+  const panelStates = [];
+  const server = {
+    name: "Factory",
+    discordChannelId: "factory-channel",
+    pterodactylServerId: "factory-id",
+    maxPlayers: 8,
+    game: {
+      type: "satisfactory",
+      apiUrl: "https://factory.example.com:7777/api/v1",
+      apiToken: "token",
+      allowInsecureTls: true,
+      chatCommandTemplate: null
+    },
+    autoStop: null
+  };
+  const service = new StatusSyncService({
+    config: {
+      discord: { statusChannelId: "status", displayTimeZone: "UTC" },
+      pterodactyl: { pollIntervalSeconds: 60, activePlayerPollIntervalSeconds: 15 },
+      servers: [server]
+    },
+    discordBridge: {
+      async upsertStatusPanel(channelId, panel) {
+        panelStates.push(panel.embeds[0].toJSON().fields[1].value);
+      },
+      async sendMessage() {},
+      setSlashCommands() {},
+      onMessage() {},
+      onInteraction() {}
+    },
+    pterodactylClient: {
+      subscribeToConsole(serverId, options) {
+        assert.equal(serverId, "factory-id");
+        assert.equal(options.sendLogs, false);
+        statusHandler = options.onStatusChange;
+        return () => {};
+      },
+      async getServerResources() {
+        resourceRequests += 1;
+        return { currentState, cpuPercent: 1, memoryBytes: 1024 };
+      }
+    },
+    autoStopService: { async onRunningSnapshot() {} },
+    logger: { error() {}, warn() {}, info() {} }
+  });
+  service.adapters.set("factory-id", {
+    supportsConsoleSubscription() { return false; },
+    async fetchSnapshot(resources) {
+      return {
+        name: server.name,
+        description: "",
+        currentState: resources.currentState,
+        simplifiedStatus: resources.currentState === "running" ? "Online" : "Offline",
+        playerCount: 0,
+        maxPlayers: 8,
+        onlinePlayers: [],
+        playerNamesAvailable: false,
+        cpuPercent: resources.cpuPercent,
+        memoryBytes: resources.memoryBytes,
+        gameDurationMs: null
+      };
+    }
+  });
+
+  await service.start();
+  assert.equal(typeof statusHandler, "function");
+  assert.equal(resourceRequests, 1);
+
+  currentState = "offline";
+  statusHandler("offline");
+  await new Promise((resolve) => setTimeout(resolve, 650));
+
+  assert.equal(resourceRequests, 2);
+  assert.match(panelStates.at(-1), /Offline/);
+  await service.stop();
 });

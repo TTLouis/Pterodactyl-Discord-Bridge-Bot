@@ -146,9 +146,7 @@ async function main() {
     section('.env — Bot credentials');
     hint('Go to https://discord.com/developers/applications → your app → Bot → Reset Token');
     const discordToken = await askRequired('Discord bot token');
-    const intervalSecs = await askInt('Panel poll interval (seconds)', 60);
-    const activeIntervalSecs = await askInt('Panel poll interval while players are online (seconds)', 15);
-    envData = { DISCORD_TOKEN: discordToken, PANEL_UPDATE_INTERVAL_SECONDS: intervalSecs, ACTIVE_PLAYER_UPDATE_INTERVAL_SECONDS: activeIntervalSecs, CONFIG_PATH: './servers.json', STATE_PATH: './runtime-state.json' };
+    envData = { DISCORD_TOKEN: discordToken, CONFIG_PATH: './servers.json', STATE_PATH: './runtime-state.json' };
   }
 
   // ── servers.json ──────────────────────────────────────────────────────────
