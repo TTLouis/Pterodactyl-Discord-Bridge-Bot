@@ -139,6 +139,8 @@ async function main() {
     const guildId = await askRequired('Discord server (guild) ID');
     const statusChannelId = await askRequired('Status panel channel ID');
     const logChannelId = await ask('Bot log channel ID (optional, press Enter to skip)');
+    const serverAdminRoleId = await ask('Server-admin role ID (optional, press Enter to match by name)');
+    const serverAdminRoleName = await ask('Server-admin role name', 'server-admin');
     const displayTimeZone = await ask('Display timezone (IANA, e.g. America/Toronto)', 'America/Toronto');
 
     section('servers.json — Pterodactyl settings');
@@ -156,8 +158,9 @@ async function main() {
       servers.push(await collectServer(servers.length + 1));
     }
 
-    const discord = { guildId, statusChannelId, displayTimeZone };
+    const discord = { guildId, statusChannelId, serverAdminRoleName, displayTimeZone };
     if (logChannelId) discord.logChannelId = logChannelId;
+    if (serverAdminRoleId) discord.serverAdminRoleId = serverAdminRoleId;
 
     serversConfig = { discord, pterodactyl: { baseUrl, apiKey, pollIntervalSeconds }, servers };
   }

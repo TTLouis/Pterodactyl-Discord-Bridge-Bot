@@ -280,7 +280,10 @@ export class StatusSyncService {
 
     try {
       if (interaction.commandName === "start-server") {
-        await this.autoStopService.handleStartCommand(server, interaction);
+        const startRequested = await this.autoStopService.handleStartCommand(server, interaction);
+        if (startRequested) {
+          await this.syncOnce({ force: true });
+        }
       } else if (interaction.commandName === "cancel-stop") {
         await this.autoStopService.handleCancelStopCommand(server, interaction);
       }

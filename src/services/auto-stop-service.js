@@ -8,6 +8,32 @@ import {
   buildServerStartingEmbed
 } from "../lib/formatters.js";
 
+export function canRestartExternallyStoppedServer(interaction, discordConfig) {
+  const member = interaction.member;
+  if (member?.permissions?.has(PermissionFlagsBits.Administrator)) {
+    return true;
+  }
+
+  const roles = member?.roles?.cache;
+  if (!roles) {
+    return false;
+  }
+
+  if (discordConfig.serverAdminRoleId && roles.has(discordConfig.serverAdminRoleId)) {
+    return true;
+  }
+
+  const roleName = discordConfig.serverAdminRoleName?.toLowerCase();
+  return Boolean(roleName && Array.from(roles.values()).some((role) => role.name?.toLowerCase() === roleName));
+}
+
+function describeExternalRestartAccess(discordConfig) {
+  const roleName = discordConfig.serverAdminRoleName;
+  return roleName
+    ? `a Discord administrator or a member with the \`${roleName}\` role`
+    : "a Discord administrator";
+}
+
 export class AutoStopService {
   constructor({ config, pterodactylClient, discordBridge, stateStore, logger }) {
     this.config = config;
@@ -108,7 +134,7 @@ export class AutoStopService {
     });
     try {
       await this.discordBridge.sendMessage(server.discordChannelId, {
-        embeds: [buildManuallyStoppedEmbed(server.name)]
+        embeds: [buildManuallyStoppedEmbed(server.name, describeExternalRestartAccess(this.config.discord))]
       });
     } catch (error) {
       this.logger.error(`Failed to send manual-stop notification for ${server.name}`, error);
@@ -133,36 +159,37 @@ export class AutoStopService {
     } catch (error) {
       this.logger.error(`Failed to fetch resources for ${server.name} during /start-server`, error);
       await interaction.reply({ content: "Could not reach the panel. Try again in a moment.", ephemeral: true });
-      return;
+      return false;
     }
 
     if (resources.currentState === "running" || resources.currentState === "starting") {
       await interaction.reply({ content: "The server is already running.", ephemeral: true });
-      return;
+      return false;
     }
 
     const state = this.stateStore.getAutoStopState(server.pterodactylServerId);
     const isManualStop = state.manualStop && !state.stoppedByBot;
 
     if (isManualStop) {
-      const isAdmin = interaction.member?.permissions?.has(PermissionFlagsBits.Administrator) ?? false;
-      if (!isAdmin) {
+      if (!canRestartExternallyStoppedServer(interaction, this.config.discord)) {
         await interaction.reply({
-          content: "This server was stopped externally. Only a server admin can restart it.",
+          content: `This server was stopped externally. Only ${describeExternalRestartAccess(this.config.discord)} can restart it.`,
           ephemeral: true
         });
-        return;
+        return false;
       }
     }
 
     const requestedBy = interaction.member?.displayName ?? interaction.user.username;
     try {
       await interaction.reply({ embeds: [buildServerStartingEmbed(server.name, requestedBy)] });
-      this.stateStore.clearAutoStopState(server.pterodactylServerId);
       await this.pterodactylClient.setPowerState(server.pterodactylServerId, "start");
+      this.stateStore.clearAutoStopState(server.pterodactylServerId);
+      return true;
     } catch (error) {
       this.logger.error(`Failed to start ${server.name} via /start-server`, error);
       await interaction.followUp({ content: "Failed to send the start signal. Check the panel.", ephemeral: true });
+      return false;
     }
   }
 
