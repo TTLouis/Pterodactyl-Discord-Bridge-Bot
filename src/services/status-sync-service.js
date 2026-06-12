@@ -25,7 +25,10 @@ function formatDiscordRelayMessage(message) {
 
 function snapshotKey(snapshot) {
   const players = [...(snapshot.onlinePlayers ?? [])].sort().join(",");
-  return `${snapshot.currentState}|${snapshot.playerCount}|${players}`;
+  const satisfactoryState = snapshot.satisfactoryState
+    ? `${snapshot.satisfactoryState.techTier}|${snapshot.satisfactoryState.activeSchematic}|${snapshot.satisfactoryState.gamePhase}|${snapshot.gameDurationMs}`
+    : "";
+  return `${snapshot.currentState}|${snapshot.playerCount}|${players}|${satisfactoryState}`;
 }
 
 function isConsoleRelayWarmingUp(connectedAt) {
@@ -119,6 +122,8 @@ export class StatusSyncService {
         this.#syncConsoleBridge(server, adapter, resources.currentState);
         const snapshot = await adapter.fetchSnapshot(resources);
         snapshots.push(snapshot);
+        const previousPlayerCount = this.serverPlayerCounts.get(server.pterodactylServerId);
+        const previouslyOnline = this.serverOnlineStates.get(server.pterodactylServerId);
         this.serverPlayerCounts.set(server.pterodactylServerId, Number(snapshot.playerCount ?? 0));
 
         const key = snapshotKey(snapshot);
@@ -127,6 +132,10 @@ export class StatusSyncService {
           this.lastSnapshotKeys.set(server.pterodactylServerId, key);
         }
 
+        await this.#checkSatisfactoryPlayerCountChange(server, snapshot, {
+          previousPlayerCount,
+          previouslyOnline
+        });
         await this.#checkServerStateChange(server, snapshot.currentState);
         if (snapshot.currentState === "running") {
           await this.autoStopService.onRunningSnapshot(server, snapshot.playerCount ?? 0);
@@ -307,6 +316,37 @@ export class StatusSyncService {
       }
     } catch (error) {
       this.logger.warn(`Failed sending state-change notification for ${server.name}`, error);
+    }
+  }
+
+  async #checkSatisfactoryPlayerCountChange(server, snapshot, { previousPlayerCount, previouslyOnline }) {
+    if (
+      server.game.type !== "satisfactory"
+      || snapshot.currentState !== "running"
+      || previouslyOnline !== true
+      || previousPlayerCount === undefined
+    ) {
+      return;
+    }
+
+    const currentPlayerCount = Number(snapshot.playerCount ?? 0);
+    const delta = currentPlayerCount - previousPlayerCount;
+    if (delta === 0) {
+      return;
+    }
+
+    const changedPlayers = Math.abs(delta);
+    const action = delta > 0 ? "joined" : "left";
+    const noun = changedPlayers === 1 ? "player" : "players";
+    const maxPlayers = snapshot.maxPlayers ?? server.maxPlayers ?? "?";
+
+    try {
+      await this.discordBridge.sendMessage(
+        server.discordChannelId,
+        `${changedPlayers} ${noun} ${action} **${server.name}**. (${currentPlayerCount}/${maxPlayers})`
+      );
+    } catch (error) {
+      this.logger.warn(`Failed sending Satisfactory player-count event for ${server.name}`, error);
     }
   }
 

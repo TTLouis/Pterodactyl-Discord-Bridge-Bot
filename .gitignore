@@ -29,3 +29,4 @@ Thumbs.db
 
 # Local assistant/tooling state
 .claude/
+.fallow/

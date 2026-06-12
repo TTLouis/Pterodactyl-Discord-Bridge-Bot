@@ -46,6 +46,10 @@ function formatPlayerCountLabel(snapshot) {
 }
 
 function formatOnlinePlayers(snapshot) {
+  if (snapshot.playerNamesAvailable === false) {
+    return "Unavailable from API";
+  }
+
   if (!Array.isArray(snapshot.onlinePlayers)) {
     return "Not applicable";
   }
@@ -92,6 +96,25 @@ function formatDuration(uptimeMs) {
   }
 
   return `${minutes}m`;
+}
+
+function formatSatisfactoryServerInfo(snapshot) {
+  if (!snapshot.satisfactoryState) {
+    return [];
+  }
+
+  const { techTier, activeSchematic, gamePhase } = snapshot.satisfactoryState;
+  return [
+    "",
+    "**Tech Tier**",
+    techTier ?? "Unknown",
+    "",
+    "**Active Schematic**",
+    activeSchematic || "None",
+    "",
+    "**Game Phase**",
+    gamePhase || "None"
+  ];
 }
 
 function getStatusMeta(status) {
@@ -188,8 +211,9 @@ function buildServerEmbed(snapshot, footerText) {
             "**CPU**",
             formatCpu(snapshot.cpuPercent),
             "",
-            "**Duration**",
-            formatDuration(snapshot.gameDurationMs)
+            "**Total Game Duration**",
+            formatDuration(snapshot.gameDurationMs),
+            ...formatSatisfactoryServerInfo(snapshot)
           ].join("\n"),
           MAX_FIELD_VALUE_LENGTH
         ),

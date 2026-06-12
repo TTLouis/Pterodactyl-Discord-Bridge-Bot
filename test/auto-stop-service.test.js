@@ -266,3 +266,74 @@ test("status sync tracks whether any configured server has players", async () =>
   await service.syncOnce({ force: true });
   assert.equal(service.hasActivePlayers, false);
 });
+
+test("Satisfactory count changes emit generic join and leave notifications", async () => {
+  let playerCount = 0;
+  const messages = [];
+  const discordBridge = {
+    async upsertStatusPanel() {},
+    async sendMessage(channelId, content) {
+      messages.push({ channelId, content });
+    },
+    setSlashCommands() {},
+    onMessage() {},
+    onInteraction() {}
+  };
+  const server = {
+    name: "Factory",
+    discordChannelId: "factory-channel",
+    pterodactylServerId: "factory-id",
+    maxPlayers: 8,
+    game: {
+      type: "satisfactory",
+      apiUrl: "https://factory.example.com:7777/api/v1",
+      apiToken: "token",
+      allowInsecureTls: true,
+      chatCommandTemplate: null
+    },
+    autoStop: null
+  };
+  const service = new StatusSyncService({
+    config: {
+      discord: { statusChannelId: "status", displayTimeZone: "UTC" },
+      pterodactyl: { pollIntervalSeconds: 60, activePlayerPollIntervalSeconds: 15 },
+      servers: [server]
+    },
+    discordBridge,
+    pterodactylClient: {
+      async getServerResources() {
+        return { currentState: "running", cpuPercent: 1, memoryBytes: 1024 };
+      }
+    },
+    autoStopService: { async onRunningSnapshot() {} },
+    logger: { error() {}, warn() {}, info() {} }
+  });
+  service.adapters.set("factory-id", {
+    supportsConsoleSubscription() { return false; },
+    async fetchSnapshot(resources) {
+      return {
+        name: server.name,
+        description: "",
+        currentState: resources.currentState,
+        simplifiedStatus: "Online",
+        playerCount,
+        maxPlayers: 8,
+        onlinePlayers: null,
+        playerNamesAvailable: false,
+        cpuPercent: resources.cpuPercent,
+        memoryBytes: resources.memoryBytes
+      };
+    }
+  });
+
+  await service.syncOnce({ force: true });
+  playerCount = 2;
+  await service.syncOnce({ force: true });
+  playerCount = 1;
+  await service.syncOnce({ force: true });
+
+  assert.deepEqual(messages, [
+    { channelId: "factory-channel", content: "2 players joined **Factory**. (2/8)" },
+    { channelId: "factory-channel", content: "1 player left **Factory**. (1/8)" }
+  ]);
+});

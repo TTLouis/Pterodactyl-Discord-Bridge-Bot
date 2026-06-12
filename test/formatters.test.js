@@ -36,3 +36,33 @@ test("server descriptions still respect the Discord field length limit", () => {
   assert.ok(value.length <= 1024);
   assert.match(value, /\.\.\.$/);
 });
+
+test("status panels explain when player names are unavailable from the API", () => {
+  const snapshot = createSnapshot("");
+  snapshot.playerCount = 2;
+  snapshot.onlinePlayers = null;
+  snapshot.playerNamesAvailable = false;
+
+  const panel = buildStatusPanel([snapshot], { displayTimeZone: "UTC" });
+  const statusField = panel.embeds[0].toJSON().fields[1].value;
+
+  assert.match(statusField, /Unavailable from API/);
+});
+
+test("status panels include Satisfactory progression state in server infos", () => {
+  const snapshot = createSnapshot("");
+  snapshot.gameDurationMs = 93784000;
+  snapshot.satisfactoryState = {
+    techTier: 7,
+    activeSchematic: "Schematic_7-3",
+    gamePhase: "GamePhase_4"
+  };
+
+  const panel = buildStatusPanel([snapshot], { displayTimeZone: "UTC" });
+  const serverInfoField = panel.embeds[0].toJSON().fields[2].value;
+
+  assert.match(serverInfoField, /\*\*Total Game Duration\*\*\n1d 2h 3m/);
+  assert.match(serverInfoField, /\*\*Tech Tier\*\*\n7/);
+  assert.match(serverInfoField, /\*\*Active Schematic\*\*\nSchematic_7-3/);
+  assert.match(serverInfoField, /\*\*Game Phase\*\*\nGamePhase_4/);
+});

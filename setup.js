@@ -100,6 +100,7 @@ async function collectServer(index) {
     const token = await ask('Satisfactory API bearer token (press Enter to skip)');
     if (token) game.apiToken = token;
     game.allowInsecureTls = await askYN('Allow insecure TLS?', 'y');
+    game.apiRequestTimeoutSeconds = 10;
     hint('Most self-hosted Satisfactory servers use self-signed certificates');
   }
 

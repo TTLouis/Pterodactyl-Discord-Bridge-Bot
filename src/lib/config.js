@@ -99,11 +99,17 @@ function normalizeMinecraftGame(server) {
 }
 
 function normalizeSatisfactoryGame(server) {
+  const apiRequestTimeoutSeconds = normalizePositiveNumber(
+    server.game?.apiRequestTimeoutSeconds,
+    10
+  );
+
   return {
     type: "satisfactory",
     apiUrl: deriveSatisfactoryApiUrl(server),
     apiToken: server.game?.apiToken ?? null,
     allowInsecureTls: server.game?.allowInsecureTls ?? true,
+    apiRequestTimeoutMs: apiRequestTimeoutSeconds * 1000,
     chatCommandTemplate: server.game?.chatCommandTemplate ?? null
   };
 }
