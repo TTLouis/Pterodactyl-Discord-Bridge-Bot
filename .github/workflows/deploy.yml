@@ -22,6 +22,6 @@ jobs:
         run: |
           cd /opt/docker/discord-bot
           git fetch --prune origin main
-          git switch -C main origin/main
+          git reset --hard origin/main
           docker compose up -d --build --remove-orphans
           docker image prune -f
