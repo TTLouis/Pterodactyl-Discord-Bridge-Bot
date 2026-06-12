@@ -20,7 +20,7 @@ jobs:
     steps:
       - name: Deploy Discord bot
         run: |
-          cd /opt/DiscordBot
+          cd /opt/docker/DiscordBot
           git fetch --prune origin main
           git switch -C main origin/main
           docker compose up -d --build --remove-orphans
