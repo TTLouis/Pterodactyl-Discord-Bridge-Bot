@@ -54,15 +54,22 @@ test("status panels include Satisfactory progression state in server infos", () 
   snapshot.gameDurationMs = 93784000;
   snapshot.satisfactoryState = {
     techTier: 7,
-    activeSchematic: "Schematic_7-3",
-    gamePhase: "GamePhase_4"
+    activeSchematic: "Logistics Mk2",
+    gamePhase: "Project Assembly"
   };
 
   const panel = buildStatusPanel([snapshot], { displayTimeZone: "UTC" });
-  const serverInfoField = panel.embeds[0].toJSON().fields[2].value;
+  const serverInfoField = panel.embeds[0].toJSON().fields[2];
 
-  assert.match(serverInfoField, /\*\*Total Game Duration\*\*\n1d 2h 3m/);
-  assert.match(serverInfoField, /\*\*Tech Tier\*\*\n7/);
-  assert.match(serverInfoField, /\*\*Active Schematic\*\*\nSchematic_7-3/);
-  assert.match(serverInfoField, /\*\*Game Phase\*\*\nGamePhase_4/);
+  assert.equal(serverInfoField.name, "Server Infos");
+  assert.equal(serverInfoField.value, [
+    "**RAM:** 0 MiB",
+    "**CPU:** 1%",
+    "",
+    "**Total Game Duration**",
+    "**Time:** 1d 2h 3m",
+    "**Tier:** 7",
+    "**Game Phase:** Project Assembly",
+    "**Active Schematic:** Logistics Mk2"
+  ].join("\n"));
 });

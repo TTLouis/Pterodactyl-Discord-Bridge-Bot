@@ -40,8 +40,8 @@ test("QueryServerState reads the official PascalCase response fields", async () 
           NumConnectedPlayers: 3,
           PlayerLimit: 8,
           TechTier: 7,
-          ActiveSchematic: "Schematic_7-3",
-          GamePhase: "GamePhase_4",
+          ActiveSchematic: "/Script/FactoryGame.FGSchematic'/Game/FactoryGame/Schematics/Schematic_Logistics_Mk2.Schematic_Logistics_Mk2'",
+          GamePhase: "/Script/FactoryGame.FGGamePhase'/Game/FactoryGame/GamePhases/GP_Project_Assembly_Phase_0.GP_Project_Assembly_Phase_0'",
           IsGameRunning: true,
           TotalGameDuration: 42
         }
@@ -56,8 +56,8 @@ test("QueryServerState reads the official PascalCase response fields", async () 
       numConnectedPlayers: 3,
       playerLimit: 8,
       techTier: 7,
-      activeSchematic: "Schematic_7-3",
-      gamePhase: "GamePhase_4",
+      activeSchematic: "Logistics Mk2",
+      gamePhase: "Project Assembly",
       isGameRunning: true,
       totalGameDuration: 42
     });
