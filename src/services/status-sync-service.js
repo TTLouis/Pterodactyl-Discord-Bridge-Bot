@@ -5,6 +5,19 @@ import { buildStatusPanel } from "../lib/formatters.js";
 
 const DEBOUNCE_MS = 500;
 const CONSOLE_RELAY_WARMUP_MS = 5000;
+const DEFAULT_POLL_INTERVAL_SECONDS = 60;
+const DEFAULT_ACTIVE_PLAYER_POLL_INTERVAL_SECONDS = 15;
+
+export function getStatusRefreshIntervalMs(config, hasActivePlayers) {
+  const configuredSeconds = hasActivePlayers
+    ? config.pterodactyl?.activePlayerPollIntervalSeconds
+    : config.pterodactyl?.pollIntervalSeconds;
+  const fallbackSeconds = hasActivePlayers
+    ? DEFAULT_ACTIVE_PLAYER_POLL_INTERVAL_SECONDS
+    : DEFAULT_POLL_INTERVAL_SECONDS;
+  const seconds = Number(configuredSeconds);
+  return (Number.isFinite(seconds) && seconds > 0 ? seconds : fallbackSeconds) * 1000;
+}
 
 function formatDiscordRelayMessage(message) {
   return `**${message.authorName}**: ${message.content}`;
@@ -37,6 +50,9 @@ export class StatusSyncService {
     this.logger = logger;
     this.intervalHandle = null;
     this.debounceHandle = null;
+    this.started = false;
+    this.hasActivePlayers = false;
+    this.serverPlayerCounts = new Map();
     this.consoleUnsubscribers = new Map();
     this.serverOnlineStates = new Map();
     this.lastSnapshotKeys = new Map();
@@ -49,6 +65,7 @@ export class StatusSyncService {
   }
 
   async start() {
+    this.started = true;
     this.discordBridge.setSlashCommands(SLASH_COMMANDS);
 
     this.discordBridge.onMessage(async (message) => {
@@ -64,14 +81,14 @@ export class StatusSyncService {
     }
 
     await this.syncOnce();
-    this.intervalHandle = setInterval(() => {
-      void this.syncOnce({ force: true });
-    }, 5 * 60 * 1000);
+    this.#scheduleNextPeriodicSync();
   }
 
   async stop() {
+    this.started = false;
     if (this.intervalHandle) {
-      clearInterval(this.intervalHandle);
+      clearTimeout(this.intervalHandle);
+      this.intervalHandle = null;
     }
 
     if (this.debounceHandle) {
@@ -102,6 +119,7 @@ export class StatusSyncService {
         this.#syncConsoleBridge(server, adapter, resources.currentState);
         const snapshot = await adapter.fetchSnapshot(resources);
         snapshots.push(snapshot);
+        this.serverPlayerCounts.set(server.pterodactylServerId, Number(snapshot.playerCount ?? 0));
 
         const key = snapshotKey(snapshot);
         if (key !== this.lastSnapshotKeys.get(server.pterodactylServerId)) {
@@ -118,6 +136,12 @@ export class StatusSyncService {
       }
     }
 
+    const hadActivePlayers = this.hasActivePlayers;
+    this.hasActivePlayers = Array.from(this.serverPlayerCounts.values()).some((count) => count > 0);
+    if (hadActivePlayers !== this.hasActivePlayers && this.intervalHandle) {
+      this.#scheduleNextPeriodicSync();
+    }
+
     if (snapshots.length === 0 || !anyChanged) {
       return;
     }
@@ -128,6 +152,21 @@ export class StatusSyncService {
         displayTimeZone: this.config.discord.displayTimeZone
       })
     );
+  }
+
+  #scheduleNextPeriodicSync() {
+    if (!this.started) return;
+    if (this.intervalHandle) clearTimeout(this.intervalHandle);
+
+    const delayMs = getStatusRefreshIntervalMs(this.config, this.hasActivePlayers);
+    this.intervalHandle = setTimeout(async () => {
+      this.intervalHandle = null;
+      try {
+        await this.syncOnce({ force: true });
+      } finally {
+        this.#scheduleNextPeriodicSync();
+      }
+    }, delayMs);
   }
 
   #scheduleUpdate() {

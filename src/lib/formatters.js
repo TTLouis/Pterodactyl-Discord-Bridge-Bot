@@ -9,8 +9,7 @@ const STATUS_COLORS = {
 const MAX_FIELD_VALUE_LENGTH = 1024;
 const MAX_DESCRIPTION_LENGTH = 4096;
 const PLAYER_NAMES_MAX_LENGTH = 700;
-const DESCRIPTION_MAX_LENGTH = 350;
-const DESCRIPTION_WRAP_LENGTH = 12;
+const DESCRIPTION_MAX_LENGTH = 850;
 const STATUS_META = {
   Online: { emoji: "🟢", label: "Online" },
   Starting: { emoji: "🟡", label: "Starting" },
@@ -111,30 +110,12 @@ function truncate(value, maxLength) {
   return `${value.slice(0, maxLength - 3)}...`;
 }
 
-function wrapLine(value, width) {
-  const chunks = [];
-
-  for (let index = 0; index < value.length; index += width) {
-    chunks.push(value.slice(index, index + width));
-  }
-
-  return chunks.join("\n");
-}
-
-function wrapText(value, width) {
-  return String(value)
-    .split(/\r?\n/)
-    .map((line) => wrapLine(line, width))
-    .join("\n");
-}
-
 function formatDescription(snapshot) {
   if (!snapshot.description) {
-    return wrapText("No description", DESCRIPTION_WRAP_LENGTH);
+    return "No description";
   }
 
-  const description = truncate(snapshot.description, DESCRIPTION_MAX_LENGTH);
-  return wrapText(description, DESCRIPTION_WRAP_LENGTH);
+  return truncate(String(snapshot.description), DESCRIPTION_MAX_LENGTH);
 }
 
 function formatTimestamp(value, options) {
@@ -290,4 +271,3 @@ export function buildCommandReply(serverName, result) {
     "```"
   ].join("\n");
 }
-

@@ -38,6 +38,11 @@ function normalizeOptionalString(value) {
   return normalized || null;
 }
 
+function normalizePositiveNumber(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : fallback;
+}
+
 function normalizeAsciiTitle(server) {
   if (typeof server.asciiTitle === "string") {
     const value = server.asciiTitle.trim();
@@ -51,6 +56,15 @@ function normalizeAsciiTitle(server) {
   }
 
   return null;
+}
+
+export function normalizeDescription(server) {
+  if (Array.isArray(server.descriptionLines)) {
+    const value = server.descriptionLines.map((line) => String(line ?? "")).join("\n");
+    return value.trim() ? value : "";
+  }
+
+  return typeof server.description === "string" ? server.description.trim() : "";
 }
 
 function normalizeFactorioGame(server) {
@@ -110,7 +124,7 @@ function normalizeServer(server) {
   return {
     name: server.name,
     asciiTitle: normalizeAsciiTitle(server),
-    description: server.description ?? "",
+    description: normalizeDescription(server),
     publicAddress: server.publicAddress ?? "",
     publicPort: server.publicPort ?? null,
     maxPlayers: server.maxPlayers ?? null,
@@ -172,8 +186,12 @@ function validateConfig(config) {
   }
 }
 
+export function getConfigPath() {
+  return path.resolve(process.cwd(), process.env.CONFIG_PATH ?? "./servers.json");
+}
+
 export function loadConfig() {
-  const configPath = path.resolve(process.cwd(), process.env.CONFIG_PATH ?? "./servers.json");
+  const configPath = getConfigPath();
   if (!fs.existsSync(configPath)) {
     throw new Error(`Config file not found at ${configPath}`);
   }
@@ -188,7 +206,14 @@ export function loadConfig() {
     },
     pterodactyl: {
       ...rawConfig.pterodactyl,
-      pollIntervalSeconds: Number(process.env.PANEL_UPDATE_INTERVAL_SECONDS ?? rawConfig.pterodactyl?.pollIntervalSeconds ?? 60),
+      pollIntervalSeconds: normalizePositiveNumber(
+        process.env.PANEL_UPDATE_INTERVAL_SECONDS ?? rawConfig.pterodactyl?.pollIntervalSeconds,
+        60
+      ),
+      activePlayerPollIntervalSeconds: normalizePositiveNumber(
+        process.env.ACTIVE_PLAYER_UPDATE_INTERVAL_SECONDS ?? rawConfig.pterodactyl?.activePlayerPollIntervalSeconds,
+        15
+      ),
       wingsFqdn: process.env.PTERODACTYL_WINGS_FQDN || null,
       wingsWsScheme: process.env.PTERODACTYL_WINGS_WS_SCHEME || null,
       wingsWsPort: process.env.PTERODACTYL_WINGS_WS_PORT || null
@@ -203,4 +228,3 @@ export function loadConfig() {
     config
   };
 }
-

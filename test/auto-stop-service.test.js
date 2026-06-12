@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { PermissionFlagsBits } from "discord.js";
 import { AutoStopService, canRestartExternallyStoppedServer } from "../src/services/auto-stop-service.js";
-import { StatusSyncService } from "../src/services/status-sync-service.js";
+import { getStatusRefreshIntervalMs, StatusSyncService } from "../src/services/status-sync-service.js";
 
 function interactionWith({ administrator = false, roles = [] } = {}) {
   return {
@@ -199,4 +199,70 @@ test("rejected or no-op start requests do not trigger an extra status sync", asy
   await service.stop();
 
   assert.deepEqual(syncCalls, [undefined]);
+});
+
+test("status refresh uses a faster interval while players are online", () => {
+  const config = {
+    pterodactyl: {
+      pollIntervalSeconds: 60,
+      activePlayerPollIntervalSeconds: 15
+    }
+  };
+
+  assert.equal(getStatusRefreshIntervalMs(config, false), 60000);
+  assert.equal(getStatusRefreshIntervalMs(config, true), 15000);
+});
+
+test("status sync tracks whether any configured server has players", async () => {
+  let playerCount = 2;
+  const discordBridge = {
+    async upsertStatusPanel() {},
+    setSlashCommands() {},
+    onMessage() {},
+    onInteraction() {}
+  };
+  const server = {
+    name: "Test Server",
+    discordChannelId: "server-channel",
+    pterodactylServerId: "server-id",
+    game: { type: "minecraft", chatCommandTemplate: "/say {content}" },
+    autoStop: null
+  };
+  const service = new StatusSyncService({
+    config: {
+      discord: { statusChannelId: "status", displayTimeZone: "UTC" },
+      pterodactyl: { pollIntervalSeconds: 60, activePlayerPollIntervalSeconds: 15 },
+      servers: [server]
+    },
+    discordBridge,
+    pterodactylClient: {
+      async getServerResources() {
+        return { currentState: "running", cpuPercent: 1, memoryBytes: 1024 };
+      }
+    },
+    autoStopService: { async onRunningSnapshot() {} },
+    logger: { error() {}, warn() {}, info() {} }
+  });
+  service.adapters.set("server-id", {
+    supportsConsoleSubscription() { return false; },
+    async fetchSnapshot(resources) {
+      return {
+        name: server.name,
+        description: "",
+        currentState: resources.currentState,
+        simplifiedStatus: "Online",
+        playerCount,
+        onlinePlayers: playerCount > 0 ? ["Player One", "Player Two"].slice(0, playerCount) : [],
+        cpuPercent: resources.cpuPercent,
+        memoryBytes: resources.memoryBytes
+      };
+    }
+  });
+
+  await service.syncOnce({ force: true });
+  assert.equal(service.hasActivePlayers, true);
+
+  playerCount = 0;
+  await service.syncOnce({ force: true });
+  assert.equal(service.hasActivePlayers, false);
 });
