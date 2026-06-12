@@ -87,6 +87,48 @@ function toNumberOrNull(value) {
   return Number.isFinite(normalized) ? normalized : null;
 }
 
+function formatObjectName(value, { prefixes = [], suffixes = [] } = {}) {
+  let normalized = String(value ?? "").trim();
+  if (!normalized || normalized.toLowerCase() === "none") {
+    return "";
+  }
+
+  normalized = normalized
+    .replace(/^.*[/.]/, "")
+    .replace(/^['"]+|['"]+$/g, "")
+    .replace(/_C$/i, "");
+
+  for (const prefix of prefixes) {
+    normalized = normalized.replace(prefix, "");
+  }
+
+  for (const suffix of suffixes) {
+    normalized = normalized.replace(suffix, "");
+  }
+
+  return normalized
+    .replace(/[_-]+/g, " ")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .map((word) => word ? `${word[0].toUpperCase()}${word.slice(1)}` : "")
+    .join(" ");
+}
+
+function formatGamePhase(value) {
+  return formatObjectName(value, {
+    prefixes: [/^GP_/i, /^GamePhase_/i],
+    suffixes: [/_Phase_\d+$/i]
+  });
+}
+
+function formatActiveSchematic(value) {
+  return formatObjectName(value, {
+    prefixes: [/^BP_/i, /^Schematic_/i]
+  });
+}
+
 export class SatisfactoryClient {
   async queryServerState(serverConfig) {
     const data = await this.#call(serverConfig, "QueryServerState");
@@ -97,8 +139,8 @@ export class SatisfactoryClient {
       numConnectedPlayers: toNumberOrNull(pickValue(serverGameState, ["numConnectedPlayers", "NumConnectedPlayers"], 0)),
       playerLimit: toNumberOrNull(pickValue(serverGameState, ["playerLimit", "PlayerLimit"], serverConfig.maxPlayers)),
       techTier: toNumberOrNull(pickValue(serverGameState, ["techTier", "TechTier"])),
-      activeSchematic: String(pickValue(serverGameState, ["activeSchematic", "ActiveSchematic"], "") ?? ""),
-      gamePhase: String(pickValue(serverGameState, ["gamePhase", "GamePhase"], "") ?? ""),
+      activeSchematic: formatActiveSchematic(pickValue(serverGameState, ["activeSchematic", "ActiveSchematic"], "")),
+      gamePhase: formatGamePhase(pickValue(serverGameState, ["gamePhase", "GamePhase"], "")),
       isGameRunning: Boolean(pickValue(serverGameState, ["isGameRunning", "IsGameRunning"], false)),
       totalGameDuration: toNumberOrNull(pickValue(serverGameState, ["totalGameDuration", "TotalGameDuration"]))
     };

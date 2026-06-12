@@ -98,23 +98,28 @@ function formatDuration(uptimeMs) {
   return `${minutes}m`;
 }
 
-function formatSatisfactoryServerInfo(snapshot) {
-  if (!snapshot.satisfactoryState) {
-    return [];
+function buildServerInfoField(snapshot) {
+  const durationLines = [`**Time:** ${formatDuration(snapshot.gameDurationMs)}`];
+
+  if (snapshot.satisfactoryState) {
+    const { techTier, activeSchematic, gamePhase } = snapshot.satisfactoryState;
+    durationLines.push(
+      `**Tier:** ${techTier ?? "Unknown"}`,
+      `**Game Phase:** ${gamePhase || "None"}`,
+      `**Active Schematic:** ${activeSchematic || "None"}`
+    );
   }
 
-  const { techTier, activeSchematic, gamePhase } = snapshot.satisfactoryState;
-  return [
-    "",
-    "**Tech Tier**",
-    techTier ?? "Unknown",
-    "",
-    "**Active Schematic**",
-    activeSchematic || "None",
-    "",
-    "**Game Phase**",
-    gamePhase || "None"
-  ];
+  return {
+    name: "Server Infos",
+    value: [
+      `**RAM:** ${formatMemory(snapshot.memoryBytes)}`,
+      `**CPU:** ${formatCpu(snapshot.cpuPercent)}`,
+      "",
+      "**Total Game Duration**",
+      ...durationLines
+    ].join("\n")
+  };
 }
 
 function getStatusMeta(status) {
@@ -176,6 +181,7 @@ function buildServerEmbed(snapshot, footerText) {
   const address = formatAddress(snapshot);
   const onlinePlayers = truncate(formatOnlinePlayers(snapshot), PLAYER_NAMES_MAX_LENGTH);
   const asciiBlock = formatAsciiBlock(snapshot);
+  const serverInfo = buildServerInfoField(snapshot);
 
   const embed = new EmbedBuilder()
     .setColor(getStatusColor(snapshot.simplifiedStatus))
@@ -202,21 +208,8 @@ function buildServerEmbed(snapshot, footerText) {
         inline: true
       },
       {
-        name: "Server Infos",
-        value: truncate(
-          [
-            "**RAM**",
-            formatMemory(snapshot.memoryBytes),
-            "",
-            "**CPU**",
-            formatCpu(snapshot.cpuPercent),
-            "",
-            "**Total Game Duration**",
-            formatDuration(snapshot.gameDurationMs),
-            ...formatSatisfactoryServerInfo(snapshot)
-          ].join("\n"),
-          MAX_FIELD_VALUE_LENGTH
-        ),
+        name: serverInfo.name,
+        value: truncate(serverInfo.value, MAX_FIELD_VALUE_LENGTH),
         inline: true
       }
     ])
