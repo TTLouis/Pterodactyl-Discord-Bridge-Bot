@@ -29,6 +29,15 @@ function resolveDisplayTimeZone(discordConfig) {
   }
 }
 
+function normalizeOptionalString(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim();
+  return normalized || null;
+}
+
 function normalizeAsciiTitle(server) {
   if (typeof server.asciiTitle === "string") {
     const value = server.asciiTitle.trim();
@@ -173,7 +182,9 @@ export function loadConfig() {
   const config = {
     discord: {
       ...rawConfig.discord,
-      displayTimeZone: resolveDisplayTimeZone(rawConfig.discord)
+      displayTimeZone: resolveDisplayTimeZone(rawConfig.discord),
+      serverAdminRoleId: normalizeOptionalString(rawConfig.discord?.serverAdminRoleId),
+      serverAdminRoleName: normalizeOptionalString(rawConfig.discord?.serverAdminRoleName) ?? "server-admin"
     },
     pterodactyl: {
       ...rawConfig.pterodactyl,
@@ -192,5 +203,4 @@ export function loadConfig() {
     config
   };
 }
-
 
