@@ -4,6 +4,7 @@ import https from "node:https";
 const HTTP_AGENT = new http.Agent({ keepAlive: true });
 const HTTPS_AGENT = new https.Agent({ keepAlive: true });
 const HTTPS_INSECURE_AGENT = new https.Agent({ keepAlive: true, rejectUnauthorized: false });
+const DEFAULT_REQUEST_TIMEOUT_MS = 10000;
 
 function normalizeApiUrl(value) {
   const url = new URL(value);
@@ -25,7 +26,7 @@ function parseJsonResponse(text, url, statusCode) {
   }
 }
 
-function requestJson(url, { headers, body, allowInsecureTls }) {
+function requestJson(url, { headers, body, allowInsecureTls, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS }) {
   const transport = url.protocol === "http:" ? http : https;
   const agent = url.protocol === "http:"
     ? HTTP_AGENT
@@ -59,6 +60,9 @@ function requestJson(url, { headers, body, allowInsecureTls }) {
     );
 
     request.on("error", reject);
+    request.setTimeout(timeoutMs, () => {
+      request.destroy(new Error(`Satisfactory API request to ${url} timed out after ${timeoutMs}ms`));
+    });
     request.write(body);
     request.end();
   });
@@ -92,6 +96,9 @@ export class SatisfactoryClient {
       activeSessionName: pickValue(serverGameState, ["activeSessionName", "ActiveSessionName"], ""),
       numConnectedPlayers: toNumberOrNull(pickValue(serverGameState, ["numConnectedPlayers", "NumConnectedPlayers"], 0)),
       playerLimit: toNumberOrNull(pickValue(serverGameState, ["playerLimit", "PlayerLimit"], serverConfig.maxPlayers)),
+      techTier: toNumberOrNull(pickValue(serverGameState, ["techTier", "TechTier"])),
+      activeSchematic: String(pickValue(serverGameState, ["activeSchematic", "ActiveSchematic"], "") ?? ""),
+      gamePhase: String(pickValue(serverGameState, ["gamePhase", "GamePhase"], "") ?? ""),
       isGameRunning: Boolean(pickValue(serverGameState, ["isGameRunning", "IsGameRunning"], false)),
       totalGameDuration: toNumberOrNull(pickValue(serverGameState, ["totalGameDuration", "TotalGameDuration"]))
     };
@@ -103,8 +110,11 @@ export class SatisfactoryClient {
     });
     const commandResult = String(pickValue(data, ["commandResult", "CommandResult"], ""));
 
+    const returnValue = pickValue(data, ["returnValue", "ReturnValue"]);
+
     return {
-      returnValue: Boolean(pickValue(data, ["returnValue", "ReturnValue"], false)),
+      command,
+      returnValue: returnValue === undefined || returnValue === null ? true : Boolean(returnValue),
       commandResult,
       outputLines: commandResult
         .split(/\r?\n/)
@@ -127,7 +137,8 @@ export class SatisfactoryClient {
         "Content-Length": Buffer.byteLength(body)
       },
       body,
-      allowInsecureTls: serverConfig.game.allowInsecureTls
+      allowInsecureTls: serverConfig.game.allowInsecureTls,
+      timeoutMs: serverConfig.game.apiRequestTimeoutMs
     });
 
     const payload = parseJsonResponse(responseBody, url, statusCode);

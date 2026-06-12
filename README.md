@@ -13,7 +13,8 @@ Supports **Factorio**, **Minecraft**, and **Satisfactory**.
 Current Satisfactory limitations:
 
 - No game → Discord chat relay
-- Player names depend on the server accepting `ListPlayers` via the HTTPS API
+- The official API exposes connected player counts, but not player names
+- Join/leave notifications are count-based and may group multiple changes between polls
 
 ## Setup
 
@@ -159,6 +160,7 @@ The bot runs outside of Pterodactyl — on a separate VM or host — and talks t
         "type": "satisfactory",
         "apiToken": "YOUR_SATISFACTORY_API_TOKEN",
         "allowInsecureTls": true,
+        "apiRequestTimeoutSeconds": 10,
         "chatCommandTemplate": null
       }
     }
@@ -173,6 +175,7 @@ Key notes:
 - `discord.logChannelId` is optional — mirrors logger output into a Discord channel
 - Satisfactory API tokens are application tokens generated from the server console with `server.GenerateAPIToken`
 - Satisfactory often uses self-signed TLS; `game.allowInsecureTls` defaults to `true`
+- `game.apiRequestTimeoutSeconds` defaults to `10` so an unavailable Satisfactory API cannot stall all status updates
 - `asciiTitleLines` (array) or `asciiTitle` (single string with `\n`) both work for the ASCII title block
 - `descriptionLines` preserves manual line breaks, blank lines, Unicode, and Discord Markdown; the older `description` string remains supported
 - `pterodactyl.pollIntervalSeconds` controls empty-server refreshes; `activePlayerPollIntervalSeconds` defaults to `15` seconds while any server has players

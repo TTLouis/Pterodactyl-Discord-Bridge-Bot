@@ -78,6 +78,7 @@
         "type": "satisfactory",
         "apiToken": "YOUR_SATISFACTORY_API_TOKEN",
         "allowInsecureTls": true,
+        "apiRequestTimeoutSeconds": 10,
         "chatCommandTemplate": null
       }
     }
