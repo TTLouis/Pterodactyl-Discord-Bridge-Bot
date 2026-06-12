@@ -75,8 +75,6 @@ Copy these files to the target host, then run `docker compose up -d --build`:
 - `package.json`, `package-lock.json`, `src/`
 - `.env`, `servers.json`
 
-Alternatively, this repo includes a self-hosted GitHub Actions workflow at [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) that rebuilds and restarts the container on every push to `main`. It targets a self-hosted Linux runner with the `DiscordBot` label at `/opt/DiscordBot`.
-
 ## Hosting
 
 The bot runs outside of Pterodactyl — on a separate VM or host — and talks to the panel through the client API and WebSocket. One bot process can manage several Pterodactyl servers.
