@@ -47,6 +47,31 @@ test("live reload updates server objects in place", () => {
   assert.equal(current.discord.displayTimeZone, "America/Toronto");
 });
 
+test("live reload applies polling interval changes", () => {
+  const current = createConfig();
+  const originalPterodactyl = current.pterodactyl;
+  const next = createConfig();
+  next.pterodactyl.pollIntervalSeconds = 300;
+  next.pterodactyl.activePlayerPollIntervalSeconds = 30;
+
+  applyReloadedConfig(current, next);
+
+  assert.equal(current.pterodactyl, originalPterodactyl);
+  assert.equal(current.pterodactyl.pollIntervalSeconds, 300);
+  assert.equal(current.pterodactyl.activePlayerPollIntervalSeconds, 30);
+});
+
+test("live reload still rejects Pterodactyl connection changes", () => {
+  const current = createConfig();
+  const next = createConfig();
+  next.pterodactyl.baseUrl = "https://different-panel.example.com";
+
+  assert.throws(
+    () => validateReloadCompatibility(current, next),
+    /Pterodactyl connection settings changed/
+  );
+});
+
 test("live reload rejects structural server changes", () => {
   const current = createConfig();
   const next = createConfig();

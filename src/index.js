@@ -52,6 +52,7 @@ async function main() {
     async onReload(nextConfig) {
       applyReloadedConfig(runtime.config, nextConfig);
       await statusSyncService.syncOnce({ force: true });
+      statusSyncService.refreshPeriodicSchedule();
     }
   });
   configReloadService.start();

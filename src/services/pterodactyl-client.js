@@ -121,7 +121,14 @@ export class PterodactylClient {
     return credentials;
   }
 
-  subscribeToConsole(serverId, { onConnected, onLine, onError, onStatusChange, reconnectDelayMs = 5000 } = {}) {
+  subscribeToConsole(serverId, {
+    onConnected,
+    onLine,
+    onError,
+    onStatusChange,
+    sendLogs = true,
+    reconnectDelayMs = 5000
+  } = {}) {
     let ws = null;
     let reconnectHandle = null;
     let stopped = false;
@@ -212,8 +219,10 @@ export class PterodactylClient {
 
           if (payload.event === "auth success") {
             consoleConnectedAt = Date.now();
-            awaitingInitialLogs = true;
-            nextSocket.send(JSON.stringify({ event: "send logs", args: [null] }));
+            awaitingInitialLogs = sendLogs;
+            if (sendLogs) {
+              nextSocket.send(JSON.stringify({ event: "send logs", args: [null] }));
+            }
             onConnected?.();
             return;
           }

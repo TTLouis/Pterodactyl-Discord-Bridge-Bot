@@ -43,6 +43,10 @@ function normalizePositiveNumber(value, fallback) {
   return Number.isFinite(number) && number > 0 ? number : fallback;
 }
 
+export function resolvePollingInterval(configValue, environmentValue, fallback) {
+  return normalizePositiveNumber(configValue ?? environmentValue, fallback);
+}
+
 function normalizeAsciiTitle(server) {
   if (typeof server.asciiTitle === "string") {
     const value = server.asciiTitle.trim();
@@ -212,12 +216,14 @@ export function loadConfig() {
     },
     pterodactyl: {
       ...rawConfig.pterodactyl,
-      pollIntervalSeconds: normalizePositiveNumber(
-        process.env.PANEL_UPDATE_INTERVAL_SECONDS ?? rawConfig.pterodactyl?.pollIntervalSeconds,
+      pollIntervalSeconds: resolvePollingInterval(
+        rawConfig.pterodactyl?.pollIntervalSeconds,
+        process.env.PANEL_UPDATE_INTERVAL_SECONDS,
         60
       ),
-      activePlayerPollIntervalSeconds: normalizePositiveNumber(
-        process.env.ACTIVE_PLAYER_UPDATE_INTERVAL_SECONDS ?? rawConfig.pterodactyl?.activePlayerPollIntervalSeconds,
+      activePlayerPollIntervalSeconds: resolvePollingInterval(
+        rawConfig.pterodactyl?.activePlayerPollIntervalSeconds,
+        process.env.ACTIVE_PLAYER_UPDATE_INTERVAL_SECONDS,
         15
       ),
       wingsFqdn: process.env.PTERODACTYL_WINGS_FQDN || null,

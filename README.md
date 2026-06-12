@@ -178,7 +178,7 @@ Key notes:
 - `game.apiRequestTimeoutSeconds` defaults to `10` so an unavailable Satisfactory API cannot stall all status updates
 - `asciiTitleLines` (array) or `asciiTitle` (single string with `\n`) both work for the ASCII title block
 - `descriptionLines` preserves manual line breaks, blank lines, Unicode, and Discord Markdown; the older `description` string remains supported
-- `pterodactyl.pollIntervalSeconds` controls empty-server refreshes; `activePlayerPollIntervalSeconds` defaults to `15` seconds while any server has players
+- `pterodactyl.pollIntervalSeconds` controls empty-server refreshes; `activePlayerPollIntervalSeconds` defaults to `15` seconds while any server has players. Values in `servers.json` take precedence over legacy interval environment variables and reload without a restart
 - Saving a valid `servers.json` automatically refreshes display settings such as descriptions, names, addresses, player limits, timezone, and auto-stop values
 - Server additions/removals, IDs, channel mappings, game settings, Discord channel IDs, and Pterodactyl connection changes require a bot restart
 - Invalid JSON or an invalid live change is logged and the bot continues using the previous configuration
