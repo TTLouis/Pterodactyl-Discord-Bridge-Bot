@@ -428,12 +428,7 @@ function formatActionControls(reactions) {
   return `Discord 操作：${reactions.join(" ")}`;
 }
 
-export function buildKookActionMessage(payload, { reactions = [] } = {}) {
-  const embed = extractPrimaryEmbed(payload);
-  const content = typeof payload?.content === "string" ? payload.content.trim() : "";
-  const title = translateTitle(embed?.title ?? (content ? "服务器通知" : null));
-  const description = translateDescription(embed?.description ?? content);
-  const controls = formatActionControls(reactions);
+function buildActionCard({ title, description, color = "#64748b", theme = "secondary", controls = null }) {
   const modules = [
     {
       type: "header",
@@ -459,10 +454,110 @@ export function buildKookActionMessage(payload, { reactions = [] } = {}) {
     type: 10,
     content: JSON.stringify([{
       type: "card",
-      theme: themeFromColor(embed?.color),
-      color: colorToHex(embed?.color),
+      theme,
+      color,
       size: "lg",
       modules
     }])
   };
+}
+
+export function buildKookActionMessage(payload, { reactions = [] } = {}) {
+  const embed = extractPrimaryEmbed(payload);
+  const content = typeof payload?.content === "string" ? payload.content.trim() : "";
+  const title = translateTitle(embed?.title ?? (content ? "服务器通知" : null));
+  const description = translateDescription(embed?.description ?? content);
+
+  return buildActionCard({
+    title,
+    description,
+    color: colorToHex(embed?.color),
+    theme: themeFromColor(embed?.color),
+    controls: formatActionControls(reactions)
+  });
+}
+
+export function buildKookActionMessageForEvent(event) {
+  switch (event.kind) {
+    case "activity-cancelled":
+      return buildActionCard({
+        title: `✅ 自动停止已取消：${event.server.name}`,
+        description: "有玩家加入服务器。空闲计时器已重置。",
+        color: "#22c55e",
+        theme: "success"
+      });
+    case "auto-stop-warning":
+      return buildActionCard({
+        title: `⚠️ 自动停止警告：${event.server.name}`,
+        description: "当前没有玩家在线。服务器将按计划自动停止。",
+        color: "#f97316",
+        theme: "warning",
+        controls: "Discord 操作：🔴"
+      });
+    case "auto-stopped":
+      return buildActionCard({
+        title: `🔴 服务器已自动停止：${event.server.name}`,
+        description: "服务器因无人活动已自动停止。",
+        color: "#ef4444",
+        theme: "danger",
+        controls: "Discord 操作：🟢"
+      });
+    case "manual-stopped":
+      return buildActionCard({
+        title: `🔴 服务器已被外部停止：${event.server.name}`,
+        description: "此服务器在机器人外被停止。可在 Discord 重启。",
+        color: "#ef4444",
+        theme: "danger",
+        controls: "Discord 操作：🟢"
+      });
+    case "server-online": {
+      const requestedBy = event.startInfo?.startedBy
+        ? `\n\n启动请求来自 **${event.startInfo.startedBy}**。`
+        : "";
+      return buildActionCard({
+        title: `🟢 服务器在线：${event.server.name}`,
+        description: `服务器已重新上线。${requestedBy}`,
+        color: "#22c55e",
+        theme: "success"
+      });
+    }
+    case "server-starting-requested":
+      return buildActionCard({
+        title: `🟡 正在启动服务器：${event.server.name}`,
+        description: `服务器启动请求来自 **${event.requestedBy}**。应很快上线。`,
+        color: "#eab308",
+        theme: "warning"
+      });
+    case "auto-stop-cancelled":
+      return buildActionCard({
+        title: `✅ 自动停止已取消：${event.server.name}`,
+        description: `自动停止已由 **${event.cancelledBy}** 取消。空闲计时器已重置。`,
+        color: "#22c55e",
+        theme: "success"
+      });
+    case "server-starting-state":
+      return buildActionCard({
+        title: `🟡 服务器启动中：${event.server.name}`,
+        description: "服务器正在启动。启动过程中暂不能重启。",
+        color: "#eab308",
+        theme: "warning"
+      });
+    case "server-stopping-state":
+      return buildActionCard({
+        title: `🟠 服务器关闭中：${event.server.name}`,
+        description: "服务器正在关闭。离线后可在 Discord 重启。",
+        color: "#f97316",
+        theme: "warning"
+      });
+    case "server-offline":
+      return buildActionCard({
+        title: `🔴 服务器离线：${event.server.name}`,
+        description: "服务器当前离线。",
+        color: "#ef4444",
+        theme: "danger",
+        controls: "Discord 操作：🟢"
+      });
+    default:
+      return null;
+  }
 }

@@ -1,7 +1,7 @@
 {
-  "name": "discord-pterodactyl-bridge",
+  "name": "pterodactyl-platform-bridge",
   "version": "0.2.1",
-  "description": "Discord bot that syncs Pterodactyl server status and bridges game-server events into Discord channels.",
+  "description": "Multi-platform bot that syncs Pterodactyl game-server status and events into chat platforms.",
   "type": "module",
   "main": "src/index.js",
   "scripts": {

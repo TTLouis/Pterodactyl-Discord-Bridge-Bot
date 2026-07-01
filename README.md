@@ -1,6 +1,6 @@
-# Discord + Pterodactyl Bridge
+# Pterodactyl Platform Bridge
 
-A Discord bot that monitors Pterodactyl game servers and posts live status panels into Discord.
+A multi-platform bot that monitors Pterodactyl game servers and posts live status panels and server events into chat platforms.
 
 Supports **Factorio**, **Minecraft**, and **Satisfactory**.
 
@@ -79,6 +79,12 @@ Copy these files to the target host, then run `docker compose up -d --build`:
 ## Hosting
 
 The bot runs outside of Pterodactyl — on a separate VM or host — and talks to the panel through the client API and WebSocket. One bot process can manage several Pterodactyl servers.
+
+## Runtime Architecture
+
+The server polling, power-state tracking, and auto-stop decisions run in core services. Those services publish domain events such as status panel updates, action messages, game chat relays, and server notices. Discord and KOOK each have platform listeners that render those same events into platform-specific messages.
+
+Discord still owns slash command and reaction inputs. KOOK currently mirrors core output events when `KOOK_ENABLED=true`.
 
 ## Config Reference
 

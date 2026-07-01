@@ -1,13 +1,7 @@
 import { FactorioAdapter } from "../adapters/factorio-adapter.js";
 import { MinecraftAdapter } from "../adapters/minecraft-adapter.js";
 import { SatisfactoryAdapter } from "../adapters/satisfactory-adapter.js";
-import {
-  buildServerOfflineEmbed,
-  buildServerOnlineEmbed,
-  buildServerStartingStateEmbed,
-  buildServerStoppingStateEmbed,
-  buildStatusPanel
-} from "../lib/formatters.js";
+import { CoreEvents } from "../core/core-events.js";
 import { CANCEL_AUTO_STOP_REACTION, RESTART_SERVER_REACTION } from "./auto-stop-service.js";
 
 const DEBOUNCE_MS = 500;
@@ -25,10 +19,6 @@ export function getStatusRefreshIntervalMs(config, hasActivePlayers) {
     : DEFAULT_POLL_INTERVAL_SECONDS;
   const seconds = Number(configuredSeconds);
   return (Number.isFinite(seconds) && seconds > 0 ? seconds : fallbackSeconds) * 1000;
-}
-
-function formatDiscordRelayMessage(message) {
-  return `**${message.authorName}**: ${message.content}`;
 }
 
 function snapshotKey(snapshot) {
@@ -81,9 +71,10 @@ const SLASH_COMMANDS = [
 ];
 
 export class StatusSyncService {
-  constructor({ config, discordBridge, pterodactylClient, autoStopService, stateStore, logger }) {
+  constructor({ config, discordBridge, eventBus, pterodactylClient, autoStopService, stateStore, logger }) {
     this.config = config;
     this.discordBridge = discordBridge;
+    this.eventBus = eventBus;
     this.pterodactylClient = pterodactylClient;
     this.autoStopService = autoStopService;
     this.stateStore = stateStore;
@@ -219,17 +210,11 @@ export class StatusSyncService {
       return;
     }
 
-    await this.discordBridge.upsertStatusPanel(
-      this.config.discord.statusChannelId,
-      buildStatusPanel(snapshots, {
-        displayTimeZone: this.config.discord.displayTimeZone
-      }),
-      { snapshots }
-    );
+    await this.eventBus.emit(CoreEvents.STATUS_PANEL_UPDATED, { snapshots });
 
     const refreshReason = reason ?? (force ? "scheduled" : snapshotChanged ? "state-change" : "manual");
     if (refreshReason !== "scheduled") {
-      this.logger.info("Discord status panel refreshed", {
+      this.logger.info("Status panels refreshed", {
         reason: refreshReason,
         durationMs: Date.now() - startedAt,
         activePlayersPresent: this.hasActivePlayers,
@@ -442,7 +427,10 @@ export class StatusSyncService {
     }
 
     try {
-      await this.discordBridge.sendMessage(server.discordChannelId, formatDiscordRelayMessage(relayMessage));
+      await this.eventBus.emit(CoreEvents.GAME_CHAT_RELAY, {
+        server,
+        ...relayMessage
+      });
     } catch (error) {
       this.logger.error(`Failed forwarding game chat for ${server.name}`, error);
     }
@@ -491,15 +479,21 @@ export class StatusSyncService {
 
   async #notifyServerStateChange(server, currentState, { previousState }) {
     if (currentState === "starting") {
-      await this.discordBridge.replaceActionMessage(server.discordChannelId, {
-        embeds: [buildServerStartingStateEmbed(server.name)]
+      await this.eventBus.emit(CoreEvents.SERVER_ACTION_MESSAGE, {
+        kind: "server-starting-state",
+        server,
+        previousState,
+        currentState
       });
       return;
     }
 
     if (currentState === "stopping") {
-      await this.discordBridge.replaceActionMessage(server.discordChannelId, {
-        embeds: [buildServerStoppingStateEmbed(server.name)]
+      await this.eventBus.emit(CoreEvents.SERVER_ACTION_MESSAGE, {
+        kind: "server-stopping-state",
+        server,
+        previousState,
+        currentState
       });
       return;
     }
@@ -516,23 +510,28 @@ export class StatusSyncService {
     // Generic notifications for servers without auto-stop.
     try {
       if (currentState === "offline") {
-        await this.discordBridge.replaceActionMessage(server.discordChannelId, {
-          embeds: [buildServerOfflineEmbed(server.name, currentState)]
-        }, {
-          reactions: [RESTART_SERVER_REACTION]
+        await this.eventBus.emit(CoreEvents.SERVER_ACTION_MESSAGE, {
+          kind: "server-offline",
+          server,
+          previousState,
+          currentState
         });
       } else if (currentState === "running") {
-        await this.discordBridge.replaceActionMessage(server.discordChannelId, {
-          embeds: [buildServerOnlineEmbed(server.name, this.#getLastStartInfo(server))]
+        await this.eventBus.emit(CoreEvents.SERVER_ACTION_MESSAGE, {
+          kind: "server-online",
+          server,
+          previousState,
+          currentState,
+          startInfo: this.#getLastStartInfo(server)
         });
       } else {
-        this.logger.info(`No Discord action message for unhandled ${server.name} state transition`, {
+        this.logger.info(`No action message for unhandled ${server.name} state transition`, {
           previousState,
           currentState
         });
       }
     } catch (error) {
-      this.logger.warn(`Failed sending state-change notification for ${server.name}`, error);
+      this.logger.warn(`Failed publishing state-change notification for ${server.name}`, error);
     }
   }
 
@@ -554,16 +553,19 @@ export class StatusSyncService {
 
     const changedPlayers = Math.abs(delta);
     const action = delta > 0 ? "joined" : "left";
-    const noun = changedPlayers === 1 ? "player" : "players";
     const maxPlayers = snapshot.maxPlayers ?? server.maxPlayers ?? "?";
 
     try {
-      await this.discordBridge.sendMessage(
-        server.discordChannelId,
-        `${changedPlayers} ${noun} ${action} **${server.name}**. (${currentPlayerCount}/${maxPlayers})`
-      );
+      await this.eventBus.emit(CoreEvents.SERVER_NOTICE, {
+        kind: "satisfactory-player-count",
+        server,
+        changedPlayers,
+        action,
+        playerCount: currentPlayerCount,
+        maxPlayers
+      });
     } catch (error) {
-      this.logger.warn(`Failed sending Satisfactory player-count event for ${server.name}`, error);
+      this.logger.warn(`Failed publishing Satisfactory player-count event for ${server.name}`, error);
     }
   }
 
@@ -656,9 +658,13 @@ export class StatusSyncService {
     } catch (error) {
       this.logger.error(`Failed processing Discord message for ${server.name}`, error);
       try {
-        await this.discordBridge.sendMessage(server.discordChannelId, `Relay failed: ${error.message}`);
+        await this.eventBus.emit(CoreEvents.SERVER_NOTICE, {
+          kind: "relay-failed",
+          server,
+          message: error.message
+        });
       } catch (sendError) {
-        this.logger.warn(`Failed sending relay error to Discord for ${server.name}`, sendError);
+        this.logger.warn(`Failed publishing relay error for ${server.name}`, sendError);
       }
     }
   }

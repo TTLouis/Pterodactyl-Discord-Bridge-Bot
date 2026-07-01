@@ -1,13 +1,13 @@
 services:
   discord-bot:
-    image: discord-pterodactyl-bridge:latest
+    image: pterodactyl-platform-bridge:latest
     build:
       context: .
     restart: unless-stopped
     init: true
 
     # Give NPM / Pterodactyl / DNS time to come up after VM reboot
-    command: sh -c "echo 'Waiting 30s before starting Discord bot...'; sleep 30; exec node src/index.js"
+    command: sh -c "echo 'Waiting 30s before starting platform bridge...'; sleep 30; exec node src/index.js"
 
     env_file:
       - .env
