@@ -286,6 +286,28 @@ export function buildServerOnlineEmbed(serverName) {
     .setDescription("Server is back online.");
 }
 
+export function buildServerStartingStateEmbed(serverName) {
+  return new EmbedBuilder()
+    .setColor(0xeab308)
+    .setTitle(`🟡 Server starting: ${serverName}`)
+    .setDescription("Server is starting. Restart is not available while startup is in progress.");
+}
+
+export function buildServerStoppingStateEmbed(serverName) {
+  return new EmbedBuilder()
+    .setColor(0xf97316)
+    .setTitle(`🟠 Server stopping: ${serverName}`)
+    .setDescription("Server is stopping. Restart will be available once it is offline.");
+}
+
+export function buildServerOfflineEmbed(serverName, currentState = "offline") {
+  const stateText = currentState && currentState !== "offline" ? ` (status: ${currentState})` : "";
+  return new EmbedBuilder()
+    .setColor(0xef4444)
+    .setTitle(`🔴 Server offline: ${serverName}`)
+    .setDescription(`Server is offline${stateText}.\n\nReact 🟢 to restart the server.`);
+}
+
 export function buildCancelStopEmbed(serverName, cancelledBy) {
   return new EmbedBuilder()
     .setColor(0x22c55e)

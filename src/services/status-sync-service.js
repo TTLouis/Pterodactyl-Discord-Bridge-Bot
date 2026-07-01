@@ -1,11 +1,18 @@
 import { FactorioAdapter } from "../adapters/factorio-adapter.js";
 import { MinecraftAdapter } from "../adapters/minecraft-adapter.js";
 import { SatisfactoryAdapter } from "../adapters/satisfactory-adapter.js";
-import { buildServerOnlineEmbed, buildStatusPanel } from "../lib/formatters.js";
+import {
+  buildServerOfflineEmbed,
+  buildServerOnlineEmbed,
+  buildServerStartingStateEmbed,
+  buildServerStoppingStateEmbed,
+  buildStatusPanel
+} from "../lib/formatters.js";
 import { CANCEL_AUTO_STOP_REACTION, RESTART_SERVER_REACTION } from "./auto-stop-service.js";
 
 const DEBOUNCE_MS = 500;
 const CONSOLE_RELAY_WARMUP_MS = 5000;
+const POWER_STATE_OVERRIDE_TTL_MS = 10 * 60 * 1000;
 const DEFAULT_POLL_INTERVAL_SECONDS = 60;
 const DEFAULT_ACTIVE_PLAYER_POLL_INTERVAL_SECONDS = 15;
 
@@ -51,6 +58,22 @@ function summarizeSnapshot(snapshot) {
   };
 }
 
+function shouldApplyCachedPowerState(cachedState, resourceState) {
+  if (cachedState === resourceState) {
+    return false;
+  }
+
+  if (cachedState === "starting" && resourceState === "running") {
+    return false;
+  }
+
+  if (cachedState === "stopping" && resourceState === "offline") {
+    return false;
+  }
+
+  return true;
+}
+
 const SLASH_COMMANDS = [
   { name: "start-server", description: "Start a stopped game server" },
   { name: "cancel-stop", description: "Cancel a pending auto-stop" }
@@ -71,6 +94,7 @@ export class StatusSyncService {
     this.serverPlayerCounts = new Map();
     this.consoleUnsubscribers = new Map();
     this.serverOnlineStates = new Map();
+    this.serverPowerStates = new Map();
     this.lastSnapshotKeys = new Map();
     this.initialSnapshotLogged = false;
     this.adapters = new Map(
@@ -143,7 +167,8 @@ export class StatusSyncService {
       const adapter = this.adapters.get(server.pterodactylServerId);
 
       try {
-        const resources = await this.pterodactylClient.getServerResources(server.pterodactylServerId);
+        const rawResources = await this.pterodactylClient.getServerResources(server.pterodactylServerId);
+        const resources = this.#applyCachedPowerState(server, rawResources);
         this.#syncConsoleBridge(server, adapter, resources.currentState);
         const rawSnapshot = await adapter.fetchSnapshot(resources);
         const snapshot = this.#hydrateCachedSnapshot(server, rawSnapshot);
@@ -283,6 +308,46 @@ export class StatusSyncService {
     };
   }
 
+  #applyCachedPowerState(server, resources) {
+    if (!this.stateStore) {
+      return resources;
+    }
+
+    const runtimeState = this.stateStore.getServerRuntimeState(server.pterodactylServerId);
+    const cachedState = runtimeState.lastPowerState;
+    const cachedAt = runtimeState.lastPowerStateSeenAt;
+    if (!cachedState || typeof cachedAt !== "number") {
+      return resources;
+    }
+
+    const cacheAgeMs = Date.now() - cachedAt;
+    if (
+      cacheAgeMs < 0
+      || cacheAgeMs > POWER_STATE_OVERRIDE_TTL_MS
+      || !shouldApplyCachedPowerState(cachedState, resources.currentState)
+    ) {
+      return resources;
+    }
+
+    return {
+      ...resources,
+      currentState: cachedState,
+      rawCurrentState: resources.currentState,
+      powerStateCached: true
+    };
+  }
+
+  #cachePowerState(server, currentState) {
+    if (!this.stateStore) {
+      return;
+    }
+
+    this.stateStore.setServerRuntimeState(server.pterodactylServerId, {
+      lastPowerState: currentState,
+      lastPowerStateSeenAt: Date.now()
+    });
+  }
+
   #syncConsoleBridge(server, adapter, currentState) {
     const serverId = server.pterodactylServerId;
     const existing = this.consoleUnsubscribers.get(serverId);
@@ -371,64 +436,65 @@ export class StatusSyncService {
   }
 
   async #checkServerStateChange(server, currentState) {
-    const isOnline = this.#isServerOnline(currentState);
-    const previouslyOnline = this.serverOnlineStates.get(server.pterodactylServerId);
-    this.serverOnlineStates.set(server.pterodactylServerId, isOnline);
+    this.serverOnlineStates.set(server.pterodactylServerId, this.#isServerRunning(currentState));
+    const previousState = this.serverPowerStates.get(server.pterodactylServerId);
+    this.serverPowerStates.set(server.pterodactylServerId, currentState);
 
-    if (previouslyOnline === undefined) return;
+    if (previousState === undefined || previousState === currentState) return;
 
-    const wentOffline = previouslyOnline && !isOnline;
-    const cameOnline = !previouslyOnline && isOnline;
-
-    if (!wentOffline && !cameOnline) return;
-
-    this.logger.info("Polling detected server state transition", {
+    this.logger.info("Polling detected power-state transition", {
       server: server.name,
       serverId: server.pterodactylServerId,
-      previousOnline: previouslyOnline,
-      currentState,
-      wentOffline,
-      cameOnline
+      previousState,
+      currentState
     });
-    await this.#notifyServerStateChange(server, currentState, { wentOffline, cameOnline });
+    await this.#notifyServerStateChange(server, currentState, { previousState });
   }
 
   async #handlePowerStateEvent(server, currentState) {
-    const isOnline = this.#isServerOnline(currentState);
-    const previouslyOnline = this.serverOnlineStates.get(server.pterodactylServerId);
-    this.serverOnlineStates.set(server.pterodactylServerId, isOnline);
+    this.#cachePowerState(server, currentState);
+    this.serverOnlineStates.set(server.pterodactylServerId, this.#isServerRunning(currentState));
+    const previousState = this.serverPowerStates.get(server.pterodactylServerId);
+    this.serverPowerStates.set(server.pterodactylServerId, currentState);
 
-    if (previouslyOnline === undefined) return;
-
-    const wentOffline = previouslyOnline && !isOnline;
-    const cameOnline = !previouslyOnline && isOnline;
-
-    if (!wentOffline && !cameOnline) return;
+    if (previousState === undefined || previousState === currentState) return;
 
     try {
-      this.logger.info("Power-state event detected server transition", {
+      this.logger.info("Power-state event detected transition", {
         server: server.name,
         serverId: server.pterodactylServerId,
-        previousOnline: previouslyOnline,
-        currentState,
-        wentOffline,
-        cameOnline
+        previousState,
+        currentState
       });
-      await this.#notifyServerStateChange(server, currentState, { wentOffline, cameOnline });
+      await this.#notifyServerStateChange(server, currentState, { previousState });
     } catch (error) {
       this.logger.warn(`Failed handling power-state event for ${server.name}`, error);
     }
   }
 
-  #isServerOnline(currentState) {
+  #isServerRunning(currentState) {
     return currentState === "running";
   }
 
-  async #notifyServerStateChange(server, currentState, { wentOffline }) {
+  async #notifyServerStateChange(server, currentState, { previousState }) {
+    if (currentState === "starting") {
+      await this.discordBridge.replaceActionMessage(server.discordChannelId, {
+        embeds: [buildServerStartingStateEmbed(server.name)]
+      });
+      return;
+    }
+
+    if (currentState === "stopping") {
+      await this.discordBridge.replaceActionMessage(server.discordChannelId, {
+        embeds: [buildServerStoppingStateEmbed(server.name)]
+      });
+      return;
+    }
+
     if (server.autoStop?.enabled) {
-      if (wentOffline) {
+      if (currentState === "offline") {
         await this.autoStopService.onWentOffline(server);
-      } else {
+      } else if (currentState === "running") {
         await this.autoStopService.onCameOnline(server);
       }
       return;
@@ -436,15 +502,20 @@ export class StatusSyncService {
 
     // Generic notifications for servers without auto-stop.
     try {
-      if (wentOffline) {
-        await this.discordBridge.replaceActionMessage(
-          server.discordChannelId,
-          `Server went offline (status: ${currentState}).\n\nReact ${RESTART_SERVER_REACTION} to restart the server.`,
-          { reactions: [RESTART_SERVER_REACTION] }
-        );
-      } else {
+      if (currentState === "offline") {
+        await this.discordBridge.replaceActionMessage(server.discordChannelId, {
+          embeds: [buildServerOfflineEmbed(server.name, currentState)]
+        }, {
+          reactions: [RESTART_SERVER_REACTION]
+        });
+      } else if (currentState === "running") {
         await this.discordBridge.replaceActionMessage(server.discordChannelId, {
           embeds: [buildServerOnlineEmbed(server.name)]
+        });
+      } else {
+        this.logger.info(`No Discord action message for unhandled ${server.name} state transition`, {
+          previousState,
+          currentState
         });
       }
     } catch (error) {

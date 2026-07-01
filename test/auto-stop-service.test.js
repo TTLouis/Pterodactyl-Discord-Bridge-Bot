@@ -748,3 +748,96 @@ test("external power-state stop events notify before the debounced status refres
   assert.deepEqual(offlineNotifications, ["Factory"]);
   await service.stop();
 });
+
+test("starting power-state events do not offer restart and override stale offline panel state", async () => {
+  const currentState = "offline";
+  let statusHandler = null;
+  const actionMessages = [];
+  const panelStates = [];
+  const runtimeState = {};
+  const server = {
+    name: "Factory",
+    discordChannelId: "factory-channel",
+    pterodactylServerId: "factory-id",
+    maxPlayers: 8,
+    game: {
+      type: "satisfactory",
+      apiUrl: "https://factory.example.com:7777/api/v1",
+      apiToken: "token",
+      allowInsecureTls: true,
+      chatCommandTemplate: null
+    },
+    autoStop: null
+  };
+  const service = new StatusSyncService({
+    config: {
+      discord: { statusChannelId: "status", displayTimeZone: "UTC" },
+      pterodactyl: { pollIntervalSeconds: 60, activePlayerPollIntervalSeconds: 15 },
+      servers: [server]
+    },
+    discordBridge: {
+      async upsertStatusPanel(channelId, panel) {
+        panelStates.push(panel.embeds[0].toJSON().fields[1].value);
+      },
+      async sendMessage() {},
+      async replaceActionMessage(channelId, payload, options = {}) {
+        actionMessages.push({ channelId, payload, options });
+      },
+      setSlashCommands() {},
+      onMessage() {},
+      onInteraction() {},
+      onReaction() {}
+    },
+    pterodactylClient: {
+      subscribeToConsole(serverId, options) {
+        assert.equal(serverId, "factory-id");
+        statusHandler = options.onStatusChange;
+        return () => {};
+      },
+      async getServerResources() {
+        return { currentState, cpuPercent: 1, memoryBytes: 1024 };
+      }
+    },
+    autoStopService: { async onRunningSnapshot() {} },
+    stateStore: {
+      getServerRuntimeState(serverId) {
+        return runtimeState[serverId] ?? {};
+      },
+      setServerRuntimeState(serverId, updates) {
+        runtimeState[serverId] = { ...(runtimeState[serverId] ?? {}), ...updates };
+      }
+    },
+    logger: { error() {}, warn() {}, info() {} }
+  });
+  service.adapters.set("factory-id", {
+    supportsConsoleSubscription() { return false; },
+    async fetchSnapshot(resources) {
+      return {
+        name: server.name,
+        description: "",
+        currentState: resources.currentState,
+        simplifiedStatus: resources.currentState === "starting" ? "Starting" : "Offline",
+        playerCount: 0,
+        maxPlayers: 8,
+        onlinePlayers: [],
+        playerNamesAvailable: false,
+        cpuPercent: resources.cpuPercent,
+        memoryBytes: resources.memoryBytes,
+        gameDurationMs: null
+      };
+    }
+  });
+
+  await service.start();
+  assert.equal(typeof statusHandler, "function");
+
+  statusHandler("starting");
+  await new Promise((resolve) => setTimeout(resolve, 650));
+
+  const startEmbed = actionMessages.at(-1).payload.embeds[0].toJSON();
+  assert.match(startEmbed.title, /Server starting/);
+  assert.deepEqual(actionMessages.at(-1).options, {});
+  assert.match(panelStates.at(-1), /Starting/);
+  assert.doesNotMatch(panelStates.at(-1), /Offline/);
+  await service.stop();
+});
