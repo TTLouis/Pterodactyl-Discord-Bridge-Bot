@@ -1,4 +1,4 @@
-import { ChannelType, Client, Events, GatewayIntentBits, REST, Routes } from "discord.js";
+import { ChannelType, Client, Events, GatewayIntentBits, Partials, REST, Routes } from "discord.js";
 
 export class DiscordBridge {
   constructor({ token, guildId, stateStore, logger }) {
@@ -7,10 +7,17 @@ export class DiscordBridge {
     this.stateStore = stateStore;
     this.logger = logger;
     this.client = new Client({
-      intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
+      intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.GuildMessageReactions,
+        GatewayIntentBits.MessageContent
+      ],
+      partials: [Partials.Message, Partials.Channel, Partials.Reaction, Partials.User]
     });
     this.handlers = [];
     this.interactionHandlers = [];
+    this.reactionHandlers = [];
     this.slashCommands = [];
   }
 
@@ -20,6 +27,10 @@ export class DiscordBridge {
 
   onInteraction(handler) {
     this.interactionHandlers.push(handler);
+  }
+
+  onReaction(handler) {
+    this.reactionHandlers.push(handler);
   }
 
   setSlashCommands(commands) {
@@ -57,6 +68,10 @@ export class DiscordBridge {
       }
     });
 
+    this.client.on(Events.MessageReactionAdd, async (reaction, user) => {
+      await this.#handleReaction(reaction, user);
+    });
+
     await this.client.login(this.token);
   }
 
@@ -67,6 +82,32 @@ export class DiscordBridge {
   async sendMessage(channelId, content) {
     const channel = await this.#getTextChannel(channelId);
     return channel.send(content);
+  }
+
+  async replaceActionMessage(channelId, content, { reactions = [] } = {}) {
+    const channel = await this.#getTextChannel(channelId);
+    const previousMessageId = this.stateStore.getActionMessageId(channelId);
+
+    if (previousMessageId) {
+      try {
+        await channel.messages.delete(previousMessageId);
+      } catch (error) {
+        this.logger.warn(`Failed to delete previous action message ${previousMessageId}.`, error);
+      }
+    }
+
+    const message = await channel.send(content);
+    this.stateStore.setActionMessageId(channelId, message.id);
+
+    for (const reaction of reactions) {
+      try {
+        await message.react(reaction);
+      } catch (error) {
+        this.logger.warn(`Failed to add reaction ${reaction} to action message ${message.id}.`, error);
+      }
+    }
+
+    return message;
   }
 
   async deleteMessage(channelId, messageId) {
@@ -120,6 +161,49 @@ export class DiscordBridge {
       this.logger.info(`Registered ${this.slashCommands.length} slash commands`);
     } catch (error) {
       this.logger.error("Failed to register slash commands", error);
+    }
+  }
+
+  async #handleReaction(reaction, user) {
+    try {
+      if (reaction.partial) {
+        reaction = await reaction.fetch();
+      }
+      if (user.partial) {
+        user = await user.fetch();
+      }
+    } catch (error) {
+      this.logger.warn("Failed to fetch partial Discord reaction payload.", error);
+      return;
+    }
+
+    const message = reaction.message;
+    if (user.bot || !message.guild || message.guild.id !== this.guildId) {
+      return;
+    }
+
+    let member = null;
+    try {
+      member = await message.guild.members.fetch(user.id);
+    } catch (error) {
+      this.logger.warn(`Failed to fetch guild member for reaction user ${user.id}.`, error);
+    }
+
+    const payload = {
+      channelId: message.channelId,
+      messageId: message.id,
+      emoji: reaction.emoji.name,
+      member,
+      user,
+      userId: user.id,
+      displayName: member?.displayName ?? user.globalName ?? user.username,
+      removeUserReaction: async () => {
+        await reaction.users.remove(user.id);
+      }
+    };
+
+    for (const handler of this.reactionHandlers) {
+      await handler(payload);
     }
   }
 

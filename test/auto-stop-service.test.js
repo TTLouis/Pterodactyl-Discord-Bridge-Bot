@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { PermissionFlagsBits } from "discord.js";
-import { AutoStopService, canRestartExternallyStoppedServer } from "../src/services/auto-stop-service.js";
+import {
+  AutoStopService,
+  CANCEL_AUTO_STOP_REACTION,
+  RESTART_SERVER_REACTION,
+  canRestartExternallyStoppedServer
+} from "../src/services/auto-stop-service.js";
 import { getStatusRefreshIntervalMs, StatusSyncService } from "../src/services/status-sync-service.js";
 
 function interactionWith({ administrator = false, roles = [] } = {}) {
@@ -79,10 +84,15 @@ function createStartCommandService(autoStopState) {
         powerRequests += 1;
       }
     },
-    discordBridge: {},
+    discordBridge: {
+      async replaceActionMessage() {}
+    },
     stateStore: {
       getAutoStopState() {
         return autoStopState;
+      },
+      getActionMessageId() {
+        return null;
       },
       clearAutoStopState() {
         clearedStates += 1;
@@ -133,6 +143,162 @@ test("unauthorized members cannot restart a manually stopped server", async () =
   assert.equal(getClearedStates(), 0);
 });
 
+function createAutoStopService({ autoStopState = {}, resources = { currentState: "offline" } } = {}) {
+  const messages = [];
+  const powerRequests = [];
+  let actionMessageId = null;
+  let nextMessageId = 1;
+  const state = { ...autoStopState };
+  const service = new AutoStopService({
+    config: {
+      discord: {
+        serverAdminRoleId: "role-123",
+        serverAdminRoleName: "server-admin"
+      }
+    },
+    pterodactylClient: {
+      async getServerResources() {
+        return resources;
+      },
+      async setPowerState(serverId, powerState) {
+        powerRequests.push({ serverId, powerState });
+      }
+    },
+    discordBridge: {
+      async replaceActionMessage(channelId, content, options = {}) {
+        const message = { id: `message-${nextMessageId++}` };
+        actionMessageId = message.id;
+        messages.push({ channelId, content, options, messageId: message.id });
+        return message;
+      },
+      async deleteMessage() {}
+    },
+    stateStore: {
+      getAutoStopState() {
+        return state;
+      },
+      setAutoStopState(serverId, updates) {
+        Object.assign(state, updates);
+      },
+      clearAutoStopState() {
+        for (const key of Object.keys(state)) {
+          delete state[key];
+        }
+      },
+      getActionMessageId() {
+        return actionMessageId;
+      }
+    },
+    logger: { error() {}, warn() {}, info() {} }
+  });
+
+  return {
+    service,
+    messages,
+    powerRequests,
+    state,
+    setActionMessageId(value) {
+      actionMessageId = value;
+      const match = /^message-(\d+)$/.exec(value);
+      if (match) {
+        nextMessageId = Math.max(nextMessageId, Number(match[1]) + 1);
+      }
+    }
+  };
+}
+
+const autoStopServer = {
+  name: "Factory",
+  discordChannelId: "factory-channel",
+  pterodactylServerId: "factory-id",
+  autoStop: {
+    enabled: true,
+    emptyTimeoutHours: 1,
+    warningMinutesBefore: 60
+  }
+};
+
+test("auto-stop warning replaces the action message and adds the red cancel reaction", async () => {
+  const { service, messages, state } = createAutoStopService({
+    autoStopState: { lastNonEmptyAt: Date.now() - 1000 }
+  });
+
+  await service.onRunningSnapshot(autoStopServer, 0);
+
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].channelId, "factory-channel");
+  assert.deepEqual(messages[0].options.reactions, [CANCEL_AUTO_STOP_REACTION]);
+  assert.equal(state.warningMessageId, "message-1");
+  assert.equal(typeof state.warningSentAt, "number");
+});
+
+test("auto-stop sends a fresh restartable stopped message before stopping the server", async () => {
+  const { service, messages, powerRequests, state } = createAutoStopService({
+    autoStopState: { lastNonEmptyAt: Date.now() - 3600001 }
+  });
+
+  await service.onRunningSnapshot(autoStopServer, 0);
+
+  assert.deepEqual(messages[0].options.reactions, [RESTART_SERVER_REACTION]);
+  assert.deepEqual(powerRequests, [{ serverId: "factory-id", powerState: "stop" }]);
+  assert.equal(state.stoppedByBot, true);
+  assert.equal(state.warningMessageId, null);
+});
+
+test("red reaction cancels a pending auto-stop from the current action message", async () => {
+  let removed = false;
+  const { service, messages, state, setActionMessageId } = createAutoStopService({
+    autoStopState: {
+      lastNonEmptyAt: Date.now() - 1000,
+      warningSentAt: Date.now() - 100,
+      warningMessageId: "message-1"
+    }
+  });
+  setActionMessageId("message-1");
+
+  const cancelled = await service.handleCancelStopReaction(autoStopServer, {
+    messageId: "message-1",
+    emoji: CANCEL_AUTO_STOP_REACTION,
+    userId: "user-1",
+    displayName: "Tester",
+    async removeUserReaction() {
+      removed = true;
+    }
+  });
+
+  assert.equal(cancelled, true);
+  assert.equal(removed, true);
+  assert.equal(state.warningSentAt, null);
+  assert.equal(state.warningMessageId, null);
+  assert.equal(messages.at(-1).messageId, "message-2");
+  assert.equal(messages.at(-1).options.reactions, undefined);
+});
+
+test("green reaction starts an auto-stopped server from the current action message", async () => {
+  let removed = false;
+  const { service, messages, powerRequests, state, setActionMessageId } = createAutoStopService({
+    autoStopState: { stoppedByBot: true }
+  });
+  setActionMessageId("message-1");
+
+  const started = await service.handleStartReaction(autoStopServer, {
+    messageId: "message-1",
+    emoji: RESTART_SERVER_REACTION,
+    userId: "user-1",
+    displayName: "Tester",
+    member: interactionWith(),
+    async removeUserReaction() {
+      removed = true;
+    }
+  });
+
+  assert.equal(started, true);
+  assert.equal(removed, true);
+  assert.deepEqual(powerRequests, [{ serverId: "factory-id", powerState: "start" }]);
+  assert.deepEqual(state, {});
+  assert.equal(messages.at(-1).channelId, "factory-channel");
+});
+
 function createStatusService(startRequested) {
   let interactionHandler = null;
   const discordBridge = {
@@ -140,7 +306,8 @@ function createStatusService(startRequested) {
     onMessage() {},
     onInteraction(handler) {
       interactionHandler = handler;
-    }
+    },
+    onReaction() {}
   };
   const autoStopService = {
     async handleStartCommand() {
@@ -219,7 +386,8 @@ test("status sync tracks whether any configured server has players", async () =>
     async upsertStatusPanel() {},
     setSlashCommands() {},
     onMessage() {},
-    onInteraction() {}
+    onInteraction() {},
+    onReaction() {}
   };
   const server = {
     name: "Test Server",
@@ -280,7 +448,8 @@ test("Satisfactory count changes emit generic join and leave notifications", asy
     },
     setSlashCommands() {},
     onMessage() {},
-    onInteraction() {}
+    onInteraction() {},
+    onReaction() {}
   };
   const server = {
     name: "Factory",
@@ -374,9 +543,11 @@ test("Satisfactory power-state events trigger a debounced status refresh", async
         panelStates.push(panel.embeds[0].toJSON().fields[1].value);
       },
       async sendMessage() {},
+      async replaceActionMessage() {},
       setSlashCommands() {},
       onMessage() {},
-      onInteraction() {}
+      onInteraction() {},
+      onReaction() {}
     },
     pterodactylClient: {
       subscribeToConsole(serverId, options) {

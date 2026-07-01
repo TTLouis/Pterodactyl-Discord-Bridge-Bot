@@ -8,7 +8,7 @@ Supports **Factorio**, **Minecraft**, and **Satisfactory**.
 
 - Live status panel per server, updated every minute (player list, CPU/memory, game duration)
 - Discord ↔ game chat relay for Factorio and Minecraft; optional relay for Satisfactory
-- Idle auto-stop with `/start-server` and `/cancel-stop` slash commands
+- Idle auto-stop with `/start-server` and `/cancel-stop` slash commands, plus reaction controls
 
 Current Satisfactory limitations:
 
@@ -183,4 +183,5 @@ Key notes:
 - Server additions/removals, IDs, channel mappings, game settings, Discord channel IDs, and Pterodactyl connection changes require a bot restart
 - Invalid JSON or an invalid live change is logged and the bot continues using the previous configuration
 - `autoStop.emptyTimeoutHours` defaults to `24`; `warningMinutesBefore` defaults to `60`
+- Server action messages use 🔴 to cancel a pending auto-stop and 🟢 to restart a stopped server
 - Override `CONFIG_PATH` and `STATE_PATH` env vars if you want config or runtime state at custom paths
