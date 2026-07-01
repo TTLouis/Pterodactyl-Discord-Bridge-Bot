@@ -271,6 +271,20 @@ export function buildServerStartingEmbed(serverName, requestedBy) {
     .setDescription(`Server start requested by **${requestedBy}**. It should be online shortly.`);
 }
 
+export function buildStartRequestedEmbed(serverName) {
+  return new EmbedBuilder()
+    .setColor(0xeab308)
+    .setTitle(`🟡 Start requested: ${serverName}`)
+    .setDescription("The start request was accepted. The server action message has been updated.");
+}
+
+export function buildServerOnlineEmbed(serverName) {
+  return new EmbedBuilder()
+    .setColor(0x22c55e)
+    .setTitle(`🟢 Server online: ${serverName}`)
+    .setDescription("Server is back online.");
+}
+
 export function buildCancelStopEmbed(serverName, cancelledBy) {
   return new EmbedBuilder()
     .setColor(0x22c55e)

@@ -5,6 +5,8 @@ import {
   buildAutoStoppedEmbed,
   buildCancelStopEmbed,
   buildManuallyStoppedEmbed,
+  buildServerOnlineEmbed,
+  buildStartRequestedEmbed,
   buildServerStartingEmbed
 } from "../lib/formatters.js";
 
@@ -157,7 +159,9 @@ export class AutoStopService {
   async onCameOnline(server) {
     this.stateStore.clearAutoStopState(server.pterodactylServerId);
     try {
-      await this.discordBridge.replaceActionMessage(server.discordChannelId, "Server is back online.");
+      await this.discordBridge.replaceActionMessage(server.discordChannelId, {
+        embeds: [buildServerOnlineEmbed(server.name)]
+      });
     } catch (error) {
       this.logger.error(`Failed to send online notification for ${server.name}`, error);
     }
@@ -182,7 +186,7 @@ export class AutoStopService {
         });
       },
       onAccepted: async () => {
-        await interaction.reply({ content: "Start requested.", ephemeral: true });
+        await interaction.reply({ embeds: [buildStartRequestedEmbed(server.name)], ephemeral: true });
       },
       onFailure: async () => {
         await interaction.followUp({ content: "Failed to send the start signal. Check the panel.", ephemeral: true });
