@@ -40,7 +40,22 @@ async function main() {
   const logChannelId = runtime.config.discord.logChannelId;
   if (logChannelId) {
     logger.attachDiscordSink((content) => discordBridge.sendMessage(logChannelId, content));
-    logger.info("Discord log sink attached");
+    logger.info("Discord log sink attached", {
+      guildId: runtime.config.discord.guildId,
+      statusChannelId: runtime.config.discord.statusChannelId,
+      logChannelId,
+      serverCount: runtime.config.servers.length,
+      pollIntervalSeconds: runtime.config.pterodactyl.pollIntervalSeconds,
+      activePlayerPollIntervalSeconds: runtime.config.pterodactyl.activePlayerPollIntervalSeconds,
+      servers: runtime.config.servers.map((server) => ({
+        name: server.name,
+        type: server.game.type,
+        discordChannelId: server.discordChannelId,
+        pterodactylServerId: server.pterodactylServerId,
+        autoStopEnabled: Boolean(server.autoStop?.enabled),
+        discordRelayEnabled: Boolean(server.game.chatCommandTemplate)
+      }))
+    });
   }
 
   await statusSyncService.start();

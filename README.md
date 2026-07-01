@@ -172,7 +172,7 @@ Key notes:
 
 - `pterodactylServerId` is the client server identifier used by `/api/client/servers/{id}`
 - `discord.displayTimeZone` accepts any IANA timezone (e.g. `America/Toronto`); also overridable via `DISCORD_DISPLAY_TIMEZONE`
-- `discord.logChannelId` is optional — mirrors logger output into a Discord channel
+- `discord.logChannelId` is optional — mirrors logger output into a Discord channel, including startup configuration, server snapshots, status refreshes, console bridge subscriptions, and power-state transitions
 - Satisfactory API tokens are application tokens generated from the server console with `server.GenerateAPIToken`
 - Satisfactory often uses self-signed TLS; `game.allowInsecureTls` defaults to `true`
 - `game.apiRequestTimeoutSeconds` defaults to `10` so an unavailable Satisfactory API cannot stall all status updates

@@ -40,6 +40,17 @@ function isConsoleRelayWarmingUp(connectedAt) {
   return Date.now() - connectedAt < CONSOLE_RELAY_WARMUP_MS;
 }
 
+function summarizeSnapshot(snapshot) {
+  return {
+    name: snapshot.name,
+    state: snapshot.currentState,
+    status: snapshot.simplifiedStatus,
+    players: `${snapshot.playerCount ?? 0}/${snapshot.maxPlayers ?? "?"}`,
+    playerNamesAvailable: snapshot.playerNamesAvailable !== false,
+    onlinePlayers: Array.isArray(snapshot.onlinePlayers) ? snapshot.onlinePlayers.slice(0, 10) : null
+  };
+}
+
 const SLASH_COMMANDS = [
   { name: "start-server", description: "Start a stopped game server" },
   { name: "cancel-stop", description: "Cancel a pending auto-stop" }
@@ -60,6 +71,7 @@ export class StatusSyncService {
     this.consoleUnsubscribers = new Map();
     this.serverOnlineStates = new Map();
     this.lastSnapshotKeys = new Map();
+    this.initialSnapshotLogged = false;
     this.adapters = new Map(
       config.servers.map((server) => [
         server.pterodactylServerId,
@@ -120,8 +132,11 @@ export class StatusSyncService {
   }
 
   async syncOnce({ force = false } = {}) {
+    const startedAt = Date.now();
     const snapshots = [];
     let anyChanged = force || this.lastSnapshotKeys.size === 0;
+    let snapshotChanged = this.lastSnapshotKeys.size === 0;
+    const failedServers = [];
 
     for (const server of this.config.servers) {
       const adapter = this.adapters.get(server.pterodactylServerId);
@@ -138,6 +153,7 @@ export class StatusSyncService {
         const key = snapshotKey(snapshot);
         if (key !== this.lastSnapshotKeys.get(server.pterodactylServerId)) {
           anyChanged = true;
+          snapshotChanged = true;
           this.lastSnapshotKeys.set(server.pterodactylServerId, key);
         }
 
@@ -150,6 +166,7 @@ export class StatusSyncService {
           await this.autoStopService.onRunningSnapshot(server, snapshot.playerCount ?? 0);
         }
       } catch (error) {
+        failedServers.push(server.name);
         this.logger.error(`Failed syncing ${server.name}`, error);
       }
     }
@@ -158,6 +175,16 @@ export class StatusSyncService {
     this.hasActivePlayers = Array.from(this.serverPlayerCounts.values()).some((count) => count > 0);
     if (hadActivePlayers !== this.hasActivePlayers && this.intervalHandle) {
       this.#scheduleNextPeriodicSync();
+    }
+
+    if (snapshots.length > 0 && !this.initialSnapshotLogged) {
+      this.initialSnapshotLogged = true;
+      this.logger.info("Initial server snapshot", {
+        durationMs: Date.now() - startedAt,
+        activePlayersPresent: this.hasActivePlayers,
+        failedServers,
+        servers: snapshots.map(summarizeSnapshot)
+      });
     }
 
     if (snapshots.length === 0 || !anyChanged) {
@@ -170,6 +197,14 @@ export class StatusSyncService {
         displayTimeZone: this.config.discord.displayTimeZone
       })
     );
+
+    this.logger.info("Discord status panel refreshed", {
+      reason: force ? "scheduled" : snapshotChanged ? "state-change" : "manual",
+      durationMs: Date.now() - startedAt,
+      activePlayersPresent: this.hasActivePlayers,
+      failedServers,
+      servers: snapshots.map(summarizeSnapshot)
+    });
   }
 
   #scheduleNextPeriodicSync() {
@@ -237,6 +272,13 @@ export class StatusSyncService {
       return;
     }
 
+    this.logger.info("Console bridge subscribing", {
+      server: server.name,
+      serverId,
+      consoleRelayEnabled: supportsConsole,
+      requestedInitialLogs: supportsConsole
+    });
+
     const unsubscribe = this.pterodactylClient.subscribeToConsole(serverId, {
       onConnected: () => {
         if (supportsConsole && currentState === "running") {
@@ -250,6 +292,7 @@ export class StatusSyncService {
         : undefined,
       onStatusChange: (newState) => {
         this.logger.info(`${server.name} power state changed to: ${newState}`);
+        void this.#handlePowerStateEvent(server, newState);
         this.#scheduleUpdate();
       },
       onError: (error) => {
@@ -299,7 +342,7 @@ export class StatusSyncService {
   }
 
   async #checkServerStateChange(server, currentState) {
-    const isOnline = currentState === "running";
+    const isOnline = this.#isServerOnline(currentState);
     const previouslyOnline = this.serverOnlineStates.get(server.pterodactylServerId);
     this.serverOnlineStates.set(server.pterodactylServerId, isOnline);
 
@@ -310,6 +353,49 @@ export class StatusSyncService {
 
     if (!wentOffline && !cameOnline) return;
 
+    this.logger.info("Polling detected server state transition", {
+      server: server.name,
+      serverId: server.pterodactylServerId,
+      previousOnline: previouslyOnline,
+      currentState,
+      wentOffline,
+      cameOnline
+    });
+    await this.#notifyServerStateChange(server, currentState, { wentOffline, cameOnline });
+  }
+
+  async #handlePowerStateEvent(server, currentState) {
+    const isOnline = this.#isServerOnline(currentState);
+    const previouslyOnline = this.serverOnlineStates.get(server.pterodactylServerId);
+    this.serverOnlineStates.set(server.pterodactylServerId, isOnline);
+
+    if (previouslyOnline === undefined) return;
+
+    const wentOffline = previouslyOnline && !isOnline;
+    const cameOnline = !previouslyOnline && isOnline;
+
+    if (!wentOffline && !cameOnline) return;
+
+    try {
+      this.logger.info("Power-state event detected server transition", {
+        server: server.name,
+        serverId: server.pterodactylServerId,
+        previousOnline: previouslyOnline,
+        currentState,
+        wentOffline,
+        cameOnline
+      });
+      await this.#notifyServerStateChange(server, currentState, { wentOffline, cameOnline });
+    } catch (error) {
+      this.logger.warn(`Failed handling power-state event for ${server.name}`, error);
+    }
+  }
+
+  #isServerOnline(currentState) {
+    return currentState === "running";
+  }
+
+  async #notifyServerStateChange(server, currentState, { wentOffline }) {
     if (server.autoStop?.enabled) {
       if (wentOffline) {
         await this.autoStopService.onWentOffline(server);
