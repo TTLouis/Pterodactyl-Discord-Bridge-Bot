@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { CoreEventBus } from "./core/core-events.js";
 import { getConfigPath, loadConfig } from "./lib/config.js";
 import { isKookEnabled } from "./lib/kook-config.js";
 import { logger } from "./lib/logger.js";
@@ -7,14 +8,16 @@ import { AutoStopService } from "./services/auto-stop-service.js";
 import { applyReloadedConfig, ConfigReloadService } from "./services/config-reload-service.js";
 import { DiscordBridge } from "./services/discord-bridge.js";
 import { KookBridge } from "./services/kook-bridge.js";
-import { PlatformBridge } from "./services/platform-bridge.js";
 import { PterodactylClient } from "./services/pterodactyl-client.js";
 import { StatusSyncService } from "./services/status-sync-service.js";
+import { DiscordPlatformListener } from "./platforms/discord-platform-listener.js";
+import { KookPlatformListener } from "./platforms/kook-platform-listener.js";
 
 async function main() {
   const runtime = loadConfig();
   const stateStore = new StateStore();
   stateStore.load();
+  const eventBus = new CoreEventBus();
 
   const discordBridge = new DiscordBridge({
     token: runtime.discordToken,
@@ -29,32 +32,42 @@ async function main() {
       logger
     })
     : null;
-  const platformBridge = kookBridge
-    ? new PlatformBridge({
-      discordBridge,
+  const discordPlatformListener = new DiscordPlatformListener({
+    eventBus,
+    discordBridge,
+    config: runtime.config
+  });
+  const kookPlatformListener = kookBridge
+    ? new KookPlatformListener({
+      eventBus,
       kookBridge,
       config: runtime.config,
       logger
     })
-    : discordBridge;
+    : null;
   const pterodactylClient = new PterodactylClient(runtime.config.pterodactyl);
   const autoStopService = new AutoStopService({
     config: runtime.config,
     pterodactylClient,
-    discordBridge: platformBridge,
+    eventBus,
     stateStore,
     logger
   });
   const statusSyncService = new StatusSyncService({
     config: runtime.config,
-    discordBridge: platformBridge,
+    discordBridge,
+    eventBus,
     pterodactylClient,
     autoStopService,
     stateStore,
     logger
   });
 
-  await platformBridge.start();
+  discordPlatformListener.start();
+  kookPlatformListener?.start();
+
+  await discordBridge.start();
+  await kookBridge?.start();
 
   const logChannelId = runtime.config.discord.logChannelId;
   if (logChannelId) {
@@ -99,7 +112,10 @@ async function main() {
     logger.info(`Received ${signal}. Shutting down.`);
     configReloadService.stop();
     await statusSyncService.stop();
-    await platformBridge.stop();
+    kookPlatformListener?.stop();
+    discordPlatformListener.stop();
+    await kookBridge?.stop();
+    await discordBridge.stop();
     process.exit(0);
   };
 

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { PermissionFlagsBits } from "discord.js";
+import { CoreEvents } from "../src/core/core-events.js";
 import {
   AutoStopService,
   CANCEL_AUTO_STOP_REACTION,
@@ -8,6 +9,23 @@ import {
   canRestartExternallyStoppedServer
 } from "../src/services/auto-stop-service.js";
 import { getStatusRefreshIntervalMs, StatusSyncService } from "../src/services/status-sync-service.js";
+
+function createRecordingEventBus({ returnDiscordMessages = false } = {}) {
+  const events = [];
+  let nextMessageId = 1;
+  return {
+    events,
+    eventBus: {
+      async emit(name, payload) {
+        events.push({ name, payload });
+        if (returnDiscordMessages && name === CoreEvents.SERVER_ACTION_MESSAGE) {
+          return [{ platform: "discord", message: { id: `message-${nextMessageId++}` } }];
+        }
+        return [];
+      }
+    }
+  };
+}
 
 function interactionWith({ administrator = false, roles = [] } = {}) {
   return {
@@ -69,6 +87,7 @@ test("members without an authorized role cannot restart externally stopped serve
 function createStartCommandService(autoStopState) {
   let powerRequests = 0;
   let clearedStates = 0;
+  const { eventBus } = createRecordingEventBus();
   const service = new AutoStopService({
     config: {
       discord: {
@@ -84,9 +103,7 @@ function createStartCommandService(autoStopState) {
         powerRequests += 1;
       }
     },
-    discordBridge: {
-      async replaceActionMessage() {}
-    },
+    eventBus,
     stateStore: {
       getAutoStopState() {
         return autoStopState;
@@ -144,7 +161,7 @@ test("unauthorized members cannot restart a manually stopped server", async () =
 });
 
 function createAutoStopService({ autoStopState = {}, resources = { currentState: "offline" } } = {}) {
-  const messages = [];
+  const events = [];
   const powerRequests = [];
   let actionMessageId = null;
   let nextMessageId = 1;
@@ -165,14 +182,16 @@ function createAutoStopService({ autoStopState = {}, resources = { currentState:
         powerRequests.push({ serverId, powerState });
       }
     },
-    discordBridge: {
-      async replaceActionMessage(channelId, content, options = {}) {
+    eventBus: {
+      async emit(name, payload) {
+        events.push({ name, payload });
+        if (name === CoreEvents.SERVER_ACTION_MESSAGE) {
         const message = { id: `message-${nextMessageId++}` };
         actionMessageId = message.id;
-        messages.push({ channelId, content, options, messageId: message.id });
-        return message;
-      },
-      async deleteMessage() {}
+          return [{ platform: "discord", message }];
+        }
+        return [];
+      }
     },
     stateStore: {
       getAutoStopState() {
@@ -201,7 +220,7 @@ function createAutoStopService({ autoStopState = {}, resources = { currentState:
 
   return {
     service,
-    messages,
+    messages: events,
     powerRequests,
     state,
     runtimeState,
@@ -234,8 +253,9 @@ test("auto-stop warning replaces the action message and adds the red cancel reac
   await service.onRunningSnapshot(autoStopServer, 0);
 
   assert.equal(messages.length, 1);
-  assert.equal(messages[0].channelId, "factory-channel");
-  assert.deepEqual(messages[0].options.reactions, [CANCEL_AUTO_STOP_REACTION]);
+  assert.equal(messages[0].name, CoreEvents.SERVER_ACTION_MESSAGE);
+  assert.equal(messages[0].payload.kind, "auto-stop-warning");
+  assert.equal(messages[0].payload.server, autoStopServer);
   assert.equal(state.warningMessageId, "message-1");
   assert.equal(typeof state.warningSentAt, "number");
 });
@@ -247,7 +267,7 @@ test("auto-stop sends a fresh restartable stopped message before stopping the se
 
   await service.onRunningSnapshot(autoStopServer, 0);
 
-  assert.deepEqual(messages[0].options.reactions, [RESTART_SERVER_REACTION]);
+  assert.equal(messages[0].payload.kind, "auto-stopped");
   assert.deepEqual(powerRequests, [{ serverId: "factory-id", powerState: "stop" }]);
   assert.equal(state.stoppedByBot, true);
   assert.equal(state.warningMessageId, null);
@@ -278,8 +298,8 @@ test("red reaction cancels a pending auto-stop from the current action message",
   assert.equal(removed, true);
   assert.equal(state.warningSentAt, null);
   assert.equal(state.warningMessageId, null);
-  assert.equal(messages.at(-1).messageId, "message-2");
-  assert.equal(messages.at(-1).options.reactions, undefined);
+  assert.equal(messages.at(-1).payload.kind, "auto-stop-cancelled");
+  assert.equal(messages.at(-1).payload.cancelledBy, "Tester");
 });
 
 test("green reaction starts an auto-stopped server from the current action message", async () => {
@@ -304,7 +324,8 @@ test("green reaction starts an auto-stopped server from the current action messa
   assert.equal(removed, true);
   assert.deepEqual(powerRequests, [{ serverId: "factory-id", powerState: "start" }]);
   assert.deepEqual(state, {});
-  assert.equal(messages.at(-1).channelId, "factory-channel");
+  assert.equal(messages.at(-1).payload.kind, "server-starting-requested");
+  assert.equal(messages.at(-1).payload.requestedBy, "Tester");
 });
 
 test("online action message includes the last successful start requester", async () => {
@@ -324,14 +345,15 @@ test("online action message includes the last successful start requester", async
   });
   await service.onCameOnline(autoStopServer);
 
-  const onlineEmbed = messages.at(-1).content.embeds[0].toJSON();
   assert.equal(started, true);
-  assert.match(onlineEmbed.description, /Started by \*\*Starter\*\*/);
-  assert.match(onlineEmbed.description, /Start requested <t:\d+:R> \(<t:\d+:f>\)/);
+  assert.equal(messages.at(-1).payload.kind, "server-online");
+  assert.equal(messages.at(-1).payload.startInfo.startedBy, "Starter");
+  assert.equal(typeof messages.at(-1).payload.startInfo.startedAt, "number");
 });
 
 function createStatusService(startRequested) {
   let interactionHandler = null;
+  const { eventBus } = createRecordingEventBus();
   const discordBridge = {
     setSlashCommands() {},
     onMessage() {},
@@ -362,6 +384,7 @@ function createStatusService(startRequested) {
       }]
     },
     discordBridge,
+    eventBus,
     pterodactylClient: {},
     autoStopService,
     logger
@@ -401,6 +424,7 @@ test("rejected or no-op start requests do not trigger an extra status sync", asy
 
 function createRefreshCommandService() {
   let interactionHandler = null;
+  const { eventBus } = createRecordingEventBus();
   const discordBridge = {
     setSlashCommands() {},
     onMessage() {},
@@ -425,6 +449,7 @@ function createRefreshCommandService() {
       }]
     },
     discordBridge,
+    eventBus,
     pterodactylClient: {},
     autoStopService: {},
     logger: { error() {}, warn() {}, info() {} }
@@ -502,6 +527,7 @@ test("status refresh uses a faster interval while players are online", () => {
 
 test("status sync tracks whether any configured server has players", async () => {
   let playerCount = 2;
+  const { eventBus } = createRecordingEventBus();
   const discordBridge = {
     async upsertStatusPanel() {},
     setSlashCommands() {},
@@ -523,6 +549,7 @@ test("status sync tracks whether any configured server has players", async () =>
       servers: [server]
     },
     discordBridge,
+    eventBus,
     pterodactylClient: {
       subscribeToConsole() {
         return () => {};
@@ -562,10 +589,15 @@ test("status sync caches latest known game duration for offline snapshots", asyn
   let currentState = "running";
   const panelSnapshots = [];
   const runtimeState = {};
+  const eventBus = {
+    async emit(name, payload) {
+      if (name === CoreEvents.STATUS_PANEL_UPDATED) {
+        panelSnapshots.push(payload.snapshots[0]);
+      }
+      return [];
+    }
+  };
   const discordBridge = {
-    async upsertStatusPanel(channelId, panel) {
-      panelSnapshots.push(panel.embeds[0].toJSON().fields[2].value);
-    },
     setSlashCommands() {},
     onMessage() {},
     onInteraction() {},
@@ -585,6 +617,7 @@ test("status sync caches latest known game duration for offline snapshots", asyn
       servers: [server]
     },
     discordBridge,
+    eventBus,
     pterodactylClient: {
       subscribeToConsole() {
         return () => {};
@@ -625,18 +658,24 @@ test("status sync caches latest known game duration for offline snapshots", asyn
   currentState = "offline";
   await service.syncOnce({ force: true });
 
-  assert.match(panelSnapshots[0], /\*\*Time:\*\* 1h 2m/);
-  assert.match(panelSnapshots[1], /\*\*Last Known Time:\*\* 1h 2m/);
+  assert.equal(panelSnapshots[0].gameDurationMs, 3720000);
+  assert.equal(panelSnapshots[0].gameDurationCached, undefined);
+  assert.equal(panelSnapshots[1].gameDurationMs, 3720000);
+  assert.equal(panelSnapshots[1].gameDurationCached, true);
 });
 
 test("Satisfactory count changes emit generic join and leave notifications", async () => {
   let playerCount = 0;
   const messages = [];
+  const eventBus = {
+    async emit(name, payload) {
+      if (name === CoreEvents.SERVER_NOTICE) {
+        messages.push(payload);
+      }
+      return [];
+    }
+  };
   const discordBridge = {
-    async upsertStatusPanel() {},
-    async sendMessage(channelId, content) {
-      messages.push({ channelId, content });
-    },
     setSlashCommands() {},
     onMessage() {},
     onInteraction() {},
@@ -663,6 +702,7 @@ test("Satisfactory count changes emit generic join and leave notifications", asy
       servers: [server]
     },
     discordBridge,
+    eventBus,
     pterodactylClient: {
       subscribeToConsole() {
         return () => {};
@@ -699,8 +739,22 @@ test("Satisfactory count changes emit generic join and leave notifications", asy
   await service.syncOnce({ force: true });
 
   assert.deepEqual(messages, [
-    { channelId: "factory-channel", content: "2 players joined **Factory**. (2/8)" },
-    { channelId: "factory-channel", content: "1 player left **Factory**. (1/8)" }
+    {
+      kind: "satisfactory-player-count",
+      server,
+      changedPlayers: 2,
+      action: "joined",
+      playerCount: 2,
+      maxPlayers: 8
+    },
+    {
+      kind: "satisfactory-player-count",
+      server,
+      changedPlayers: 1,
+      action: "left",
+      playerCount: 1,
+      maxPlayers: 8
+    }
   ]);
 });
 
@@ -709,6 +763,14 @@ test("Satisfactory power-state events trigger a debounced status refresh", async
   let statusHandler = null;
   let resourceRequests = 0;
   const panelStates = [];
+  const eventBus = {
+    async emit(name, payload) {
+      if (name === CoreEvents.STATUS_PANEL_UPDATED) {
+        panelStates.push(payload.snapshots[0].simplifiedStatus);
+      }
+      return [];
+    }
+  };
   const server = {
     name: "Factory",
     discordChannelId: "factory-channel",
@@ -730,16 +792,12 @@ test("Satisfactory power-state events trigger a debounced status refresh", async
       servers: [server]
     },
     discordBridge: {
-      async upsertStatusPanel(channelId, panel) {
-        panelStates.push(panel.embeds[0].toJSON().fields[1].value);
-      },
-      async sendMessage() {},
-      async replaceActionMessage() {},
       setSlashCommands() {},
       onMessage() {},
       onInteraction() {},
       onReaction() {}
     },
+    eventBus,
     pterodactylClient: {
       subscribeToConsole(serverId, options) {
         assert.equal(serverId, "factory-id");
@@ -791,6 +849,7 @@ test("external power-state stop events notify before the debounced status refres
   let currentState = "running";
   let statusHandler = null;
   const offlineNotifications = [];
+  const { eventBus } = createRecordingEventBus();
   const server = {
     name: "Factory",
     discordChannelId: "factory-channel",
@@ -812,14 +871,12 @@ test("external power-state stop events notify before the debounced status refres
       servers: [server]
     },
     discordBridge: {
-      async upsertStatusPanel() {},
-      async sendMessage() {},
-      async replaceActionMessage() {},
       setSlashCommands() {},
       onMessage() {},
       onInteraction() {},
       onReaction() {}
     },
+    eventBus,
     pterodactylClient: {
       subscribeToConsole(serverId, options) {
         assert.equal(serverId, "factory-id");
@@ -875,6 +932,17 @@ test("starting power-state events do not offer restart and override stale offlin
   const actionMessages = [];
   const panelStates = [];
   const runtimeState = {};
+  const eventBus = {
+    async emit(name, payload) {
+      if (name === CoreEvents.SERVER_ACTION_MESSAGE) {
+        actionMessages.push(payload);
+      }
+      if (name === CoreEvents.STATUS_PANEL_UPDATED) {
+        panelStates.push(payload.snapshots[0].simplifiedStatus);
+      }
+      return [];
+    }
+  };
   const server = {
     name: "Factory",
     discordChannelId: "factory-channel",
@@ -896,18 +964,12 @@ test("starting power-state events do not offer restart and override stale offlin
       servers: [server]
     },
     discordBridge: {
-      async upsertStatusPanel(channelId, panel) {
-        panelStates.push(panel.embeds[0].toJSON().fields[1].value);
-      },
-      async sendMessage() {},
-      async replaceActionMessage(channelId, payload, options = {}) {
-        actionMessages.push({ channelId, payload, options });
-      },
       setSlashCommands() {},
       onMessage() {},
       onInteraction() {},
       onReaction() {}
     },
+    eventBus,
     pterodactylClient: {
       subscribeToConsole(serverId, options) {
         assert.equal(serverId, "factory-id");
@@ -954,9 +1016,7 @@ test("starting power-state events do not offer restart and override stale offlin
   statusHandler("starting");
   await new Promise((resolve) => setTimeout(resolve, 650));
 
-  const startEmbed = actionMessages.at(-1).payload.embeds[0].toJSON();
-  assert.match(startEmbed.title, /Server starting/);
-  assert.deepEqual(actionMessages.at(-1).options, {});
+  assert.equal(actionMessages.at(-1).kind, "server-starting-state");
   assert.match(panelStates.at(-1), /Starting/);
   assert.doesNotMatch(panelStates.at(-1), /Offline/);
   await service.stop();
