@@ -2,6 +2,7 @@ import { FactorioAdapter } from "../adapters/factorio-adapter.js";
 import { MinecraftAdapter } from "../adapters/minecraft-adapter.js";
 import { SatisfactoryAdapter } from "../adapters/satisfactory-adapter.js";
 import { buildStatusPanel } from "../lib/formatters.js";
+import { CANCEL_AUTO_STOP_REACTION, RESTART_SERVER_REACTION } from "./auto-stop-service.js";
 
 const DEBOUNCE_MS = 500;
 const CONSOLE_RELAY_WARMUP_MS = 5000;
@@ -77,6 +78,10 @@ export class StatusSyncService {
 
     this.discordBridge.onInteraction(async (interaction) => {
       await this.#handleInteraction(interaction);
+    });
+
+    this.discordBridge.onReaction(async (reaction) => {
+      await this.#handleReaction(reaction);
     });
 
     for (const adapter of this.adapters.values()) {
@@ -317,9 +322,13 @@ export class StatusSyncService {
     // Generic notifications for servers without auto-stop.
     try {
       if (wentOffline) {
-        await this.discordBridge.sendMessage(server.discordChannelId, `Server went offline (status: ${currentState}).`);
+        await this.discordBridge.replaceActionMessage(
+          server.discordChannelId,
+          `Server went offline (status: ${currentState}).\n\nReact ${RESTART_SERVER_REACTION} to restart the server.`,
+          { reactions: [RESTART_SERVER_REACTION] }
+        );
       } else {
-        await this.discordBridge.sendMessage(server.discordChannelId, "Server is back online.");
+        await this.discordBridge.replaceActionMessage(server.discordChannelId, "Server is back online.");
       }
     } catch (error) {
       this.logger.warn(`Failed sending state-change notification for ${server.name}`, error);
@@ -379,6 +388,26 @@ export class StatusSyncService {
         const replyMethod = interaction.replied || interaction.deferred ? "followUp" : "reply";
         await interaction[replyMethod]({ content: "Something went wrong. Try again later.", ephemeral: true });
       } catch {}
+    }
+  }
+
+  async #handleReaction(reaction) {
+    const server = this.config.servers.find((s) => s.discordChannelId === reaction.channelId);
+    if (!server) {
+      return;
+    }
+
+    try {
+      if (reaction.emoji === RESTART_SERVER_REACTION) {
+        const startRequested = await this.autoStopService.handleStartReaction(server, reaction);
+        if (startRequested) {
+          await this.syncOnce({ force: true });
+        }
+      } else if (reaction.emoji === CANCEL_AUTO_STOP_REACTION) {
+        await this.autoStopService.handleCancelStopReaction(server, reaction);
+      }
+    } catch (error) {
+      this.logger.error(`Failed handling ${reaction.emoji} reaction for ${server.name}`, error);
     }
   }
 

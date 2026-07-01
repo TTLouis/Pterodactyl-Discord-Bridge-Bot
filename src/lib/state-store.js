@@ -6,6 +6,7 @@ export class StateStore {
     this.filePath = filePath;
     this.state = {
       statusMessages: {},
+      actionMessages: {},
       autoStop: {}
     };
   }
@@ -18,6 +19,7 @@ export class StateStore {
 
     this.state = JSON.parse(fs.readFileSync(this.filePath, "utf8"));
     this.state.statusMessages ??= {};
+    this.state.actionMessages ??= {};
     this.state.autoStop ??= {};
     return this.state;
   }
@@ -43,6 +45,15 @@ export class StateStore {
 
   setStatusMessageIds(channelId, messageIds) {
     this.state.statusMessages[channelId] = messageIds;
+    this.save();
+  }
+
+  getActionMessageId(channelId) {
+    return this.state.actionMessages[channelId] ?? null;
+  }
+
+  setActionMessageId(channelId, messageId) {
+    this.state.actionMessages[channelId] = messageId;
     this.save();
   }
 

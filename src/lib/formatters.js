@@ -246,7 +246,7 @@ export function buildAutoStopWarningEmbed(serverName, stopAt) {
     .setColor(0xf97316)
     .setTitle(`⚠️ Auto-stop warning: ${serverName}`)
     .setDescription(
-      `No players detected. The server will automatically stop ${formatDiscordTimestamp(stopAt, "R")} (${formatDiscordTimestamp(stopAt, "f")}).\n\nUse \`/cancel-stop\` in this channel to cancel.`
+      `No players detected. The server will automatically stop ${formatDiscordTimestamp(stopAt, "R")} (${formatDiscordTimestamp(stopAt, "f")}).\n\nReact 🔴 to cancel auto-stop.`
     );
 }
 
@@ -254,14 +254,14 @@ export function buildAutoStoppedEmbed(serverName) {
   return new EmbedBuilder()
     .setColor(0xef4444)
     .setTitle(`🔴 Server auto-stopped: ${serverName}`)
-    .setDescription("Server was automatically stopped due to 24 hours of inactivity.\n\nUse `/start-server` in this channel to start it again.");
+    .setDescription("Server was automatically stopped due to inactivity.\n\nReact 🟢 to restart the server.");
 }
 
 export function buildManuallyStoppedEmbed(serverName, restartAccess = "a Discord administrator") {
   return new EmbedBuilder()
     .setColor(0xef4444)
     .setTitle(`🔴 Server stopped externally: ${serverName}`)
-    .setDescription(`This server was stopped outside of the bot. Only ${restartAccess} can restart it using \`/start-server\`.`);
+    .setDescription(`This server was stopped outside of the bot. Only ${restartAccess} can restart it.\n\nReact 🟢 to restart the server.`);
 }
 
 export function buildServerStartingEmbed(serverName, requestedBy) {

@@ -8,8 +8,10 @@ import {
   buildServerStartingEmbed
 } from "../lib/formatters.js";
 
-export function canRestartExternallyStoppedServer(interaction, discordConfig) {
-  const member = interaction.member;
+export const CANCEL_AUTO_STOP_REACTION = "🔴";
+export const RESTART_SERVER_REACTION = "🟢";
+
+export function canMemberRestartExternallyStoppedServer(member, discordConfig) {
   if (member?.permissions?.has(PermissionFlagsBits.Administrator)) {
     return true;
   }
@@ -25,6 +27,10 @@ export function canRestartExternallyStoppedServer(interaction, discordConfig) {
 
   const roleName = discordConfig.serverAdminRoleName?.toLowerCase();
   return Boolean(roleName && Array.from(roles.values()).some((role) => role.name?.toLowerCase() === roleName));
+}
+
+export function canRestartExternallyStoppedServer(interaction, discordConfig) {
+  return canMemberRestartExternallyStoppedServer(interaction.member, discordConfig);
 }
 
 function describeExternalRestartAccess(discordConfig) {
@@ -55,10 +61,10 @@ export class AutoStopService {
 
     if (playerCount > 0) {
       if (state.warningSentAt) {
-        // A player joined while a warning was pending — cancel visibly.
-        await this.#deleteWarningMessage(server);
+        // A player joined while a warning was pending; cancel visibly.
+        await this.#deleteLegacyWarningMessage(server);
         try {
-          await this.discordBridge.sendMessage(server.discordChannelId, {
+          await this.discordBridge.replaceActionMessage(server.discordChannelId, {
             embeds: [buildActivityCancelledEmbed(server.name)]
           });
         } catch (error) {
@@ -87,9 +93,11 @@ export class AutoStopService {
     if (idleMs >= stopMs) {
       this.logger.info(`Auto-stopping ${server.name} after ${Math.round(idleMs / 3600000)}h of inactivity`);
       try {
-        await this.#deleteWarningMessage(server);
-        await this.discordBridge.sendMessage(server.discordChannelId, {
+        await this.#deleteLegacyWarningMessage(server);
+        await this.discordBridge.replaceActionMessage(server.discordChannelId, {
           embeds: [buildAutoStoppedEmbed(server.name)]
+        }, {
+          reactions: [RESTART_SERVER_REACTION]
         });
         this.stateStore.setAutoStopState(server.pterodactylServerId, {
           stoppedByBot: true,
@@ -106,8 +114,10 @@ export class AutoStopService {
       const stopAt = new Date(state.lastNonEmptyAt + stopMs);
       this.logger.info(`Sending auto-stop warning for ${server.name}`);
       try {
-        const message = await this.discordBridge.sendMessage(server.discordChannelId, {
+        const message = await this.discordBridge.replaceActionMessage(server.discordChannelId, {
           embeds: [buildAutoStopWarningEmbed(server.name, stopAt)]
+        }, {
+          reactions: [CANCEL_AUTO_STOP_REACTION]
         });
         this.stateStore.setAutoStopState(server.pterodactylServerId, {
           warningSentAt: now,
@@ -127,14 +137,16 @@ export class AutoStopService {
       return;
     }
 
-    await this.#deleteWarningMessage(server);
+    await this.#deleteLegacyWarningMessage(server);
     this.stateStore.setAutoStopState(server.pterodactylServerId, {
       manualStop: true,
       warningMessageId: null
     });
     try {
-      await this.discordBridge.sendMessage(server.discordChannelId, {
+      await this.discordBridge.replaceActionMessage(server.discordChannelId, {
         embeds: [buildManuallyStoppedEmbed(server.name, describeExternalRestartAccess(this.config.discord))]
+      }, {
+        reactions: [RESTART_SERVER_REACTION]
       });
     } catch (error) {
       this.logger.error(`Failed to send manual-stop notification for ${server.name}`, error);
@@ -145,7 +157,7 @@ export class AutoStopService {
   async onCameOnline(server) {
     this.stateStore.clearAutoStopState(server.pterodactylServerId);
     try {
-      await this.discordBridge.sendMessage(server.discordChannelId, "Server is back online.");
+      await this.discordBridge.replaceActionMessage(server.discordChannelId, "Server is back online.");
     } catch (error) {
       this.logger.error(`Failed to send online notification for ${server.name}`, error);
     }
@@ -153,17 +165,71 @@ export class AutoStopService {
 
   // Handler for the /start-server slash command.
   async handleStartCommand(server, interaction) {
+    const requestedBy = interaction.member?.displayName ?? interaction.user.username;
+    const started = await this.#requestServerStart(server, {
+      requestedBy,
+      member: interaction.member,
+      onAlreadyRunning: async () => {
+        await interaction.reply({ content: "The server is already running.", ephemeral: true });
+      },
+      onPanelUnavailable: async () => {
+        await interaction.reply({ content: "Could not reach the panel. Try again in a moment.", ephemeral: true });
+      },
+      onUnauthorized: async () => {
+        await interaction.reply({
+          content: `This server was stopped externally. Only ${describeExternalRestartAccess(this.config.discord)} can restart it.`,
+          ephemeral: true
+        });
+      },
+      onAccepted: async () => {
+        await interaction.reply({ content: "Start requested.", ephemeral: true });
+      },
+      onFailure: async () => {
+        await interaction.followUp({ content: "Failed to send the start signal. Check the panel.", ephemeral: true });
+      }
+    });
+
+    return started;
+  }
+
+  async handleStartReaction(server, reaction) {
+    if (!this.#isCurrentActionReaction(server, reaction)) {
+      return false;
+    }
+
+    await this.#removeReaction(reaction);
+    const started = await this.#requestServerStart(server, {
+      requestedBy: reaction.displayName,
+      member: reaction.member,
+      onAlreadyRunning: async () => {},
+      onPanelUnavailable: async () => {},
+      onUnauthorized: async () => {},
+      onAccepted: async () => {},
+      onFailure: async () => {}
+    });
+    return started;
+  }
+
+  async #requestServerStart(server, {
+    requestedBy,
+    member,
+    onAlreadyRunning,
+    onPanelUnavailable,
+    onUnauthorized,
+    onAccepted,
+    onFailure
+  }) {
     let resources;
     try {
       resources = await this.pterodactylClient.getServerResources(server.pterodactylServerId);
     } catch (error) {
       this.logger.error(`Failed to fetch resources for ${server.name} during /start-server`, error);
-      await interaction.reply({ content: "Could not reach the panel. Try again in a moment.", ephemeral: true });
+      await onPanelUnavailable();
       return false;
     }
 
     if (resources.currentState === "running" || resources.currentState === "starting") {
-      await interaction.reply({ content: "The server is already running.", ephemeral: true });
+      await onAlreadyRunning();
       return false;
     }
 
@@ -171,24 +237,23 @@ export class AutoStopService {
     const isManualStop = state.manualStop && !state.stoppedByBot;
 
     if (isManualStop) {
-      if (!canRestartExternallyStoppedServer(interaction, this.config.discord)) {
-        await interaction.reply({
-          content: `This server was stopped externally. Only ${describeExternalRestartAccess(this.config.discord)} can restart it.`,
-          ephemeral: true
-        });
+      if (!canMemberRestartExternallyStoppedServer(member, this.config.discord)) {
+        await onUnauthorized();
         return false;
       }
     }
 
-    const requestedBy = interaction.member?.displayName ?? interaction.user.username;
     try {
-      await interaction.reply({ embeds: [buildServerStartingEmbed(server.name, requestedBy)] });
+      await onAccepted();
+      await this.discordBridge.replaceActionMessage(server.discordChannelId, {
+        embeds: [buildServerStartingEmbed(server.name, requestedBy)]
+      });
       await this.pterodactylClient.setPowerState(server.pterodactylServerId, "start");
       this.stateStore.clearAutoStopState(server.pterodactylServerId);
       return true;
     } catch (error) {
       this.logger.error(`Failed to start ${server.name} via /start-server`, error);
-      await interaction.followUp({ content: "Failed to send the start signal. Check the panel.", ephemeral: true });
+      await onFailure();
       return false;
     }
   }
@@ -207,27 +272,74 @@ export class AutoStopService {
     }
 
     const cancelledBy = interaction.member?.displayName ?? interaction.user.username;
-    await this.#deleteWarningMessage(server);
+    await interaction.reply({ content: "Auto-stop cancelled.", ephemeral: true });
+    try {
+      await this.#cancelPendingAutoStop(server, cancelledBy);
+    } catch (error) {
+      this.logger.error(`Failed to confirm /cancel-stop for ${server.name}`, error);
+    }
+  }
+
+  async handleCancelStopReaction(server, reaction) {
+    if (!this.#isCurrentActionReaction(server, reaction)) {
+      return false;
+    }
+
+    if (!server.autoStop?.enabled) {
+      await this.#removeReaction(reaction);
+      return false;
+    }
+
+    const state = this.stateStore.getAutoStopState(server.pterodactylServerId);
+    if (!state.warningSentAt || state.stoppedByBot) {
+      await this.#removeReaction(reaction);
+      return false;
+    }
+
+    try {
+      await this.#removeReaction(reaction);
+      await this.#cancelPendingAutoStop(server, reaction.displayName);
+    } catch (error) {
+      this.logger.error(`Failed to cancel auto-stop by reaction for ${server.name}`, error);
+      return false;
+    }
+
+    return true;
+  }
+
+  async #cancelPendingAutoStop(server, cancelledBy) {
+    await this.#deleteLegacyWarningMessage(server);
     this.stateStore.setAutoStopState(server.pterodactylServerId, {
       lastNonEmptyAt: Date.now(),
       warningSentAt: null,
       warningMessageId: null
     });
 
-    try {
-      await interaction.reply({ embeds: [buildCancelStopEmbed(server.name, cancelledBy)] });
-    } catch (error) {
-      this.logger.error(`Failed to confirm /cancel-stop for ${server.name}`, error);
-    }
+    await this.discordBridge.replaceActionMessage(server.discordChannelId, {
+      embeds: [buildCancelStopEmbed(server.name, cancelledBy)]
+    });
   }
 
-  async #deleteWarningMessage(server) {
+  #isCurrentActionReaction(server, reaction) {
+    return reaction.messageId === this.stateStore.getActionMessageId(server.discordChannelId);
+  }
+
+  async #deleteLegacyWarningMessage(server) {
     const state = this.stateStore.getAutoStopState(server.pterodactylServerId);
     if (!state.warningMessageId) return;
+    if (state.warningMessageId === this.stateStore.getActionMessageId(server.discordChannelId)) return;
     try {
       await this.discordBridge.deleteMessage(server.discordChannelId, state.warningMessageId);
     } catch (error) {
       this.logger.warn(`Failed to delete warning message for ${server.name}`, error);
+    }
+  }
+
+  async #removeReaction(reaction) {
+    try {
+      await reaction.removeUserReaction();
+    } catch (error) {
+      this.logger.warn(`Failed to remove reaction ${reaction.emoji} from ${reaction.userId}.`, error);
     }
   }
 }
