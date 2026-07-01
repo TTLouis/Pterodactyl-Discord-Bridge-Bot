@@ -184,4 +184,5 @@ Key notes:
 - Invalid JSON or an invalid live change is logged and the bot continues using the previous configuration
 - `autoStop.emptyTimeoutHours` defaults to `24`; `warningMinutesBefore` defaults to `60`
 - Server action messages use 🔴 to cancel a pending auto-stop and 🟢 to restart a stopped server
-- Override `CONFIG_PATH` and `STATE_PATH` env vars if you want config or runtime state at custom paths
+- Override `CONFIG_PATH` and `STATE_PATH` env vars if you want config or Discord runtime state at custom paths
+- Future KOOK runtime state should use `KOOK_STATE_PATH` so KOOK message IDs are not mixed with Discord message IDs

@@ -15,6 +15,7 @@ services:
     environment:
       CONFIG_PATH: /config/servers.json
       STATE_PATH: /data/runtime-state.json
+      KOOK_STATE_PATH: /data/kook-runtime-state.json
 
     volumes:
       - ./servers.json:/config/servers.json:ro

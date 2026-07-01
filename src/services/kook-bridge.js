@@ -1,5 +1,8 @@
+import { getKookStatePath } from "../lib/kook-config.js";
+import { StateStore } from "../lib/state-store.js";
+
 export class KookBridge {
-  constructor({ token, guildId, stateStore, logger }) {
+  constructor({ token, guildId, stateStore = new StateStore(getKookStatePath()), logger }) {
     this.token = token;
     this.guildId = guildId;
     this.stateStore = stateStore;
