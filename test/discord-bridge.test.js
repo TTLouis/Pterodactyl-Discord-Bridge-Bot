@@ -3,9 +3,18 @@ import test from "node:test";
 import { ChannelType } from "discord.js";
 import { DiscordBridge } from "../src/services/discord-bridge.js";
 
-function createBridge({ actionMessage = null } = {}) {
+function createDeferred() {
+  let resolve;
+  const promise = new Promise((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+function createBridge({ actionMessage = null, beforeSend = null } = {}) {
   const calls = [];
   const state = { actionMessage };
+  let nextMessageNumber = 1;
   const message = {
     id: actionMessage?.messageId ?? "old-action",
     reactions: {
@@ -30,7 +39,10 @@ function createBridge({ actionMessage = null } = {}) {
     },
     async send(payload) {
       calls.push({ method: "send", payload });
-      return { ...message, id: "new-action" };
+      if (beforeSend) {
+        await beforeSend();
+      }
+      return { ...message, id: `new-action-${nextMessageNumber++}` };
     }
   };
   const bridge = new DiscordBridge({
@@ -125,7 +137,7 @@ test("Discord action message sends new messages for unrelated transitions", asyn
     "setActionMessage",
     "react"
   ]);
-  assert.equal(state.actionMessage.messageId, "new-action");
+  assert.equal(state.actionMessage.messageId, "new-action-1");
   assert.equal(state.actionMessage.kind, "server-offline");
 });
 
@@ -195,6 +207,57 @@ test("Discord action message keeps old online messages historical", async () => 
     "setActionMessage",
     "react"
   ]);
-  assert.equal(state.actionMessage.messageId, "new-action");
+  assert.equal(state.actionMessage.messageId, "new-action-1");
+  assert.equal(state.actionMessage.kind, "manual-stopped");
+});
+
+test("Discord action message serializes duplicate stopped replacements for one channel", async () => {
+  const sendGate = createDeferred();
+  let sendCount = 0;
+  const { bridge, calls, state } = createBridge({
+    actionMessage: {
+      messageId: "old-action",
+      serverId: "factory-id",
+      serverName: "Factory",
+      kind: "server-online",
+      state: "running"
+    },
+    beforeSend: async () => {
+      sendCount += 1;
+      if (sendCount === 1) {
+        await sendGate.promise;
+      }
+    }
+  });
+  const options = {
+    reactions: ["restart"],
+    preferEdit: true,
+    meta: {
+      serverId: "factory-id",
+      serverName: "Factory",
+      kind: "manual-stopped",
+      state: "offline"
+    }
+  };
+
+  const first = bridge.replaceActionMessage("discord-server", { embeds: ["stopped"] }, options);
+  const second = bridge.replaceActionMessage("discord-server", { embeds: ["stopped"] }, options);
+  await Promise.resolve();
+  sendGate.resolve();
+  await Promise.all([first, second]);
+
+  assert.deepEqual(calls.map((call) => call.method), [
+    "fetchChannel",
+    "delete",
+    "send",
+    "setActionMessage",
+    "react",
+    "fetchChannel",
+    "edit",
+    "removeAll",
+    "react",
+    "setActionMessage"
+  ]);
+  assert.equal(state.actionMessage.messageId, "new-action-1");
   assert.equal(state.actionMessage.kind, "manual-stopped");
 });
