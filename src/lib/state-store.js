@@ -51,11 +51,33 @@ export class StateStore {
   }
 
   getActionMessageId(channelId) {
-    return this.state.actionMessages[channelId] ?? null;
+    return this.getActionMessage(channelId)?.messageId ?? null;
   }
 
   setActionMessageId(channelId, messageId) {
     this.state.actionMessages[channelId] = messageId;
+    this.save();
+  }
+
+  getActionMessage(channelId) {
+    const value = this.state.actionMessages[channelId];
+
+    if (typeof value === "string" && value) {
+      return { messageId: value };
+    }
+
+    if (value && typeof value === "object" && typeof value.messageId === "string" && value.messageId) {
+      return value;
+    }
+
+    return null;
+  }
+
+  setActionMessage(channelId, entry) {
+    this.state.actionMessages[channelId] = {
+      ...entry,
+      updatedAt: Date.now()
+    };
     this.save();
   }
 

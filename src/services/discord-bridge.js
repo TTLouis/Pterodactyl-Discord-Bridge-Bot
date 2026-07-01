@@ -1,4 +1,9 @@
 import { ChannelType, Client, Events, GatewayIntentBits, Partials, REST, Routes } from "discord.js";
+import {
+  getActionMessageEntry,
+  setActionMessageEntry,
+  shouldEditActionMessage
+} from "../lib/action-message-state.js";
 
 export class DiscordBridge {
   constructor({ token, guildId, stateStore, logger }) {
@@ -84,28 +89,46 @@ export class DiscordBridge {
     return channel.send(content);
   }
 
-  async replaceActionMessage(channelId, content, { reactions = [] } = {}) {
+  async replaceActionMessage(channelId, content, { reactions = [], meta = {}, preferEdit = false } = {}) {
     const channel = await this.#getTextChannel(channelId);
-    const previousMessageId = this.stateStore.getActionMessageId(channelId);
+    const previousEntry = getActionMessageEntry(this.stateStore, channelId);
 
-    if (previousMessageId) {
+    if (shouldEditActionMessage(previousEntry, meta, { preferEdit })) {
       try {
-        await channel.messages.delete(previousMessageId);
+        const message = await channel.messages.edit(previousEntry.messageId, content);
+        await this.#syncReactions(message, reactions, { clearExisting: true });
+        setActionMessageEntry(this.stateStore, channelId, message.id, meta);
+        this.logger.info("Edited Discord action message", {
+          channelId,
+          messageId: message.id,
+          server: meta.serverName,
+          previousKind: previousEntry.kind,
+          nextKind: meta.kind
+        });
+        return message;
       } catch (error) {
-        this.logger.warn(`Failed to delete previous action message ${previousMessageId}.`, error);
+        this.logger.warn(`Failed to edit Discord action message ${previousEntry.messageId}, sending a new one instead.`, error);
+      }
+    }
+
+    if (previousEntry?.messageId) {
+      try {
+        await channel.messages.delete(previousEntry.messageId);
+        this.logger.info("Deleted previous Discord action message", {
+          channelId,
+          messageId: previousEntry.messageId,
+          server: previousEntry.serverName,
+          previousKind: previousEntry.kind,
+          nextKind: meta.kind
+        });
+      } catch (error) {
+        this.logger.warn(`Failed to delete previous action message ${previousEntry.messageId}.`, error);
       }
     }
 
     const message = await channel.send(content);
-    this.stateStore.setActionMessageId(channelId, message.id);
-
-    for (const reaction of reactions) {
-      try {
-        await message.react(reaction);
-      } catch (error) {
-        this.logger.warn(`Failed to add reaction ${reaction} to action message ${message.id}.`, error);
-      }
-    }
+    setActionMessageEntry(this.stateStore, channelId, message.id, meta);
+    await this.#syncReactions(message, reactions);
 
     return message;
   }
@@ -143,6 +166,24 @@ export class DiscordBridge {
         await channel.messages.delete(staleMessageId);
       } catch (error) {
         this.logger.warn(`Failed to delete stale status panel message ${staleMessageId}.`, error);
+      }
+    }
+  }
+
+  async #syncReactions(message, reactions, { clearExisting = false } = {}) {
+    if (clearExisting) {
+      try {
+        await message.reactions.removeAll();
+      } catch (error) {
+        this.logger.warn(`Failed to clear reactions from action message ${message.id}.`, error);
+      }
+    }
+
+    for (const reaction of reactions) {
+      try {
+        await message.react(reaction);
+      } catch (error) {
+        this.logger.warn(`Failed to add reaction ${reaction} to action message ${message.id}.`, error);
       }
     }
   }

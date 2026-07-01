@@ -85,7 +85,20 @@ test("Discord platform listener renders status, action, chat, and notices", asyn
   assert.equal(calls[0].channelId, "discord-status");
   assert.match(calls[0].panel.embeds[0].toJSON().fields[1].value, /Offline/);
   assert.deepEqual(calls[1].options.reactions, [CANCEL_AUTO_STOP_REACTION]);
+  assert.equal(calls[1].options.preferEdit, true);
+  assert.deepEqual(calls[1].options.meta, {
+    serverId: "factory-id",
+    serverName: "Factory",
+    kind: "auto-stop-warning",
+    state: null
+  });
   assert.deepEqual(calls[2].options.reactions, [RESTART_SERVER_REACTION]);
+  assert.deepEqual(calls[2].options.meta, {
+    serverId: "factory-id",
+    serverName: "Factory",
+    kind: "server-offline",
+    state: "offline"
+  });
   assert.deepEqual(calls[3], { method: "sendMessage", channelId: "discord-server", content: "**Player**: hello" });
   assert.deepEqual(calls[4], { method: "sendMessage", channelId: "discord-server", content: "2 players joined **Factory**. (2/8)" });
   assert.deepEqual(calls[5], { method: "deleteMessage", channelId: "discord-server", messageId: "old-message" });
@@ -102,8 +115,8 @@ test("KOOK platform listener renders status, action, chat, and notices", async (
       async upsertStatusPanel(channelId, panel) {
         calls.push({ method: "upsertStatusPanel", channelId, panel });
       },
-      async replaceActionMessage(channelId, payload) {
-        calls.push({ method: "replaceActionMessage", channelId, payload });
+      async replaceActionMessage(channelId, payload, options) {
+        calls.push({ method: "replaceActionMessage", channelId, payload, options });
       },
       async sendMessage(channelId, content) {
         calls.push({ method: "sendMessage", channelId, content });
@@ -131,6 +144,13 @@ test("KOOK platform listener renders status, action, chat, and notices", async (
   assert.equal(calls[1].method, "replaceActionMessage");
   assert.equal(calls[1].channelId, "kook-server");
   assert.match(calls[1].payload.content, /服务器离线/);
+  assert.equal(calls[1].options.preferEdit, true);
+  assert.deepEqual(calls[1].options.meta, {
+    serverId: "factory-id",
+    serverName: "Factory",
+    kind: "server-offline",
+    state: "offline"
+  });
   assert.deepEqual(calls[2], { method: "sendMessage", channelId: "kook-server", content: "**Player**: hello" });
   assert.deepEqual(calls[3], { method: "sendMessage", channelId: "kook-server", content: "2 名玩家加入 **Factory**。(2/8)" });
 });

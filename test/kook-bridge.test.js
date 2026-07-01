@@ -20,10 +20,21 @@ function createMemoryStateStore() {
       state.statusMessages[channelId] = messageIds;
     },
     getActionMessageId(channelId) {
-      return state.actionMessages[channelId] ?? null;
+      const value = state.actionMessages[channelId];
+      return typeof value === "object" ? value.messageId : value ?? null;
     },
     setActionMessageId(channelId, messageId) {
       state.actionMessages[channelId] = messageId;
+    },
+    getActionMessage(channelId) {
+      const value = state.actionMessages[channelId];
+      if (typeof value === "string") {
+        return { messageId: value };
+      }
+      return value ?? null;
+    },
+    setActionMessage(channelId, entry) {
+      state.actionMessages[channelId] = entry;
     }
   };
 }
@@ -132,6 +143,63 @@ test("KOOK action messages use the KOOK action state instead of Discord message 
     assert.equal(requests[0].payload.msg_id, "old-kook-action");
     assert.equal(requests[1].payload.target_id, "kook-server");
     assert.equal(stateStore.getActionMessageId("kook-server"), "new-kook-action");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("KOOK action messages edit safe adjacent server transitions", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (url, options) => {
+    const endpoint = new URL(url).pathname.replace("/api/v3", "");
+    const payload = JSON.parse(options.body);
+    requests.push({ endpoint, payload });
+
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return { code: 0, data: {} };
+      }
+    };
+  };
+
+  try {
+    const stateStore = createMemoryStateStore();
+    stateStore.setActionMessage("kook-server", {
+      messageId: "old-kook-action",
+      serverId: "factory-id",
+      serverName: "Factory",
+      kind: "server-stopping-state",
+      state: "stopping"
+    });
+    const bridge = new KookBridge({
+      token: "token",
+      guildId: "guild",
+      stateStore,
+      apiBaseUrl: "https://example.test/api/v3",
+      logger: { info() {}, warn() {} }
+    });
+
+    await bridge.replaceActionMessage(
+      "kook-server",
+      { type: 10, content: "[{}]" },
+      {
+        preferEdit: true,
+        meta: {
+          serverId: "factory-id",
+          serverName: "Factory",
+          kind: "server-offline",
+          state: "offline"
+        }
+      }
+    );
+
+    assert.deepEqual(requests.map((request) => request.endpoint), ["/message/update"]);
+    assert.equal(requests[0].payload.msg_id, "old-kook-action");
+    assert.equal(stateStore.getActionMessageId("kook-server"), "old-kook-action");
+    assert.equal(stateStore.getActionMessage("kook-server").kind, "server-offline");
   } finally {
     globalThis.fetch = originalFetch;
   }

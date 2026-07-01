@@ -1,4 +1,5 @@
 import { CoreEvents } from "../core/core-events.js";
+import { buildActionMessageMeta } from "../lib/action-message-state.js";
 import { buildKookActionMessageForEvent, buildKookStatusPanel } from "../lib/kook-card-formatters.js";
 
 function formatKookServerNotice(event) {
@@ -66,7 +67,10 @@ export class KookPlatformListener {
       return null;
     }
 
-    await this.kookBridge.replaceActionMessage(kookChannelId, message);
+    await this.kookBridge.replaceActionMessage(kookChannelId, message, {
+      meta: buildActionMessageMeta(event),
+      preferEdit: true
+    });
     return { platform: "kook" };
   }
 

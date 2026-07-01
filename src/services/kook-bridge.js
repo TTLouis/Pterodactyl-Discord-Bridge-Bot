@@ -1,5 +1,10 @@
 import { getKookStatePath } from "../lib/kook-config.js";
 import { StateStore } from "../lib/state-store.js";
+import {
+  getActionMessageEntry,
+  setActionMessageEntry,
+  shouldEditActionMessage
+} from "../lib/action-message-state.js";
 
 const DEFAULT_API_BASE_URL = "https://www.kookapp.cn/api/v3";
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -62,19 +67,47 @@ export class KookBridge {
     };
   }
 
-  async replaceActionMessage(channelId, content, { reactions = [] } = {}) {
-    const previousMessageId = this.stateStore.getActionMessageId(channelId);
+  async replaceActionMessage(channelId, content, { reactions = [], meta = {}, preferEdit = false } = {}) {
+    const previousEntry = getActionMessageEntry(this.stateStore, channelId);
+    const payload = this.#normalizeMessagePayload(content);
 
-    if (previousMessageId) {
+    if (shouldEditActionMessage(previousEntry, meta, { preferEdit })) {
       try {
-        await this.deleteMessage(channelId, previousMessageId);
+        await this.#post("/message/update", {
+          ...payload,
+          msg_id: previousEntry.messageId
+        });
+        setActionMessageEntry(this.stateStore, channelId, previousEntry.messageId, meta);
+        this.logger.info("Edited KOOK action message", {
+          channelId,
+          messageId: previousEntry.messageId,
+          server: meta.serverName,
+          previousKind: previousEntry.kind,
+          nextKind: meta.kind
+        });
+        return { id: previousEntry.messageId };
       } catch (error) {
-        this.logger.warn(`Failed to delete previous KOOK action message ${previousMessageId}.`, error);
+        this.logger.warn(`Failed to edit KOOK action message ${previousEntry.messageId}, sending a new one instead.`, error);
       }
     }
 
-    const message = await this.sendMessage(channelId, content);
-    this.stateStore.setActionMessageId(channelId, message.id);
+    if (previousEntry?.messageId) {
+      try {
+        await this.deleteMessage(channelId, previousEntry.messageId);
+        this.logger.info("Deleted previous KOOK action message", {
+          channelId,
+          messageId: previousEntry.messageId,
+          server: previousEntry.serverName,
+          previousKind: previousEntry.kind,
+          nextKind: meta.kind
+        });
+      } catch (error) {
+        this.logger.warn(`Failed to delete previous KOOK action message ${previousEntry.messageId}.`, error);
+      }
+    }
+
+    const message = await this.sendMessage(channelId, payload);
+    setActionMessageEntry(this.stateStore, channelId, message.id, meta);
 
     for (const reaction of reactions) {
       try {
