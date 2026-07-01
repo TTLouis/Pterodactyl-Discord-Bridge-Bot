@@ -22,7 +22,8 @@ function formatAddress(snapshot) {
     return "Not configured";
   }
 
-  return `${snapshot.publicAddress}:${snapshot.publicPort}`;
+  const address = `${snapshot.publicAddress}:${snapshot.publicPort}`.replace(/```/g, "'''");
+  return ["```text", address, "```"].join("\n");
 }
 
 function formatPlayers(snapshot) {

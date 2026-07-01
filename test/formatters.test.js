@@ -43,6 +43,12 @@ test("server descriptions still respect the Discord field length limit", () => {
   assert.match(value, /\.\.\.$/);
 });
 
+test("server addresses render in code blocks for easier copying", () => {
+  const value = getInfoField("");
+
+  assert.match(value, /\*\*Server Address\*\*\n```text\nplay\.example\.com:25565\n```/);
+});
+
 test("status panels explain when player names are unavailable from the API", () => {
   const snapshot = createSnapshot("");
   snapshot.playerCount = 2;
