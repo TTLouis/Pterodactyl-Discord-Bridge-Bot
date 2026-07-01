@@ -16,12 +16,24 @@ function fixedPterodactylSettings(config) {
   };
 }
 
+function fixedKookSettings(config) {
+  return {
+    guildId: config.kook?.guildId ?? null,
+    statusChannelId: config.kook?.statusChannelId ?? null,
+    logChannelId: config.kook?.logChannelId ?? null
+  };
+}
+
 export function validateReloadCompatibility(currentConfig, nextConfig) {
   const fixedDiscordKeys = ["guildId", "statusChannelId", "logChannelId"];
   for (const key of fixedDiscordKeys) {
     if ((currentConfig.discord[key] ?? null) !== (nextConfig.discord[key] ?? null)) {
       throw new Error(`discord.${key} changed; restart the bot to apply this setting.`);
     }
+  }
+
+  if (stableJson(fixedKookSettings(currentConfig)) !== stableJson(fixedKookSettings(nextConfig))) {
+    throw new Error("KOOK channel or guild settings changed; restart the bot to apply them.");
   }
 
   if (stableJson(fixedPterodactylSettings(currentConfig.pterodactyl)) !== stableJson(fixedPterodactylSettings(nextConfig.pterodactyl))) {
@@ -46,6 +58,10 @@ export function validateReloadCompatibility(currentConfig, nextConfig) {
       throw new Error(`Discord channel changed for "${server.name}"; restart the bot to apply it.`);
     }
 
+    if ((current.kookChannelId ?? null) !== (server.kookChannelId ?? null)) {
+      throw new Error(`KOOK channel changed for "${server.name}"; restart the bot to apply it.`);
+    }
+
     if (stableJson(current.game) !== stableJson(server.game)) {
       throw new Error(`Game settings changed for "${server.name}"; restart the bot to apply them.`);
     }
@@ -56,6 +72,8 @@ export function applyReloadedConfig(currentConfig, nextConfig) {
   validateReloadCompatibility(currentConfig, nextConfig);
 
   Object.assign(currentConfig.discord, nextConfig.discord);
+  currentConfig.kook ??= {};
+  Object.assign(currentConfig.kook, nextConfig.kook ?? {});
   Object.assign(currentConfig.pterodactyl, nextConfig.pterodactyl);
   const currentServers = new Map(
     currentConfig.servers.map((server) => [server.pterodactylServerId, server])

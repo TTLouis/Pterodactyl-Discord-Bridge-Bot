@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { isKookEnabled, normalizeKookConfigId } from "./kook-config.js";
 
 function assertRequiredEnv(name) {
   const value = process.env[name];
@@ -26,6 +27,17 @@ function resolveDisplayTimeZone(discordConfig) {
     return value;
   } catch {
     throw new Error(`Config must include a valid discord.displayTimeZone IANA value. Received: ${value}`);
+  }
+}
+
+function resolveKookDisplayTimeZone(kookConfig) {
+  const value = process.env.KOOK_DISPLAY_TIMEZONE ?? kookConfig?.displayTimeZone ?? "Asia/Shanghai";
+
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value });
+    return value;
+  } catch {
+    throw new Error(`Config must include a valid kook.displayTimeZone IANA value. Received: ${value}`);
   }
 }
 
@@ -139,6 +151,7 @@ function normalizeServer(server) {
     publicPort: server.publicPort ?? null,
     maxPlayers: server.maxPlayers ?? null,
     discordChannelId: server.discordChannelId,
+    kookChannelId: normalizeKookConfigId(server.kookChannelId),
     pterodactylServerId: server.pterodactylServerId,
     game: gameType === "satisfactory"
       ? normalizeSatisfactoryGame(server)
@@ -146,6 +159,17 @@ function normalizeServer(server) {
         ? normalizeMinecraftGame(server)
         : normalizeFactorioGame(server),
     autoStop: normalizeAutoStop(server)
+  };
+}
+
+function normalizeKookConfig(kookConfig) {
+  return {
+    guildId: normalizeKookConfigId(kookConfig?.guildId),
+    statusChannelId: normalizeKookConfigId(kookConfig?.statusChannelId),
+    logChannelId: normalizeKookConfigId(kookConfig?.logChannelId),
+    serverAdminRoleId: normalizeKookConfigId(kookConfig?.serverAdminRoleId),
+    serverAdminRoleName: normalizeOptionalString(kookConfig?.serverAdminRoleName) ?? "server-admin",
+    displayTimeZone: resolveKookDisplayTimeZone(kookConfig)
   };
 }
 
@@ -160,6 +184,16 @@ function validateConfig(config) {
 
   if (!config.pterodactyl?.baseUrl || !config.pterodactyl?.apiKey) {
     throw new Error("Config must include pterodactyl.baseUrl and pterodactyl.apiKey");
+  }
+
+  if (isKookEnabled()) {
+    if (!config.kook?.guildId) {
+      throw new Error("Config must include kook.guildId when KOOK_ENABLED=true");
+    }
+
+    if (!config.kook?.statusChannelId) {
+      throw new Error("Config must include kook.statusChannelId when KOOK_ENABLED=true");
+    }
   }
 
   const scheme = config.pterodactyl?.wingsWsScheme;
@@ -214,6 +248,7 @@ export function loadConfig() {
       serverAdminRoleId: normalizeOptionalString(rawConfig.discord?.serverAdminRoleId),
       serverAdminRoleName: normalizeOptionalString(rawConfig.discord?.serverAdminRoleName) ?? "server-admin"
     },
+    kook: normalizeKookConfig(rawConfig.kook),
     pterodactyl: {
       ...rawConfig.pterodactyl,
       pollIntervalSeconds: resolvePollingInterval(
@@ -237,6 +272,7 @@ export function loadConfig() {
 
   return {
     discordToken: assertRequiredEnv("DISCORD_TOKEN"),
+    kookToken: isKookEnabled() ? assertRequiredEnv("KOOK_TOKEN") : process.env.KOOK_TOKEN ?? null,
     config
   };
 }

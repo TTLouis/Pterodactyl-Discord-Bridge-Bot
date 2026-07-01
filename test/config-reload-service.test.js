@@ -15,11 +15,19 @@ function createConfig(overrides = {}) {
       displayTimeZone: "UTC",
       serverAdminRoleName: "server-admin"
     },
+    kook: {
+      guildId: "kook-guild",
+      statusChannelId: "kook-status",
+      logChannelId: "kook-logs",
+      displayTimeZone: "Asia/Shanghai",
+      serverAdminRoleName: "server-admin"
+    },
     pterodactyl: { baseUrl: "https://panel.example.com", apiKey: "key", pollIntervalSeconds: 60 },
     servers: [{
       name: "Server",
       description: "Old description",
       discordChannelId: "server-channel",
+      kookChannelId: "kook-server-channel",
       pterodactylServerId: "server-id",
       publicAddress: "old.example.com",
       publicPort: 1234,
@@ -36,6 +44,7 @@ test("live reload updates server objects in place", () => {
   const originalServer = current.servers[0];
   const next = createConfig();
   next.discord.displayTimeZone = "America/Toronto";
+  next.kook.displayTimeZone = "Asia/Shanghai";
   next.servers[0].description = "New\n\ndescription";
   next.servers[0].maxPlayers = 20;
 
@@ -45,6 +54,7 @@ test("live reload updates server objects in place", () => {
   assert.equal(originalServer.description, "New\n\ndescription");
   assert.equal(originalServer.maxPlayers, 20);
   assert.equal(current.discord.displayTimeZone, "America/Toronto");
+  assert.equal(current.kook.displayTimeZone, "Asia/Shanghai");
 });
 
 test("live reload applies polling interval changes", () => {
@@ -82,6 +92,28 @@ test("live reload rejects structural server changes", () => {
     /restart the bot/
   );
   assert.equal(current.servers[0].discordChannelId, "server-channel");
+});
+
+test("live reload rejects KOOK structural changes", () => {
+  const current = createConfig();
+  const next = createConfig();
+  next.kook.statusChannelId = "different-kook-status";
+
+  assert.throws(
+    () => validateReloadCompatibility(current, next),
+    /KOOK channel or guild settings changed/
+  );
+});
+
+test("live reload rejects server KOOK channel changes", () => {
+  const current = createConfig();
+  const next = createConfig();
+  next.servers[0].kookChannelId = "different-kook-channel";
+
+  assert.throws(
+    () => validateReloadCompatibility(current, next),
+    /KOOK channel changed/
+  );
 });
 
 test("live reload rejects game setting changes captured by adapters", () => {

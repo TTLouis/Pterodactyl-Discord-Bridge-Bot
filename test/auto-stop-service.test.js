@@ -149,6 +149,7 @@ function createAutoStopService({ autoStopState = {}, resources = { currentState:
   let actionMessageId = null;
   let nextMessageId = 1;
   const state = { ...autoStopState };
+  const runtimeState = {};
   const service = new AutoStopService({
     config: {
       discord: {
@@ -185,6 +186,12 @@ function createAutoStopService({ autoStopState = {}, resources = { currentState:
           delete state[key];
         }
       },
+      getServerRuntimeState(serverId) {
+        return runtimeState[serverId] ?? {};
+      },
+      setServerRuntimeState(serverId, updates) {
+        runtimeState[serverId] = { ...(runtimeState[serverId] ?? {}), ...updates };
+      },
       getActionMessageId() {
         return actionMessageId;
       }
@@ -197,6 +204,7 @@ function createAutoStopService({ autoStopState = {}, resources = { currentState:
     messages,
     powerRequests,
     state,
+    runtimeState,
     setActionMessageId(value) {
       actionMessageId = value;
       const match = /^message-(\d+)$/.exec(value);
@@ -299,6 +307,29 @@ test("green reaction starts an auto-stopped server from the current action messa
   assert.equal(messages.at(-1).channelId, "factory-channel");
 });
 
+test("online action message includes the last successful start requester", async () => {
+  const { service, messages } = createAutoStopService({
+    autoStopState: { stoppedByBot: true }
+  });
+
+  const started = await service.handleStartCommand(autoStopServer, {
+    member: {
+      displayName: "Starter",
+      permissions: { has() { return false; } },
+      roles: { cache: new Map() }
+    },
+    user: { username: "Fallback" },
+    async reply() {},
+    async followUp() {}
+  });
+  await service.onCameOnline(autoStopServer);
+
+  const onlineEmbed = messages.at(-1).content.embeds[0].toJSON();
+  assert.equal(started, true);
+  assert.match(onlineEmbed.description, /Started by \*\*Starter\*\*/);
+  assert.match(onlineEmbed.description, /Start requested <t:\d+:R> \(<t:\d+:f>\)/);
+});
+
 function createStatusService(startRequested) {
   let interactionHandler = null;
   const discordBridge = {
@@ -365,6 +396,95 @@ test("rejected or no-op start requests do not trigger an extra status sync", asy
   await getInteractionHandler()({ commandName: "start-server", channelId: "server-channel" });
   await service.stop();
 
+  assert.deepEqual(syncCalls, [undefined]);
+});
+
+function createRefreshCommandService() {
+  let interactionHandler = null;
+  const discordBridge = {
+    setSlashCommands() {},
+    onMessage() {},
+    onInteraction(handler) {
+      interactionHandler = handler;
+    },
+    onReaction() {}
+  };
+  const service = new StatusSyncService({
+    config: {
+      discord: {
+        statusChannelId: "status",
+        logChannelId: "logs",
+        displayTimeZone: "UTC"
+      },
+      servers: [{
+        name: "Test Server",
+        discordChannelId: "server-channel",
+        pterodactylServerId: "server-id",
+        game: { type: "minecraft", chatCommandTemplate: "/say {content}" },
+        autoStop: null
+      }]
+    },
+    discordBridge,
+    pterodactylClient: {},
+    autoStopService: {},
+    logger: { error() {}, warn() {}, info() {} }
+  });
+
+  return {
+    service,
+    getInteractionHandler() {
+      return interactionHandler;
+    }
+  };
+}
+
+test("refresh-status command in the log channel forces a manual status sync", async () => {
+  const { service, getInteractionHandler } = createRefreshCommandService();
+  const syncCalls = [];
+  let deferred = false;
+  let editReply = null;
+  service.syncOnce = async (options) => syncCalls.push(options);
+
+  await service.start();
+  await getInteractionHandler()({
+    commandName: "refresh-status",
+    channelId: "logs",
+    member: { displayName: "Operator" },
+    user: { username: "operator" },
+    async deferReply(options) {
+      deferred = options.ephemeral;
+    },
+    async editReply(payload) {
+      editReply = payload;
+    }
+  });
+  await service.stop();
+
+  assert.equal(deferred, true);
+  assert.deepEqual(editReply, { content: "Status refresh completed for all configured game servers." });
+  assert.deepEqual(syncCalls, [undefined, { force: true, reason: "manual" }]);
+});
+
+test("refresh-status command outside the log channel is rejected", async () => {
+  const { service, getInteractionHandler } = createRefreshCommandService();
+  const syncCalls = [];
+  let reply = null;
+  service.syncOnce = async (options) => syncCalls.push(options);
+
+  await service.start();
+  await getInteractionHandler()({
+    commandName: "refresh-status",
+    channelId: "server-channel",
+    async reply(payload) {
+      reply = payload;
+    }
+  });
+  await service.stop();
+
+  assert.deepEqual(reply, {
+    content: "This command can only be used in the configured log channel.",
+    ephemeral: true
+  });
   assert.deepEqual(syncCalls, [undefined]);
 });
 

@@ -280,11 +280,22 @@ export function buildStartRequestedEmbed(serverName) {
     .setDescription("The start request was accepted. The server action message has been updated.");
 }
 
-export function buildServerOnlineEmbed(serverName) {
+export function buildServerOnlineEmbed(serverName, { startedBy = null, startedAt = null } = {}) {
+  const description = ["Server is back online."];
+  const startedAtDate = typeof startedAt === "number" ? new Date(startedAt) : startedAt;
+
+  if (startedBy && startedAtDate instanceof Date && !Number.isNaN(startedAtDate.getTime())) {
+    description.push(
+      "",
+      `Started by **${startedBy}**.`,
+      `Start requested ${formatDiscordTimestamp(startedAtDate, "R")} (${formatDiscordTimestamp(startedAtDate, "f")}).`
+    );
+  }
+
   return new EmbedBuilder()
     .setColor(0x22c55e)
     .setTitle(`🟢 Server online: ${serverName}`)
-    .setDescription("Server is back online.");
+    .setDescription(description.join("\n"));
 }
 
 export function buildServerStartingStateEmbed(serverName) {
