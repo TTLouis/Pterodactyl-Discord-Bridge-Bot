@@ -595,3 +595,85 @@ test("Satisfactory power-state events trigger a debounced status refresh", async
   assert.match(panelStates.at(-1), /Offline/);
   await service.stop();
 });
+
+test("external power-state stop events notify before the debounced status refresh", async () => {
+  let currentState = "running";
+  let statusHandler = null;
+  const offlineNotifications = [];
+  const server = {
+    name: "Factory",
+    discordChannelId: "factory-channel",
+    pterodactylServerId: "factory-id",
+    maxPlayers: 8,
+    game: {
+      type: "satisfactory",
+      apiUrl: "https://factory.example.com:7777/api/v1",
+      apiToken: "token",
+      allowInsecureTls: true,
+      chatCommandTemplate: null
+    },
+    autoStop: { enabled: true }
+  };
+  const service = new StatusSyncService({
+    config: {
+      discord: { statusChannelId: "status", displayTimeZone: "UTC" },
+      pterodactyl: { pollIntervalSeconds: 60, activePlayerPollIntervalSeconds: 15 },
+      servers: [server]
+    },
+    discordBridge: {
+      async upsertStatusPanel() {},
+      async sendMessage() {},
+      async replaceActionMessage() {},
+      setSlashCommands() {},
+      onMessage() {},
+      onInteraction() {},
+      onReaction() {}
+    },
+    pterodactylClient: {
+      subscribeToConsole(serverId, options) {
+        assert.equal(serverId, "factory-id");
+        statusHandler = options.onStatusChange;
+        return () => {};
+      },
+      async getServerResources() {
+        return { currentState, cpuPercent: 1, memoryBytes: 1024 };
+      }
+    },
+    autoStopService: {
+      async onRunningSnapshot() {},
+      async onWentOffline(notifiedServer) {
+        offlineNotifications.push(notifiedServer.name);
+      },
+      async onCameOnline() {}
+    },
+    logger: { error() {}, warn() {}, info() {} }
+  });
+  service.adapters.set("factory-id", {
+    supportsConsoleSubscription() { return false; },
+    async fetchSnapshot(resources) {
+      return {
+        name: server.name,
+        description: "",
+        currentState: resources.currentState,
+        simplifiedStatus: resources.currentState === "running" ? "Online" : "Offline",
+        playerCount: 0,
+        maxPlayers: 8,
+        onlinePlayers: [],
+        playerNamesAvailable: false,
+        cpuPercent: resources.cpuPercent,
+        memoryBytes: resources.memoryBytes,
+        gameDurationMs: null
+      };
+    }
+  });
+
+  await service.start();
+  assert.equal(typeof statusHandler, "function");
+
+  currentState = "offline";
+  statusHandler("offline");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.deepEqual(offlineNotifications, ["Factory"]);
+  await service.stop();
+});
