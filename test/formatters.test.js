@@ -73,3 +73,15 @@ test("status panels include Satisfactory progression state in server infos", () 
     "**Active Schematic:** Logistics Mk2"
   ].join("\n"));
 });
+
+test("status panels label cached game duration as last known", () => {
+  const snapshot = createSnapshot("");
+  snapshot.simplifiedStatus = "Offline";
+  snapshot.gameDurationMs = 3720000;
+  snapshot.gameDurationCached = true;
+
+  const panel = buildStatusPanel([snapshot], { displayTimeZone: "UTC" });
+  const serverInfoField = panel.embeds[0].toJSON().fields[2];
+
+  assert.match(serverInfoField.value, /\*\*Last Known Time:\*\* 1h 2m/);
+});

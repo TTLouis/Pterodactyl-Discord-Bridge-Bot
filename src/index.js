@@ -32,6 +32,7 @@ async function main() {
     discordBridge,
     pterodactylClient,
     autoStopService,
+    stateStore,
     logger
   });
 

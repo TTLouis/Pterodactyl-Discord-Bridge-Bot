@@ -99,7 +99,8 @@ function formatDuration(uptimeMs) {
 }
 
 function buildServerInfoField(snapshot) {
-  const durationLines = [`**Time:** ${formatDuration(snapshot.gameDurationMs)}`];
+  const durationLabel = snapshot.gameDurationCached ? "Last Known Time" : "Time";
+  const durationLines = [`**${durationLabel}:** ${formatDuration(snapshot.gameDurationMs)}`];
 
   if (snapshot.satisfactoryState) {
     const { techTier, activeSchematic, gamePhase } = snapshot.satisfactoryState;
