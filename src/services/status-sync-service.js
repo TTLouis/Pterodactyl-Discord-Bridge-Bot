@@ -1,7 +1,7 @@
 import { FactorioAdapter } from "../adapters/factorio-adapter.js";
 import { MinecraftAdapter } from "../adapters/minecraft-adapter.js";
 import { SatisfactoryAdapter } from "../adapters/satisfactory-adapter.js";
-import { buildStatusPanel } from "../lib/formatters.js";
+import { buildServerOnlineEmbed, buildStatusPanel } from "../lib/formatters.js";
 import { CANCEL_AUTO_STOP_REACTION, RESTART_SERVER_REACTION } from "./auto-stop-service.js";
 
 const DEBOUNCE_MS = 500;
@@ -328,7 +328,9 @@ export class StatusSyncService {
           { reactions: [RESTART_SERVER_REACTION] }
         );
       } else {
-        await this.discordBridge.replaceActionMessage(server.discordChannelId, "Server is back online.");
+        await this.discordBridge.replaceActionMessage(server.discordChannelId, {
+          embeds: [buildServerOnlineEmbed(server.name)]
+        });
       }
     } catch (error) {
       this.logger.warn(`Failed sending state-change notification for ${server.name}`, error);
