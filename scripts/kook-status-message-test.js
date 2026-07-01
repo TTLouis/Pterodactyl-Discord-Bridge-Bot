@@ -45,11 +45,8 @@ function normalizeAsciiTitle(server) {
 
 function resolveDisplayTimeZone(config) {
   return process.env.KOOK_DISPLAY_TIMEZONE
-    ?? process.env.DISCORD_DISPLAY_TIMEZONE
     ?? config.kook?.displayTimeZone
-    ?? config.discord?.displayTimeZone
-    ?? Intl.DateTimeFormat().resolvedOptions().timeZone
-    ?? "UTC";
+    ?? "Asia/Shanghai";
 }
 
 function resolveStatusChannelId(config) {

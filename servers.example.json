@@ -12,7 +12,8 @@
     "statusChannelId": "KOOK_GLOBAL_STATUS_CHANNEL_ID",
     "logChannelId": "OPTIONAL_KOOK_LOG_CHANNEL_ID",
     "serverAdminRoleId": "OPTIONAL_KOOK_SERVER_ADMIN_ROLE_ID",
-    "serverAdminRoleName": "server-admin"
+    "serverAdminRoleName": "server-admin",
+    "displayTimeZone": "Asia/Shanghai"
   },
   "pterodactyl": {
     "baseUrl": "https://panel.example.com",

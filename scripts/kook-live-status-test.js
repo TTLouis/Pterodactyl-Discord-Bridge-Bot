@@ -30,6 +30,16 @@ function resolveStatusChannelId(rawConfig) {
     || normalizeKookConfigId(rawConfig.kook?.statusChannelId);
 }
 
+function resolveLogChannelId(rawConfig) {
+  return normalizeKookConfigId(rawConfig.kook?.logChannelId);
+}
+
+function resolveDisplayTimeZone(rawConfig) {
+  return process.env.KOOK_DISPLAY_TIMEZONE
+    ?? rawConfig.kook?.displayTimeZone
+    ?? "Asia/Shanghai";
+}
+
 function createAdapter(server, pterodactylClient) {
   switch (server.game.type) {
     case "factorio":
@@ -102,6 +112,7 @@ async function main() {
   const token = requireEnv("KOOK_TOKEN");
   const rawConfig = readRawConfig();
   const statusChannelId = resolveStatusChannelId(rawConfig);
+  const logChannelId = resolveLogChannelId(rawConfig);
   if (!statusChannelId) {
     throw new Error("Missing KOOK status channel id. Set kook.statusChannelId in servers.json or KOOK_STATUS_CHANNEL_ID in .env.");
   }
@@ -110,7 +121,7 @@ async function main() {
   const pterodactylClient = new PterodactylClient(runtime.config.pterodactyl);
   const { snapshots, failures } = await fetchLiveSnapshots(runtime.config, pterodactylClient);
   const panel = buildKookStatusPanel(snapshots, {
-    displayTimeZone: runtime.config.discord.displayTimeZone
+    displayTimeZone: resolveDisplayTimeZone(rawConfig)
   });
   const result = await kookPost(token, "/message/create", {
     ...panel,
@@ -118,6 +129,15 @@ async function main() {
   });
 
   console.log(`KOOK live status message sent: ${result.msg_id}`);
+  if (logChannelId) {
+    await kookPost(token, "/message/create", {
+      type: 9,
+      target_id: logChannelId,
+      content: `KOOK live status posted: ${snapshots.length} server(s), ${failures.length} failure(s), msg ${result.msg_id}`
+    });
+    console.log("KOOK log summary sent.");
+  }
+
   if (failures.length > 0) {
     console.log(`Completed with ${failures.length} snapshot failure(s).`);
   }
