@@ -113,9 +113,9 @@ async function main() {
   const { configPath, config } = loadRawConfig();
   const kookConfig = config.kook ?? {};
   const guildId = process.env.KOOK_GUILD_ID?.trim() || kookConfig.guildId || null;
+  const logChannelId = normalizeKookConfigId(kookConfig.logChannelId);
   const configuredChannelIds = unique([
     process.env.KOOK_STATUS_CHANNEL_ID?.trim() || kookConfig.statusChannelId,
-    kookConfig.logChannelId,
     ...(Array.isArray(config.servers) ? config.servers.map((server) => server.kookChannelId) : [])
   ]);
 
@@ -149,6 +149,11 @@ async function main() {
     } catch (error) {
       throw new Error(`Channel view failed for ${channelId}: ${error.message}`);
     }
+  }
+
+  if (logChannelId) {
+    const logChannel = await kookGet(token, "/channel/view", { target_id: logChannelId });
+    console.log(`KOOK log channel view OK: ${logChannel.name} (${logChannel.id}, type ${logChannel.type})`);
   }
 
   const gateway = await kookGet(token, "/gateway/index", { compress: 0 });
