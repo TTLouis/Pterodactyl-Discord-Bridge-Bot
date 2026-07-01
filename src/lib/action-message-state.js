@@ -66,6 +66,10 @@ export function shouldEditActionMessage(previousEntry, nextMeta = {}, { preferEd
     return false;
   }
 
+  if (previousEntry.kind === nextMeta.kind) {
+    return true;
+  }
+
   const transition = `${previousEntry.kind}->${nextMeta.kind}`;
   if (EDITABLE_TRANSITIONS.has(transition)) {
     return true;

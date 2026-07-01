@@ -26,6 +26,7 @@ export class KookBridge {
     this.interactionHandlers = [];
     this.reactionHandlers = [];
     this.slashCommands = [];
+    this.actionMessageQueues = new Map();
   }
 
   onMessage(handler) {
@@ -68,6 +69,14 @@ export class KookBridge {
   }
 
   async replaceActionMessage(channelId, content, { reactions = [], meta = {}, preferEdit = false } = {}) {
+    return this.#withActionMessageQueue(channelId, () => this.#replaceActionMessage(channelId, content, {
+      reactions,
+      meta,
+      preferEdit
+    }));
+  }
+
+  async #replaceActionMessage(channelId, content, { reactions = [], meta = {}, preferEdit = false } = {}) {
     const previousEntry = getActionMessageEntry(this.stateStore, channelId);
     const payload = this.#normalizeMessagePayload(content);
 
@@ -121,6 +130,20 @@ export class KookBridge {
     }
 
     return message;
+  }
+
+  async #withActionMessageQueue(channelId, callback) {
+    const previous = this.actionMessageQueues.get(channelId) ?? Promise.resolve();
+    const current = previous.catch(() => {}).then(callback);
+    this.actionMessageQueues.set(channelId, current);
+
+    try {
+      return await current;
+    } finally {
+      if (this.actionMessageQueues.get(channelId) === current) {
+        this.actionMessageQueues.delete(channelId);
+      }
+    }
   }
 
   async deleteMessage(channelId, messageId) {

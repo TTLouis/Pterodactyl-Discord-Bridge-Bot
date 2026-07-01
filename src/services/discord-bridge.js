@@ -24,6 +24,7 @@ export class DiscordBridge {
     this.interactionHandlers = [];
     this.reactionHandlers = [];
     this.slashCommands = [];
+    this.actionMessageQueues = new Map();
   }
 
   onMessage(handler) {
@@ -90,6 +91,14 @@ export class DiscordBridge {
   }
 
   async replaceActionMessage(channelId, content, { reactions = [], meta = {}, preferEdit = false } = {}) {
+    return this.#withActionMessageQueue(channelId, () => this.#replaceActionMessage(channelId, content, {
+      reactions,
+      meta,
+      preferEdit
+    }));
+  }
+
+  async #replaceActionMessage(channelId, content, { reactions = [], meta = {}, preferEdit = false } = {}) {
     const channel = await this.#getTextChannel(channelId);
     const previousEntry = getActionMessageEntry(this.stateStore, channelId);
 
@@ -131,6 +140,20 @@ export class DiscordBridge {
     await this.#syncReactions(message, reactions);
 
     return message;
+  }
+
+  async #withActionMessageQueue(channelId, callback) {
+    const previous = this.actionMessageQueues.get(channelId) ?? Promise.resolve();
+    const current = previous.catch(() => {}).then(callback);
+    this.actionMessageQueues.set(channelId, current);
+
+    try {
+      return await current;
+    } finally {
+      if (this.actionMessageQueues.get(channelId) === current) {
+        this.actionMessageQueues.delete(channelId);
+      }
+    }
   }
 
   async deleteMessage(channelId, messageId) {
