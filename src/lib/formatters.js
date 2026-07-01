@@ -190,8 +190,8 @@ function buildServerEmbed(snapshot, footerText) {
     .addFields([
       {
         name: snapshot.name,
-        value: truncate(["**Server Address**", address, "", "**Description**", formatDescription(snapshot)].join("\n"), MAX_FIELD_VALUE_LENGTH),
-        inline: true
+        value: truncate(["**Server Address**", address, "**Description**", formatDescription(snapshot)].join("\n"), MAX_FIELD_VALUE_LENGTH),
+        inline: false
       },
       {
         name: "Status",

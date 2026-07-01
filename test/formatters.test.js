@@ -46,7 +46,14 @@ test("server descriptions still respect the Discord field length limit", () => {
 test("server addresses render in code blocks for easier copying", () => {
   const value = getInfoField("");
 
-  assert.match(value, /\*\*Server Address\*\*\n```text\nplay\.example\.com:25565\n```/);
+  assert.match(value, /\*\*Server Address\*\*\n```text\nplay\.example\.com:25565\n```\n\*\*Description\*\*/);
+});
+
+test("server address field uses full embed width", () => {
+  const panel = buildStatusPanel([createSnapshot("")], { displayTimeZone: "UTC" });
+  const infoField = panel.embeds[0].toJSON().fields[0];
+
+  assert.equal(infoField.inline, false);
 });
 
 test("status panels explain when player names are unavailable from the API", () => {
