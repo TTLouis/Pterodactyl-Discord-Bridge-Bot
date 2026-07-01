@@ -133,7 +133,7 @@ async function main() {
     await kookPost(token, "/message/create", {
       type: 9,
       target_id: logChannelId,
-      content: `KOOK live status posted: ${snapshots.length} server(s), ${failures.length} failure(s), msg ${result.msg_id}`
+      content: `KOOK 实时状态已发布：${snapshots.length} 个服务器，${failures.length} 个失败，消息 ${result.msg_id}`
     });
     console.log("KOOK log summary sent.");
   }

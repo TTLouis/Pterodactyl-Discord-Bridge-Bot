@@ -11,10 +11,10 @@ const STATUS_THEMES = {
   Offline: "danger"
 };
 const STATUS_META = {
-  Online: { emoji: "🟢", label: "Online" },
-  Starting: { emoji: "🟡", label: "Starting" },
-  Stopping: { emoji: "🟠", label: "Stopping" },
-  Offline: { emoji: "🔴", label: "Offline" }
+  Online: { emoji: "🟢", label: "在线" },
+  Starting: { emoji: "🟡", label: "启动中" },
+  Stopping: { emoji: "🟠", label: "关闭中" },
+  Offline: { emoji: "🔴", label: "离线" }
 };
 const MAX_CARD_COUNT = 5;
 const MAX_HEADER_LENGTH = 100;
@@ -48,7 +48,7 @@ function plainText(content) {
 
 function formatAddress(snapshot) {
   if (!snapshot.publicAddress || !snapshot.publicPort) {
-    return "Not configured";
+    return "未配置";
   }
 
   const address = `${snapshot.publicAddress}:${snapshot.publicPort}`.replace(/```/g, "'''");
@@ -77,15 +77,15 @@ function formatPlayerCountLabel(snapshot) {
 
 function formatOnlinePlayers(snapshot) {
   if (snapshot.playerNamesAvailable === false) {
-    return "Unavailable from API";
+    return "API 暂不可用";
   }
 
   if (!Array.isArray(snapshot.onlinePlayers)) {
-    return "Not applicable";
+    return "不适用";
   }
 
   if (snapshot.onlinePlayers.length === 0) {
-    return "None";
+    return "无";
   }
 
   return snapshot.onlinePlayers.join(", ");
@@ -93,7 +93,7 @@ function formatOnlinePlayers(snapshot) {
 
 function formatMemory(bytes) {
   if (typeof bytes !== "number") {
-    return "Unknown";
+    return "未知";
   }
 
   return `${Math.round(bytes / (1024 * 1024))} MiB`;
@@ -101,7 +101,7 @@ function formatMemory(bytes) {
 
 function formatCpu(percent) {
   if (typeof percent !== "number") {
-    return "Unknown";
+    return "未知";
   }
 
   return `${percent}%`;
@@ -109,7 +109,7 @@ function formatCpu(percent) {
 
 function formatDuration(uptimeMs) {
   if (typeof uptimeMs !== "number" || !Number.isFinite(uptimeMs) || uptimeMs < 0) {
-    return "Unknown";
+    return "未知";
   }
 
   const totalSeconds = Math.floor(uptimeMs / 1000);
@@ -118,26 +118,26 @@ function formatDuration(uptimeMs) {
   const minutes = Math.floor((totalSeconds % 3600) / 60);
 
   if (days > 0) {
-    return `${days}d ${hours}h ${minutes}m`;
+    return `${days}天 ${hours}小时 ${minutes}分`;
   }
 
   if (hours > 0) {
-    return `${hours}h ${minutes}m`;
+    return `${hours}小时 ${minutes}分`;
   }
 
-  return `${minutes}m`;
+  return `${minutes}分`;
 }
 
 function formatDescription(snapshot) {
   if (!snapshot.description) {
-    return "No description";
+    return "暂无简介";
   }
 
   return truncate(snapshot.description, DESCRIPTION_MAX_LENGTH);
 }
 
 function formatTimestamp(value, options) {
-  return new Intl.DateTimeFormat(undefined, options).format(value);
+  return new Intl.DateTimeFormat("zh-CN", options).format(value);
 }
 
 function formatFixedTime(value, timeZone) {
@@ -167,22 +167,22 @@ function getStatusMeta(status) {
 }
 
 function buildServerInfoText(snapshot) {
-  const durationLabel = snapshot.gameDurationCached ? "Last Known Time" : "Time";
+  const durationLabel = snapshot.gameDurationCached ? "上次已知时间" : "时间";
   const lines = [
-    "**Server Infos**",
-    `**RAM:** ${formatMemory(snapshot.memoryBytes)}`,
+    "**服务器信息**",
+    `**内存:** ${formatMemory(snapshot.memoryBytes)}`,
     `**CPU:** ${formatCpu(snapshot.cpuPercent)}`,
     "",
-    "**Total Game Duration**",
+    "**总游戏时长**",
     `**${durationLabel}:** ${formatDuration(snapshot.gameDurationMs)}`
   ];
 
   if (snapshot.satisfactoryState) {
     const { techTier, activeSchematic, gamePhase } = snapshot.satisfactoryState;
     lines.push(
-      `**Tier:** ${techTier ?? "Unknown"}`,
-      `**Game Phase:** ${gamePhase || "None"}`,
-      `**Active Schematic:** ${activeSchematic || "None"}`
+      `**科技等级:** ${techTier ?? "未知"}`,
+      `**游戏阶段:** ${gamePhase || "无"}`,
+      `**当前项目:** ${activeSchematic || "无"}`
     );
   }
 
@@ -210,9 +210,9 @@ function buildServerCard(snapshot, footerText) {
     {
       type: "section",
       text: kmarkdown([
-        "**Server Address**",
+        "**服务器地址**",
         formatAddress(snapshot),
-        "**Description**",
+        "**简介**",
         formatDescription(snapshot)
       ].join("\n"))
     },
@@ -224,13 +224,13 @@ function buildServerCard(snapshot, footerText) {
         cols: 2,
         fields: [
           kmarkdown([
-            "**Status**",
+            "**状态**",
             `${status.emoji} ${status.label}`,
             "",
-            "**Player Number**",
+            "**玩家数量**",
             formatPlayerCountLabel(snapshot),
             "",
-            "**Player Names**",
+            "**玩家名称**",
             truncate(formatOnlinePlayers(snapshot), PLAYER_NAMES_MAX_LENGTH)
           ].join("\n")),
           kmarkdown(buildServerInfoText(snapshot))
@@ -253,8 +253,8 @@ function buildServerCard(snapshot, footerText) {
 }
 
 export function buildKookStatusPanel(snapshots, { displayTimeZone = "UTC", now = new Date() } = {}) {
-  const footerText = `Server Time (${displayTimeZone}): ${formatFixedTime(now, displayTimeZone)}`;
-  const updateText = `Last update: ${formatFixedTime(now, displayTimeZone)}`;
+  const footerText = `服务器时间 (${displayTimeZone}): ${formatFixedTime(now, displayTimeZone)}`;
+  const updateText = `最后更新: ${formatFixedTime(now, displayTimeZone)}`;
   const cards = [
     {
       type: "card",
