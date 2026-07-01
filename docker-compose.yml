@@ -7,7 +7,7 @@ services:
     init: true
 
     # Give NPM / Pterodactyl / DNS time to come up after VM reboot
-    command: sh -c "echo 'Waiting 60s before starting Discord bot...'; sleep 60; exec node src/index.js"
+    command: sh -c "echo 'Waiting 30s before starting Discord bot...'; sleep 30; exec node src/index.js"
 
     env_file:
       - .env
