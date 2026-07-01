@@ -12,6 +12,7 @@ import {
   buildServerStoppingStateEmbed,
   buildStatusPanel
 } from "../lib/formatters.js";
+import { buildActionMessageMeta } from "../lib/action-message-state.js";
 import { CANCEL_AUTO_STOP_REACTION, RESTART_SERVER_REACTION } from "../services/auto-stop-service.js";
 
 function formatDiscordRelayMessage(message) {
@@ -115,7 +116,11 @@ export class DiscordPlatformListener {
     const message = await this.discordBridge.replaceActionMessage(
       event.server.discordChannelId,
       actionMessage.payload,
-      { reactions: actionMessage.reactions ?? [] }
+      {
+        reactions: actionMessage.reactions ?? [],
+        meta: buildActionMessageMeta(event),
+        preferEdit: true
+      }
     );
 
     return {
