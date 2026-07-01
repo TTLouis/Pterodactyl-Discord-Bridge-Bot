@@ -122,3 +122,14 @@ test("status panel colors match lifecycle action colors", () => {
     assert.equal(panel.embeds[0].toJSON().color, expectedColor);
   }
 });
+
+test("server online embeds can include start attribution", () => {
+  const startedAt = new Date("2026-07-01T02:50:00.000Z");
+  const embed = buildServerOnlineEmbed("Test Server", {
+    startedBy: "Tester",
+    startedAt
+  }).toJSON();
+
+  assert.match(embed.description, /Started by \*\*Tester\*\*/);
+  assert.match(embed.description, /Start requested <t:1782874200:R> \(<t:1782874200:f>\)/);
+});

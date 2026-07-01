@@ -1,10 +1,13 @@
 import "dotenv/config";
 import { getConfigPath, loadConfig } from "./lib/config.js";
+import { isKookEnabled } from "./lib/kook-config.js";
 import { logger } from "./lib/logger.js";
 import { StateStore } from "./lib/state-store.js";
 import { AutoStopService } from "./services/auto-stop-service.js";
 import { applyReloadedConfig, ConfigReloadService } from "./services/config-reload-service.js";
 import { DiscordBridge } from "./services/discord-bridge.js";
+import { KookBridge } from "./services/kook-bridge.js";
+import { PlatformBridge } from "./services/platform-bridge.js";
 import { PterodactylClient } from "./services/pterodactyl-client.js";
 import { StatusSyncService } from "./services/status-sync-service.js";
 
@@ -19,24 +22,39 @@ async function main() {
     stateStore,
     logger
   });
+  const kookBridge = isKookEnabled()
+    ? new KookBridge({
+      token: runtime.kookToken,
+      guildId: runtime.config.kook.guildId,
+      logger
+    })
+    : null;
+  const platformBridge = kookBridge
+    ? new PlatformBridge({
+      discordBridge,
+      kookBridge,
+      config: runtime.config,
+      logger
+    })
+    : discordBridge;
   const pterodactylClient = new PterodactylClient(runtime.config.pterodactyl);
   const autoStopService = new AutoStopService({
     config: runtime.config,
     pterodactylClient,
-    discordBridge,
+    discordBridge: platformBridge,
     stateStore,
     logger
   });
   const statusSyncService = new StatusSyncService({
     config: runtime.config,
-    discordBridge,
+    discordBridge: platformBridge,
     pterodactylClient,
     autoStopService,
     stateStore,
     logger
   });
 
-  await discordBridge.start();
+  await platformBridge.start();
 
   const logChannelId = runtime.config.discord.logChannelId;
   if (logChannelId) {
@@ -45,6 +63,9 @@ async function main() {
       guildId: runtime.config.discord.guildId,
       statusChannelId: runtime.config.discord.statusChannelId,
       logChannelId,
+      kookEnabled: Boolean(kookBridge),
+      kookGuildId: runtime.config.kook?.guildId ?? null,
+      kookStatusChannelId: runtime.config.kook?.statusChannelId ?? null,
       serverCount: runtime.config.servers.length,
       pollIntervalSeconds: runtime.config.pterodactyl.pollIntervalSeconds,
       activePlayerPollIntervalSeconds: runtime.config.pterodactyl.activePlayerPollIntervalSeconds,
@@ -52,6 +73,7 @@ async function main() {
         name: server.name,
         type: server.game.type,
         discordChannelId: server.discordChannelId,
+        kookChannelId: server.kookChannelId,
         pterodactylServerId: server.pterodactylServerId,
         autoStopEnabled: Boolean(server.autoStop?.enabled),
         discordRelayEnabled: Boolean(server.game.chatCommandTemplate)
@@ -77,7 +99,7 @@ async function main() {
     logger.info(`Received ${signal}. Shutting down.`);
     configReloadService.stop();
     await statusSyncService.stop();
-    await discordBridge.stop();
+    await platformBridge.stop();
     process.exit(0);
   };
 

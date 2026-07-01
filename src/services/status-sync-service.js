@@ -76,7 +76,8 @@ function shouldApplyCachedPowerState(cachedState, resourceState) {
 
 const SLASH_COMMANDS = [
   { name: "start-server", description: "Start a stopped game server" },
-  { name: "cancel-stop", description: "Cancel a pending auto-stop" }
+  { name: "cancel-stop", description: "Cancel a pending auto-stop" },
+  { name: "refresh-status", description: "Force refresh all game server status panels" }
 ];
 
 export class StatusSyncService {
@@ -156,7 +157,7 @@ export class StatusSyncService {
     this.#scheduleNextPeriodicSync();
   }
 
-  async syncOnce({ force = false } = {}) {
+  async syncOnce({ force = false, reason = null } = {}) {
     const startedAt = Date.now();
     const snapshots = [];
     let anyChanged = force || this.lastSnapshotKeys.size === 0;
@@ -222,10 +223,11 @@ export class StatusSyncService {
       this.config.discord.statusChannelId,
       buildStatusPanel(snapshots, {
         displayTimeZone: this.config.discord.displayTimeZone
-      })
+      }),
+      { snapshots }
     );
 
-    const refreshReason = force ? "scheduled" : snapshotChanged ? "state-change" : "manual";
+    const refreshReason = reason ?? (force ? "scheduled" : snapshotChanged ? "state-change" : "manual");
     if (refreshReason !== "scheduled") {
       this.logger.info("Discord status panel refreshed", {
         reason: refreshReason,
@@ -349,6 +351,14 @@ export class StatusSyncService {
       lastPowerState: currentState,
       lastPowerStateSeenAt: Date.now()
     });
+  }
+
+  #getLastStartInfo(server) {
+    const runtimeState = this.stateStore?.getServerRuntimeState?.(server.pterodactylServerId) ?? {};
+    return {
+      startedBy: runtimeState.lastStartRequestedBy ?? null,
+      startedAt: runtimeState.lastStartRequestedAt ?? null
+    };
   }
 
   #syncConsoleBridge(server, adapter, currentState) {
@@ -513,7 +523,7 @@ export class StatusSyncService {
         });
       } else if (currentState === "running") {
         await this.discordBridge.replaceActionMessage(server.discordChannelId, {
-          embeds: [buildServerOnlineEmbed(server.name)]
+          embeds: [buildServerOnlineEmbed(server.name, this.#getLastStartInfo(server))]
         });
       } else {
         this.logger.info(`No Discord action message for unhandled ${server.name} state transition`, {
@@ -558,6 +568,11 @@ export class StatusSyncService {
   }
 
   async #handleInteraction(interaction) {
+    if (interaction.commandName === "refresh-status") {
+      await this.#handleRefreshStatusCommand(interaction);
+      return;
+    }
+
     const server = this.config.servers.find((s) => s.discordChannelId === interaction.channelId);
     if (!server) {
       await interaction.reply({ content: "This command can only be used in a configured server channel.", ephemeral: true });
@@ -580,6 +595,29 @@ export class StatusSyncService {
         await interaction[replyMethod]({ content: "Something went wrong. Try again later.", ephemeral: true });
       } catch {}
     }
+  }
+
+  async #handleRefreshStatusCommand(interaction) {
+    const logChannelId = this.config.discord.logChannelId;
+    if (!logChannelId) {
+      await interaction.reply({ content: "No Discord log channel is configured for this bot.", ephemeral: true });
+      return;
+    }
+
+    if (interaction.channelId !== logChannelId) {
+      await interaction.reply({ content: "This command can only be used in the configured log channel.", ephemeral: true });
+      return;
+    }
+
+    const requestedBy = interaction.member?.displayName ?? interaction.user?.username ?? "Unknown";
+    this.logger.info("Manual status refresh requested", {
+      requestedBy,
+      channelId: interaction.channelId
+    });
+
+    await interaction.deferReply({ ephemeral: true });
+    await this.syncOnce({ force: true, reason: "manual" });
+    await interaction.editReply({ content: "Status refresh completed for all configured game servers." });
   }
 
   async #handleReaction(reaction) {

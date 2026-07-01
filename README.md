@@ -90,6 +90,12 @@ The bot runs outside of Pterodactyl — on a separate VM or host — and talks t
     "logChannelId": "OPTIONAL_LOG_CHANNEL_ID",
     "displayTimeZone": "America/Toronto"
   },
+  "kook": {
+    "guildId": "YOUR_KOOK_GUILD_ID",
+    "statusChannelId": "KOOK_GLOBAL_STATUS_CHANNEL_ID",
+    "logChannelId": "OPTIONAL_KOOK_LOG_CHANNEL_ID",
+    "displayTimeZone": "Asia/Shanghai"
+  },
   "pterodactyl": {
     "baseUrl": "https://panel.example.com",
     "apiKey": "ptlc_your_client_api_key",
@@ -114,6 +120,7 @@ The bot runs outside of Pterodactyl — on a separate VM or host — and talks t
       ],
       "pterodactylServerId": "a1b2c3d4",
       "discordChannelId": "FACTORIO_DISCORD_CHANNEL_ID",
+      "kookChannelId": "FACTORIO_KOOK_CHANNEL_ID",
       "publicAddress": "play.example.com",
       "publicPort": 34197,
       "maxPlayers": 32,
@@ -136,6 +143,7 @@ The bot runs outside of Pterodactyl — on a separate VM or host — and talks t
       ],
       "pterodactylServerId": "m1n2o3p4",
       "discordChannelId": "MINECRAFT_DISCORD_CHANNEL_ID",
+      "kookChannelId": "MINECRAFT_KOOK_CHANNEL_ID",
       "publicAddress": "minecraft.example.com",
       "publicPort": 25565,
       "maxPlayers": 20,
@@ -153,6 +161,7 @@ The bot runs outside of Pterodactyl — on a separate VM or host — and talks t
       ],
       "pterodactylServerId": "e5f6g7h8",
       "discordChannelId": "SATISFACTORY_DISCORD_CHANNEL_ID",
+      "kookChannelId": "SATISFACTORY_KOOK_CHANNEL_ID",
       "publicAddress": "satisfactory.example.com",
       "publicPort": 7777,
       "maxPlayers": 16,
@@ -173,6 +182,8 @@ Key notes:
 - `pterodactylServerId` is the client server identifier used by `/api/client/servers/{id}`
 - `discord.displayTimeZone` accepts any IANA timezone (e.g. `America/Toronto`); also overridable via `DISCORD_DISPLAY_TIMEZONE`
 - `discord.logChannelId` is optional — mirrors logger output into a Discord channel, including startup configuration, server snapshots, status refreshes, console bridge subscriptions, and power-state transitions
+- Set `KOOK_ENABLED=true` with `KOOK_TOKEN` to mirror status panels and server-channel action messages to KOOK; `kook.displayTimeZone` defaults to `Asia/Shanghai`
+- `kookChannelId` is optional per server. Servers without it remain Discord-only on KOOK mirrors
 - Satisfactory API tokens are application tokens generated from the server console with `server.GenerateAPIToken`
 - Satisfactory often uses self-signed TLS; `game.allowInsecureTls` defaults to `true`
 - `game.apiRequestTimeoutSeconds` defaults to `10` so an unavailable Satisfactory API cannot stall all status updates
@@ -180,9 +191,9 @@ Key notes:
 - `descriptionLines` preserves manual line breaks, blank lines, Unicode, and Discord Markdown; the older `description` string remains supported
 - `pterodactyl.pollIntervalSeconds` controls empty-server refreshes; `activePlayerPollIntervalSeconds` defaults to `15` seconds while any server has players. Values in `servers.json` take precedence over legacy interval environment variables and reload without a restart
 - Saving a valid `servers.json` automatically refreshes display settings such as descriptions, names, addresses, player limits, timezone, and auto-stop values
-- Server additions/removals, IDs, channel mappings, game settings, Discord channel IDs, and Pterodactyl connection changes require a bot restart
+- Server additions/removals, IDs, channel mappings, game settings, Discord/KOOK channel IDs, and Pterodactyl connection changes require a bot restart
 - Invalid JSON or an invalid live change is logged and the bot continues using the previous configuration
 - `autoStop.emptyTimeoutHours` defaults to `24`; `warningMinutesBefore` defaults to `60`
 - Server action messages use 🔴 to cancel a pending auto-stop and 🟢 to restart a stopped server
 - Override `CONFIG_PATH` and `STATE_PATH` env vars if you want config or Discord runtime state at custom paths
-- Future KOOK runtime state should use `KOOK_STATE_PATH` so KOOK message IDs are not mixed with Discord message IDs
+- Override `KOOK_STATE_PATH` if you want KOOK runtime state at a custom path; KOOK message IDs are kept separate from Discord message IDs

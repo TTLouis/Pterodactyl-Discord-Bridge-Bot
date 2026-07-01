@@ -158,9 +158,10 @@ export class AutoStopService {
   // Called when a server transitions from offline → running.
   async onCameOnline(server) {
     this.stateStore.clearAutoStopState(server.pterodactylServerId);
+    const startInfo = this.#getLastStartInfo(server);
     try {
       await this.discordBridge.replaceActionMessage(server.discordChannelId, {
-        embeds: [buildServerOnlineEmbed(server.name)]
+        embeds: [buildServerOnlineEmbed(server.name, startInfo)]
       });
     } catch (error) {
       this.logger.error(`Failed to send online notification for ${server.name}`, error);
@@ -247,12 +248,14 @@ export class AutoStopService {
       }
     }
 
+    const requestedAt = Date.now();
     try {
       await onAccepted();
       await this.discordBridge.replaceActionMessage(server.discordChannelId, {
         embeds: [buildServerStartingEmbed(server.name, requestedBy)]
       });
       await this.pterodactylClient.setPowerState(server.pterodactylServerId, "start");
+      this.#recordStartRequest(server, { requestedBy, requestedAt });
       this.stateStore.clearAutoStopState(server.pterodactylServerId);
       return true;
     } catch (error) {
@@ -326,6 +329,21 @@ export class AutoStopService {
 
   #isCurrentActionReaction(server, reaction) {
     return reaction.messageId === this.stateStore.getActionMessageId(server.discordChannelId);
+  }
+
+  #recordStartRequest(server, { requestedBy, requestedAt }) {
+    this.stateStore.setServerRuntimeState?.(server.pterodactylServerId, {
+      lastStartRequestedBy: requestedBy,
+      lastStartRequestedAt: requestedAt
+    });
+  }
+
+  #getLastStartInfo(server) {
+    const runtimeState = this.stateStore.getServerRuntimeState?.(server.pterodactylServerId) ?? {};
+    return {
+      startedBy: runtimeState.lastStartRequestedBy ?? null,
+      startedAt: runtimeState.lastStartRequestedAt ?? null
+    };
   }
 
   async #deleteLegacyWarningMessage(server) {
