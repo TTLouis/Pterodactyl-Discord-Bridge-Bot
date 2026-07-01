@@ -122,9 +122,9 @@ async function runChannelTest(token, { channelId, serverName }, { keepMessages }
     type: 9,
     target_id: channelId,
     content: [
-      "**KOOK bridge channel test**",
-      `Server: **${serverName}**`,
-      "Step: create"
+      "**KOOK 桥接频道测试**",
+      `服务器: **${serverName}**`,
+      "步骤: 创建"
     ].join("\n")
   });
   const messageId = created.msg_id;
@@ -137,10 +137,10 @@ async function runChannelTest(token, { channelId, serverName }, { keepMessages }
     await kookPost(token, "/message/update", {
       msg_id: messageId,
       content: [
-        "**KOOK bridge channel test**",
-        `Server: **${serverName}**`,
-        "Step: update",
-        "This validates the replace/edit path."
+        "**KOOK 桥接频道测试**",
+        `服务器: **${serverName}**`,
+        "步骤: 更新",
+        "此消息用于验证替换/编辑路径。"
       ].join("\n")
     });
     console.log(`Update OK: ${messageId}`);

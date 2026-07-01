@@ -82,8 +82,8 @@ function buildSampleSnapshots(servers) {
       satisfactoryState: server.game?.type === "satisfactory"
         ? {
             techTier: 5,
-            gamePhase: "Phase 3",
-            activeSchematic: "Versatile Framework"
+            gamePhase: "第三阶段",
+            activeSchematic: "多功能框架"
           }
         : null
     };
