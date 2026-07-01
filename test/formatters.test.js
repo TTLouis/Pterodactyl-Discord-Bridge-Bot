@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildStatusPanel } from "../src/lib/formatters.js";
+import {
+  buildServerOfflineEmbed,
+  buildServerOnlineEmbed,
+  buildServerStartingStateEmbed,
+  buildServerStoppingStateEmbed,
+  buildStatusPanel
+} from "../src/lib/formatters.js";
 
 function createSnapshot(description) {
   return {
@@ -84,4 +90,22 @@ test("status panels label cached game duration as last known", () => {
   const serverInfoField = panel.embeds[0].toJSON().fields[2];
 
   assert.match(serverInfoField.value, /\*\*Last Known Time:\*\* 1h 2m/);
+});
+
+test("status panel colors match lifecycle action colors", () => {
+  const expectedColors = {
+    Online: buildServerOnlineEmbed("Test Server").toJSON().color,
+    Starting: buildServerStartingStateEmbed("Test Server").toJSON().color,
+    Stopping: buildServerStoppingStateEmbed("Test Server").toJSON().color,
+    Offline: buildServerOfflineEmbed("Test Server").toJSON().color
+  };
+
+  for (const [simplifiedStatus, expectedColor] of Object.entries(expectedColors)) {
+    const snapshot = createSnapshot("");
+    snapshot.simplifiedStatus = simplifiedStatus;
+
+    const panel = buildStatusPanel([snapshot], { displayTimeZone: "UTC" });
+
+    assert.equal(panel.embeds[0].toJSON().color, expectedColor);
+  }
 });
