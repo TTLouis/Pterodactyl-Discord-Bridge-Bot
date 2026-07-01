@@ -225,13 +225,16 @@ export class StatusSyncService {
       })
     );
 
-    this.logger.info("Discord status panel refreshed", {
-      reason: force ? "scheduled" : snapshotChanged ? "state-change" : "manual",
-      durationMs: Date.now() - startedAt,
-      activePlayersPresent: this.hasActivePlayers,
-      failedServers,
-      servers: snapshots.map(summarizeSnapshot)
-    });
+    const refreshReason = force ? "scheduled" : snapshotChanged ? "state-change" : "manual";
+    if (refreshReason !== "scheduled") {
+      this.logger.info("Discord status panel refreshed", {
+        reason: refreshReason,
+        durationMs: Date.now() - startedAt,
+        activePlayersPresent: this.hasActivePlayers,
+        failedServers,
+        servers: snapshots.map(summarizeSnapshot)
+      });
+    }
   }
 
   #scheduleNextPeriodicSync() {
