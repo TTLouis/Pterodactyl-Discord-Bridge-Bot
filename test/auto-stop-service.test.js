@@ -438,6 +438,77 @@ test("status sync tracks whether any configured server has players", async () =>
   assert.equal(service.hasActivePlayers, false);
 });
 
+test("status sync caches latest known game duration for offline snapshots", async () => {
+  let currentState = "running";
+  const panelSnapshots = [];
+  const runtimeState = {};
+  const discordBridge = {
+    async upsertStatusPanel(channelId, panel) {
+      panelSnapshots.push(panel.embeds[0].toJSON().fields[2].value);
+    },
+    setSlashCommands() {},
+    onMessage() {},
+    onInteraction() {},
+    onReaction() {}
+  };
+  const server = {
+    name: "Test Server",
+    discordChannelId: "server-channel",
+    pterodactylServerId: "server-id",
+    game: { type: "minecraft", chatCommandTemplate: "/say {content}" },
+    autoStop: null
+  };
+  const service = new StatusSyncService({
+    config: {
+      discord: { statusChannelId: "status", displayTimeZone: "UTC" },
+      pterodactyl: { pollIntervalSeconds: 60, activePlayerPollIntervalSeconds: 15 },
+      servers: [server]
+    },
+    discordBridge,
+    pterodactylClient: {
+      subscribeToConsole() {
+        return () => {};
+      },
+      async getServerResources() {
+        return { currentState, cpuPercent: 1, memoryBytes: 1024 };
+      }
+    },
+    autoStopService: { async onRunningSnapshot() {} },
+    stateStore: {
+      getServerRuntimeState(serverId) {
+        return runtimeState[serverId] ?? {};
+      },
+      setServerRuntimeState(serverId, updates) {
+        runtimeState[serverId] = { ...(runtimeState[serverId] ?? {}), ...updates };
+      }
+    },
+    logger: { error() {}, warn() {}, info() {} }
+  });
+  service.adapters.set("server-id", {
+    supportsConsoleSubscription() { return false; },
+    async fetchSnapshot(resources) {
+      return {
+        name: server.name,
+        description: "",
+        currentState: resources.currentState,
+        simplifiedStatus: resources.currentState === "running" ? "Online" : "Offline",
+        playerCount: 0,
+        onlinePlayers: [],
+        cpuPercent: resources.cpuPercent,
+        memoryBytes: resources.memoryBytes,
+        gameDurationMs: resources.currentState === "running" ? 3720000 : null
+      };
+    }
+  });
+
+  await service.syncOnce({ force: true });
+  currentState = "offline";
+  await service.syncOnce({ force: true });
+
+  assert.match(panelSnapshots[0], /\*\*Time:\*\* 1h 2m/);
+  assert.match(panelSnapshots[1], /\*\*Last Known Time:\*\* 1h 2m/);
+});
+
 test("Satisfactory count changes emit generic join and leave notifications", async () => {
   let playerCount = 0;
   const messages = [];

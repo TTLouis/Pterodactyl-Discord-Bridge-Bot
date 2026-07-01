@@ -7,6 +7,7 @@ export class StateStore {
     this.state = {
       statusMessages: {},
       actionMessages: {},
+      serverRuntime: {},
       autoStop: {}
     };
   }
@@ -20,6 +21,7 @@ export class StateStore {
     this.state = JSON.parse(fs.readFileSync(this.filePath, "utf8"));
     this.state.statusMessages ??= {};
     this.state.actionMessages ??= {};
+    this.state.serverRuntime ??= {};
     this.state.autoStop ??= {};
     return this.state;
   }
@@ -54,6 +56,15 @@ export class StateStore {
 
   setActionMessageId(channelId, messageId) {
     this.state.actionMessages[channelId] = messageId;
+    this.save();
+  }
+
+  getServerRuntimeState(serverId) {
+    return this.state.serverRuntime[serverId] ?? {};
+  }
+
+  setServerRuntimeState(serverId, updates) {
+    this.state.serverRuntime[serverId] = { ...this.getServerRuntimeState(serverId), ...updates };
     this.save();
   }
 

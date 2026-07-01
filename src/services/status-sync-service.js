@@ -57,11 +57,12 @@ const SLASH_COMMANDS = [
 ];
 
 export class StatusSyncService {
-  constructor({ config, discordBridge, pterodactylClient, autoStopService, logger }) {
+  constructor({ config, discordBridge, pterodactylClient, autoStopService, stateStore, logger }) {
     this.config = config;
     this.discordBridge = discordBridge;
     this.pterodactylClient = pterodactylClient;
     this.autoStopService = autoStopService;
+    this.stateStore = stateStore;
     this.logger = logger;
     this.intervalHandle = null;
     this.debounceHandle = null;
@@ -144,7 +145,8 @@ export class StatusSyncService {
       try {
         const resources = await this.pterodactylClient.getServerResources(server.pterodactylServerId);
         this.#syncConsoleBridge(server, adapter, resources.currentState);
-        const snapshot = await adapter.fetchSnapshot(resources);
+        const rawSnapshot = await adapter.fetchSnapshot(resources);
+        const snapshot = this.#hydrateCachedSnapshot(server, rawSnapshot);
         snapshots.push(snapshot);
         const previousPlayerCount = this.serverPlayerCounts.get(server.pterodactylServerId);
         const previouslyOnline = this.serverOnlineStates.get(server.pterodactylServerId);
@@ -252,6 +254,33 @@ export class StatusSyncService {
       default:
         throw new Error(`Unsupported server type: ${server.game.type}`);
     }
+  }
+
+  #hydrateCachedSnapshot(server, snapshot) {
+    if (!this.stateStore) {
+      return snapshot;
+    }
+
+    if (typeof snapshot.gameDurationMs === "number" && Number.isFinite(snapshot.gameDurationMs) && snapshot.gameDurationMs >= 0) {
+      this.stateStore.setServerRuntimeState(server.pterodactylServerId, {
+        lastGameDurationMs: snapshot.gameDurationMs,
+        lastGameDurationState: snapshot.currentState,
+        lastGameDurationSeenAt: Date.now()
+      });
+      return snapshot;
+    }
+
+    const runtimeState = this.stateStore.getServerRuntimeState(server.pterodactylServerId);
+    if (typeof runtimeState.lastGameDurationMs !== "number") {
+      return snapshot;
+    }
+
+    return {
+      ...snapshot,
+      gameDurationMs: runtimeState.lastGameDurationMs,
+      gameDurationCached: true,
+      gameDurationCachedAt: runtimeState.lastGameDurationSeenAt ?? null
+    };
   }
 
   #syncConsoleBridge(server, adapter, currentState) {
