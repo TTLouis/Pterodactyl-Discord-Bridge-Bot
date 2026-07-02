@@ -164,7 +164,9 @@ export class FactorioAdapter {
       };
     }
 
-    if (this.onlinePlayers === null) {
+    if (this.playerListRefreshPromise) {
+      await this.playerListRefreshPromise;
+    } else if (this.onlinePlayers === null) {
       await this.refreshOnlinePlayers();
     }
 
