@@ -7,7 +7,26 @@ import {
 } from "../lib/action-message-state.js";
 
 const DEFAULT_API_BASE_URL = "https://www.kookapp.cn/api/v3";
-const REQUEST_TIMEOUT_MS = 10_000;
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+const REQUEST_RETRY_DELAY_MS = 1_000;
+const RETRYABLE_ENDPOINTS = new Set([
+  "/message/update",
+  "/message/delete",
+  "/message/add-reaction"
+]);
+
+function parsePositiveInteger(value, fallback) {
+  const number = Number(value);
+  return Number.isInteger(number) && number > 0 ? number : fallback;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isAbortError(error) {
+  return error?.name === "AbortError";
+}
 
 export class KookBridge {
   constructor({
@@ -15,13 +34,17 @@ export class KookBridge {
     guildId,
     stateStore = new StateStore(getKookStatePath()),
     logger,
-    apiBaseUrl = process.env.KOOK_API_BASE_URL ?? DEFAULT_API_BASE_URL
+    apiBaseUrl = process.env.KOOK_API_BASE_URL ?? DEFAULT_API_BASE_URL,
+    requestTimeoutMs = parsePositiveInteger(process.env.KOOK_REQUEST_TIMEOUT_MS, DEFAULT_REQUEST_TIMEOUT_MS),
+    requestRetryDelayMs = REQUEST_RETRY_DELAY_MS
   }) {
     this.token = token;
     this.guildId = guildId;
     this.stateStore = stateStore;
     this.logger = logger;
     this.apiBaseUrl = apiBaseUrl.replace(/\/$/, "");
+    this.requestTimeoutMs = requestTimeoutMs;
+    this.requestRetryDelayMs = requestRetryDelayMs;
     this.handlers = [];
     this.interactionHandlers = [];
     this.reactionHandlers = [];
@@ -206,8 +229,29 @@ export class KookBridge {
   }
 
   async #post(endpoint, payload) {
+    const maxAttempts = RETRYABLE_ENDPOINTS.has(endpoint) ? 2 : 1;
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        return await this.#postOnce(endpoint, payload);
+      } catch (error) {
+        lastError = error;
+        if (!isAbortError(error) || attempt >= maxAttempts) {
+          throw error;
+        }
+
+        this.logger?.warn(`KOOK API ${endpoint} timed out; retrying once.`, error);
+        await sleep(this.requestRetryDelayMs);
+      }
+    }
+
+    throw lastError;
+  }
+
+  async #postOnce(endpoint, payload) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const timeout = setTimeout(() => controller.abort(), this.requestTimeoutMs);
 
     try {
       const response = await fetch(`${this.apiBaseUrl}${endpoint}`, {
