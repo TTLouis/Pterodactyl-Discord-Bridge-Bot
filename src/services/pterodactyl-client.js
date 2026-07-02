@@ -134,6 +134,8 @@ export class PterodactylClient {
     let stopped = false;
     let awaitingInitialLogs = false;
     let consoleConnectedAt = null;
+    let hasConnectedSuccessfully = false;
+    let currentConnectionIsReconnect = false;
 
     const clearReconnect = () => {
       if (!reconnectHandle) {
@@ -219,11 +221,14 @@ export class PterodactylClient {
 
           if (payload.event === "auth success") {
             consoleConnectedAt = Date.now();
+            const isReconnect = hasConnectedSuccessfully;
+            currentConnectionIsReconnect = isReconnect;
+            hasConnectedSuccessfully = true;
             awaitingInitialLogs = sendLogs;
             if (sendLogs) {
               nextSocket.send(JSON.stringify({ event: "send logs", args: [null] }));
             }
-            onConnected?.();
+            onConnected?.({ isReconnect });
             return;
           }
 
@@ -241,7 +246,11 @@ export class PterodactylClient {
           if (payload.event === "console output") {
             const isBacklog = awaitingInitialLogs;
             awaitingInitialLogs = false;
-            handleConsoleOutput(payload.args, { connectedAt: consoleConnectedAt, isBacklog });
+            handleConsoleOutput(payload.args, {
+              connectedAt: consoleConnectedAt,
+              isBacklog,
+              isReconnect: currentConnectionIsReconnect && isBacklog
+            });
           }
         });
 

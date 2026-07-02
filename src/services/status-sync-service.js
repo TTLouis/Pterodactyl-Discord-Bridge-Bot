@@ -7,6 +7,7 @@ import { CANCEL_AUTO_STOP_REACTION, RESTART_SERVER_REACTION } from "./auto-stop-
 const DEBOUNCE_MS = 500;
 const CONSOLE_RELAY_WARMUP_MS = 5000;
 const POWER_STATE_OVERRIDE_TTL_MS = 10 * 60 * 1000;
+const RECENT_RELAY_LINE_TTL_MS = 10 * 60 * 1000;
 const DEFAULT_POLL_INTERVAL_SECONDS = 60;
 const DEFAULT_ACTIVE_PLAYER_POLL_INTERVAL_SECONDS = 15;
 
@@ -88,6 +89,7 @@ export class StatusSyncService {
     this.serverOnlineStates = new Map();
     this.serverPowerStates = new Map();
     this.lastSnapshotKeys = new Map();
+    this.recentRelayLines = new Map();
     this.initialSnapshotLogged = false;
     this.adapters = new Map(
       config.servers.map((server) => [
@@ -408,12 +410,13 @@ export class StatusSyncService {
     }
   }
 
-  async #handleConsoleLine(server, adapter, line, { connectedAt = null, isBacklog = false } = {}) {
-    if (isBacklog || isConsoleRelayWarmingUp(connectedAt)) {
+  async #handleConsoleLine(server, adapter, line, { connectedAt = null, isBacklog = false, isReconnect = false } = {}) {
+    if (isBacklog && !isReconnect) {
       return;
     }
 
-    if (adapter.shouldRefreshOnlinePlayers(line)) {
+    const isWarmingUp = isConsoleRelayWarmingUp(connectedAt);
+    if (!isBacklog && !isWarmingUp && adapter.shouldRefreshOnlinePlayers(line)) {
       adapter.applyPlayerEvent?.(line);
       this.#scheduleUpdate();
       adapter.refreshOnlinePlayers().catch((error) => {
@@ -426,6 +429,11 @@ export class StatusSyncService {
       return;
     }
 
+    if (this.#isDuplicateRelayLine(server, line)) {
+      return;
+    }
+    this.#rememberRelayLine(server, line);
+
     try {
       await this.eventBus.emit(CoreEvents.GAME_CHAT_RELAY, {
         server,
@@ -434,6 +442,28 @@ export class StatusSyncService {
     } catch (error) {
       this.logger.error(`Failed forwarding game chat for ${server.name}`, error);
     }
+  }
+
+  #relayLineKey(server, line) {
+    return `${server.pterodactylServerId}|${String(line ?? "").trim()}`;
+  }
+
+  #pruneRecentRelayLines(now = Date.now()) {
+    for (const [key, seenAt] of this.recentRelayLines.entries()) {
+      if (now - seenAt > RECENT_RELAY_LINE_TTL_MS) {
+        this.recentRelayLines.delete(key);
+      }
+    }
+  }
+
+  #isDuplicateRelayLine(server, line) {
+    this.#pruneRecentRelayLines();
+    return this.recentRelayLines.has(this.#relayLineKey(server, line));
+  }
+
+  #rememberRelayLine(server, line) {
+    this.#pruneRecentRelayLines();
+    this.recentRelayLines.set(this.#relayLineKey(server, line), Date.now());
   }
 
   async #checkServerStateChange(server, currentState) {

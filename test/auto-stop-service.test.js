@@ -758,6 +758,109 @@ test("Satisfactory count changes emit generic join and leave notifications", asy
   ]);
 });
 
+test("console relay forwards live chat during websocket warmup", async () => {
+  let lineHandler = null;
+  const relayedMessages = [];
+  const server = {
+    name: "Factory",
+    discordChannelId: "factory-channel",
+    pterodactylServerId: "factory-id",
+    game: { type: "factorio", chatCommandTemplate: "DISCORD<{author}>: {content}" },
+    autoStop: null
+  };
+  const service = new StatusSyncService({
+    config: {
+      discord: { statusChannelId: "status", displayTimeZone: "UTC" },
+      pterodactyl: { pollIntervalSeconds: 60, activePlayerPollIntervalSeconds: 15 },
+      servers: [server]
+    },
+    discordBridge: {
+      setSlashCommands() {},
+      onMessage() {},
+      onInteraction() {},
+      onReaction() {}
+    },
+    eventBus: {
+      async emit(name, payload) {
+        if (name === CoreEvents.GAME_CHAT_RELAY) {
+          relayedMessages.push(payload);
+        }
+        return [];
+      }
+    },
+    pterodactylClient: {
+      subscribeToConsole(serverId, options) {
+        assert.equal(serverId, "factory-id");
+        lineHandler = options.onLine;
+        return () => {};
+      },
+      async getServerResources() {
+        return { currentState: "running", cpuPercent: 1, memoryBytes: 1024 };
+      }
+    },
+    autoStopService: { async onRunningSnapshot() {} },
+    logger: { error() {}, warn() {}, info() {} }
+  });
+  service.adapters.set("factory-id", {
+    supportsConsoleSubscription() { return true; },
+    shouldRefreshOnlinePlayersOnConsoleConnect() { return false; },
+    shouldRefreshOnlinePlayers() { return false; },
+    parseConsoleChatLine(line) {
+      const match = String(line).match(/\[CHAT\]\s+([^:]+):\s*(.+)$/);
+      return match ? { authorName: match[1], content: match[2] } : null;
+    },
+    async fetchSnapshot(resources) {
+      return {
+        name: server.name,
+        description: "",
+        currentState: resources.currentState,
+        simplifiedStatus: "Online",
+        playerCount: 1,
+        onlinePlayers: ["TTLouis"],
+        cpuPercent: resources.cpuPercent,
+        memoryBytes: resources.memoryBytes
+      };
+    }
+  });
+
+  await service.start();
+  assert.equal(typeof lineHandler, "function");
+
+  const connectedAt = Date.now();
+  lineHandler("2026-07-02 10:52:00 [CHAT] TTLouis: 那里了", {
+    connectedAt,
+    isBacklog: false
+  });
+  lineHandler("2026-07-02 10:52:01 [CHAT] TTLouis: old message", {
+    connectedAt,
+    isBacklog: true
+  });
+  lineHandler("2026-07-02 10:52:02 [CHAT] TTLouis: reconnect message", {
+    connectedAt,
+    isBacklog: true,
+    isReconnect: true
+  });
+  lineHandler("2026-07-02 10:52:02 [CHAT] TTLouis: reconnect message", {
+    connectedAt,
+    isBacklog: true,
+    isReconnect: true
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(relayedMessages.length, 2);
+  assert.deepEqual(relayedMessages[0], {
+    server,
+    authorName: "TTLouis",
+    content: "那里了"
+  });
+  assert.deepEqual(relayedMessages[1], {
+    server,
+    authorName: "TTLouis",
+    content: "reconnect message"
+  });
+  await service.stop();
+});
+
 test("Satisfactory power-state events trigger a debounced status refresh", async () => {
   let currentState = "running";
   let statusHandler = null;

@@ -204,3 +204,95 @@ test("KOOK action messages edit safe adjacent server transitions", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test("KOOK status panel updates retry once after request timeouts", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  const warnings = [];
+  globalThis.fetch = async (url, options) => {
+    const endpoint = new URL(url).pathname.replace("/api/v3", "");
+    const payload = JSON.parse(options.body);
+    requests.push({ endpoint, payload });
+
+    if (requests.length === 1) {
+      const error = new Error("This operation was aborted");
+      error.name = "AbortError";
+      throw error;
+    }
+
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return { code: 0, data: {} };
+      }
+    };
+  };
+
+  try {
+    const stateStore = createMemoryStateStore();
+    stateStore.setStatusMessageIds("status-channel", ["status-message"]);
+    const bridge = new KookBridge({
+      token: "token",
+      guildId: "guild",
+      stateStore,
+      apiBaseUrl: "https://example.test/api/v3",
+      requestRetryDelayMs: 0,
+      logger: {
+        info() {},
+        warn(message) {
+          warnings.push(message);
+        }
+      }
+    });
+
+    await bridge.upsertStatusPanel("status-channel", { type: 10, content: "[{}]" });
+
+    assert.deepEqual(requests.map((request) => request.endpoint), [
+      "/message/update",
+      "/message/update"
+    ]);
+    assert.equal(requests[0].payload.msg_id, "status-message");
+    assert.equal(requests[1].payload.msg_id, "status-message");
+    assert.equal(warnings[0], "KOOK API /message/update timed out; retrying once.");
+    assert.deepEqual(stateStore.getStatusMessageIds("status-channel"), ["status-message"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("KOOK message creates are not retried after request timeouts", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (url, options) => {
+    const endpoint = new URL(url).pathname.replace("/api/v3", "");
+    const payload = JSON.parse(options.body);
+    requests.push({ endpoint, payload });
+
+    const error = new Error("This operation was aborted");
+    error.name = "AbortError";
+    throw error;
+  };
+
+  try {
+    const stateStore = createMemoryStateStore();
+    const bridge = new KookBridge({
+      token: "token",
+      guildId: "guild",
+      stateStore,
+      apiBaseUrl: "https://example.test/api/v3",
+      requestRetryDelayMs: 0,
+      logger: { info() {}, warn() {} }
+    });
+
+    await assert.rejects(
+      () => bridge.upsertStatusPanel("status-channel", { type: 10, content: "[{}]" }),
+      { name: "AbortError" }
+    );
+
+    assert.deepEqual(requests.map((request) => request.endpoint), ["/message/create"]);
+    assert.deepEqual(stateStore.getStatusMessageIds("status-channel"), []);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

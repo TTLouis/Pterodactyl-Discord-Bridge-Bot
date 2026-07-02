@@ -132,3 +132,24 @@ test("Factorio snapshots wait for an in-flight player-list refresh", async () =>
   assert.equal(refreshedSnapshot.playerCount, 0);
   assert.deepEqual(refreshedSnapshot.onlinePlayers, []);
 });
+
+test("Factorio chat parser forwards player chat and ignores Discord relay echoes", () => {
+  const adapter = createFactorioAdapter(async () => []);
+
+  assert.deepEqual(
+    adapter.parseConsoleChatLine("2026-07-02 10:52:00 [CHAT] TTLouis: 你天天用别人的蓝图当然挤了"),
+    { authorName: "TTLouis", content: "你天天用别人的蓝图当然挤了" }
+  );
+  assert.deepEqual(
+    adapter.parseConsoleChatLine("[CHAT] <TTLouis>: 那里了"),
+    { authorName: "TTLouis", content: "那里了" }
+  );
+  assert.equal(
+    adapter.parseConsoleChatLine("2026-07-02 10:52:00 [CHAT] <server>: DISCORD<Louis的弟弟>: 还有1个小时"),
+    null
+  );
+  assert.equal(
+    adapter.parseConsoleChatLine("2026-07-02 10:52:03 Info ServerMultiplayerManager.cpp:900: updateTick"),
+    null
+  );
+});
