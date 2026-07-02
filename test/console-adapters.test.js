@@ -153,3 +153,40 @@ test("Factorio chat parser forwards player chat and ignores Discord relay echoes
     null
   );
 });
+
+test("Factorio chat relay executes formatted commands", async () => {
+  const commands = [];
+  const adapter = new FactorioAdapter({
+    serverConfig: {
+      name: "Factorio Test",
+      asciiTitle: null,
+      description: "",
+      publicAddress: "factorio.example.com",
+      publicPort: 34197,
+      maxPlayers: 20,
+      discordChannelId: "discord-channel",
+      kookChannelId: "kook-channel",
+      pterodactylServerId: "factorio-id",
+      game: {
+        chatCommandTemplate: "/shout {platform}<{author}>: {content}",
+        kookChatCommandTemplate: "/shout KOOK<{author}>: {content}"
+      }
+    },
+    pterodactylClient: {
+      async runCommand(serverId, command) {
+        commands.push({ serverId, command });
+      }
+    }
+  });
+
+  await adapter.handleChatCommand("/shout KOOK<Kai>: hello");
+
+  assert.deepEqual(commands, [{
+    serverId: "factorio-id",
+    command: "/shout KOOK<Kai>: hello"
+  }]);
+  assert.equal(
+    adapter.parseConsoleChatLine("2026-07-02 10:52:00 [CHAT] <server>: KOOK<Kai>: hello"),
+    null
+  );
+});

@@ -3,6 +3,7 @@ export const CoreEvents = {
   SERVER_ACTION_MESSAGE: "server-action-message",
   SERVER_ACTION_MESSAGE_DELETE: "server-action-message-delete",
   GAME_CHAT_RELAY: "game-chat-relay",
+  GROUP_CHAT_RELAY: "group-chat-relay",
   SERVER_NOTICE: "server-notice"
 };
 

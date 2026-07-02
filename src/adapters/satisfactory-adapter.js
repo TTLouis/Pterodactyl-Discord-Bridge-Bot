@@ -1,23 +1,5 @@
 import { SatisfactoryClient } from "../services/satisfactory-client.js";
 
-function sanitizeContent(value) {
-  return String(value ?? "")
-    .replace(/[\u0000-\u001F\u007F]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function sanitizeAuthorName(value) {
-  return String(value ?? "")
-    .replace(/[\u0000-\u001F\u007F<>]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function renderTemplate(template, values) {
-  return template.replaceAll("{author}", values.authorName).replaceAll("{content}", values.content);
-}
-
 function simplifyStatus(currentState) {
   switch (currentState) {
     case "running":
@@ -51,7 +33,15 @@ export class SatisfactoryAdapter {
   }
 
   supportsDiscordRelay() {
-    return Boolean(this.serverConfig.game.chatCommandTemplate);
+    return Boolean(
+      this.serverConfig.game.chatCommandTemplate
+      || this.serverConfig.game.discordChatCommandTemplate
+      || this.serverConfig.game.kookChatCommandTemplate
+    );
+  }
+
+  supportsChatRelay() {
+    return this.supportsDiscordRelay();
   }
 
   async fetchSnapshot(resources) {
@@ -86,21 +76,18 @@ export class SatisfactoryAdapter {
   }
 
   async handleDiscordMessage(message) {
-    const template = this.serverConfig.game.chatCommandTemplate;
-    if (!template) {
+    return this.handleChatCommand(message.command);
+  }
+
+  async handleChatMessage(message) {
+    return this.handleChatCommand(message.command);
+  }
+
+  async handleChatCommand(command) {
+    if (!command) {
       return null;
     }
 
-    const content = sanitizeContent(message.content);
-    if (!content) {
-      return null;
-    }
-
-    const authorName = sanitizeAuthorName(message.authorName) || "Discord";
-    const command = renderTemplate(template, {
-      authorName,
-      content
-    });
     const result = await this.satisfactoryClient.runCommand(this.serverConfig, command);
 
     if (!result.returnValue) {

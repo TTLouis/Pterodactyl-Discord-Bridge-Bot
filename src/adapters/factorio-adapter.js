@@ -6,24 +6,6 @@ const FACTORIO_GPS_ONLY_PATTERN = /^\[gps=[^\]]+\]$/i;
 const FACTORIO_PLAYER_EVENT_PATTERN = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \[(JOIN|LEAVE)\] .+ (joined|left) the game$/;
 const FACTORIO_INFO_LOG_LINE_PATTERN = /^\d+(?:\.\d+)?\s+Info\b/;
 
-function sanitizeContent(value) {
-  return String(value ?? "")
-    .replace(/[\u0000-\u001F\u007F]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function sanitizeAuthorName(value) {
-  return String(value ?? "")
-    .replace(/[\u0000-\u001F\u007F<>]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function renderTemplate(template, values) {
-  return template.replaceAll("{author}", values.authorName).replaceAll("{content}", values.content);
-}
-
 function normalizeConsoleLines(lines) {
   return lines
     .flatMap((line) => String(line ?? "").split(/\r?\n/))
@@ -72,12 +54,12 @@ function parsePlayerList(lines) {
   return { playerCount: players.length, players };
 }
 
-function isDiscordRelayName(authorName) {
-  return /^DISCORD<.+>$/.test(authorName);
+function isPlatformRelayName(authorName) {
+  return /^(?:DISCORD|KOOK)<.+>$/i.test(authorName);
 }
 
-function isDiscordRelayContent(content) {
-  return /^DISCORD<.+>:\s*/.test(content);
+function isPlatformRelayContent(content) {
+  return /^(?:DISCORD|KOOK)<.+>:\s*/i.test(content);
 }
 
 function isGpsOnlyContent(content) {
@@ -200,6 +182,10 @@ export class FactorioAdapter {
     return true;
   }
 
+  supportsChatRelay() {
+    return this.supportsDiscordRelay();
+  }
+
   shouldRefreshOnlinePlayersOnConsoleConnect() {
     return true;
   }
@@ -224,17 +210,17 @@ export class FactorioAdapter {
   }
 
   async handleDiscordMessage(message) {
-    const content = sanitizeContent(message.content);
-    if (!content) {
+    return this.handleChatCommand(message.command);
+  }
+
+  async handleChatMessage(message) {
+    return this.handleChatCommand(message.command);
+  }
+
+  async handleChatCommand(command) {
+    if (!command) {
       return null;
     }
-
-    const authorName = sanitizeAuthorName(message.authorName) || "Discord";
-    const command = renderTemplate(this.serverConfig.game.chatCommandTemplate, {
-      authorName,
-      content
-    });
-
     await this.pterodactylClient.runCommand(this.serverConfig.pterodactylServerId, command);
     return null;
   }
@@ -314,7 +300,7 @@ export class FactorioAdapter {
     const rawAuthorName = match[1].trim();
     const authorName = normalizeChatAuthorName(rawAuthorName);
     const content = match[2].trim();
-    if (!authorName || !content || isDiscordRelayName(authorName) || isDiscordRelayContent(content) || isGpsOnlyContent(content)) {
+    if (!authorName || !content || isPlatformRelayName(authorName) || isPlatformRelayContent(content) || isGpsOnlyContent(content)) {
       return null;
     }
 

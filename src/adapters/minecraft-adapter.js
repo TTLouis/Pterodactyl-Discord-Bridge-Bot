@@ -12,24 +12,6 @@ const MC_TIME_PATTERN = new RegExp(`${MC_LOG_PREFIX.source}The time is (\\d+)$`,
 const BACKUP_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
 const MS_PER_TICK = 50;
 
-function sanitizeContent(value) {
-  return String(value ?? "")
-    .replace(/[\u0000-\u001F\u007F]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function sanitizeAuthorName(value) {
-  return String(value ?? "")
-    .replace(/[\u0000-\u001F\u007F<>]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function renderTemplate(template, values) {
-  return template.replaceAll("{author}", values.authorName).replaceAll("{content}", values.content);
-}
-
 function normalizeConsoleLines(lines) {
   return lines
     .flatMap((line) => String(line ?? "").split(/\r?\n/))
@@ -166,6 +148,10 @@ export class MinecraftAdapter {
     return true;
   }
 
+  supportsChatRelay() {
+    return this.supportsDiscordRelay();
+  }
+
   shouldRefreshOnlinePlayersOnConsoleConnect() {
     return true;
   }
@@ -193,15 +179,15 @@ export class MinecraftAdapter {
   }
 
   async handleDiscordMessage(message) {
-    const content = sanitizeContent(message.content);
-    if (!content) return null;
+    return this.handleChatCommand(message.command);
+  }
 
-    const authorName = sanitizeAuthorName(message.authorName) || "Discord";
-    const command = renderTemplate(this.serverConfig.game.chatCommandTemplate, {
-      authorName,
-      content
-    });
+  async handleChatMessage(message) {
+    return this.handleChatCommand(message.command);
+  }
 
+  async handleChatCommand(command) {
+    if (!command) return null;
     await this.pterodactylClient.runCommand(this.serverConfig.pterodactylServerId, command);
     return null;
   }

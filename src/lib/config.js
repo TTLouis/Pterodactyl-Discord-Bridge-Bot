@@ -89,6 +89,8 @@ function normalizeFactorioGame(server) {
   return {
     type: "factorio",
     chatCommandTemplate: server.game?.chatCommandTemplate ?? "/shout DISCORD<{author}>: {content}",
+    discordChatCommandTemplate: server.game?.discordChatCommandTemplate ?? null,
+    kookChatCommandTemplate: server.game?.kookChatCommandTemplate ?? null,
     playerListRefreshIntervalSeconds: Number.isFinite(playerListRefreshIntervalSeconds)
       ? playerListRefreshIntervalSeconds
       : 900
@@ -110,7 +112,9 @@ function deriveSatisfactoryApiUrl(server) {
 function normalizeMinecraftGame(server) {
   return {
     type: "minecraft",
-    chatCommandTemplate: server.game?.chatCommandTemplate ?? "/say [Discord] {author}: {content}"
+    chatCommandTemplate: server.game?.chatCommandTemplate ?? "/say [Discord] {author}: {content}",
+    discordChatCommandTemplate: server.game?.discordChatCommandTemplate ?? null,
+    kookChatCommandTemplate: server.game?.kookChatCommandTemplate ?? null
   };
 }
 
@@ -126,7 +130,9 @@ function normalizeSatisfactoryGame(server) {
     apiToken: server.game?.apiToken ?? null,
     allowInsecureTls: server.game?.allowInsecureTls ?? true,
     apiRequestTimeoutMs: apiRequestTimeoutSeconds * 1000,
-    chatCommandTemplate: server.game?.chatCommandTemplate ?? null
+    chatCommandTemplate: server.game?.chatCommandTemplate ?? null,
+    discordChatCommandTemplate: server.game?.discordChatCommandTemplate ?? null,
+    kookChatCommandTemplate: server.game?.kookChatCommandTemplate ?? null
   };
 }
 

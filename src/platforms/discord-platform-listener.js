@@ -19,6 +19,11 @@ function formatDiscordRelayMessage(message) {
   return `**${message.authorName}**: ${message.content}`;
 }
 
+function formatDiscordGroupRelayMessage(message) {
+  const platform = message.sourcePlatform === "kook" ? "KOOK" : "Chat";
+  return `[${platform}] **${message.authorName}**: ${message.content}`;
+}
+
 function buildDiscordActionMessage(event) {
   switch (event.kind) {
     case "activity-cancelled":
@@ -87,6 +92,7 @@ export class DiscordPlatformListener {
       this.eventBus.on(CoreEvents.SERVER_ACTION_MESSAGE, (event) => this.#handleServerActionMessage(event)),
       this.eventBus.on(CoreEvents.SERVER_ACTION_MESSAGE_DELETE, (event) => this.#handleServerActionMessageDelete(event)),
       this.eventBus.on(CoreEvents.GAME_CHAT_RELAY, (event) => this.#handleGameChatRelay(event)),
+      this.eventBus.on(CoreEvents.GROUP_CHAT_RELAY, (event) => this.#handleGroupChatRelay(event)),
       this.eventBus.on(CoreEvents.SERVER_NOTICE, (event) => this.#handleServerNotice(event))
     ];
   }
@@ -144,6 +150,18 @@ export class DiscordPlatformListener {
     }
 
     const message = await this.discordBridge.sendMessage(event.server.discordChannelId, formatDiscordRelayMessage(event));
+    return {
+      platform: "discord",
+      message
+    };
+  }
+
+  async #handleGroupChatRelay(event) {
+    if (event.sourcePlatform === "discord" || !event.server.discordChannelId) {
+      return null;
+    }
+
+    const message = await this.discordBridge.sendMessage(event.server.discordChannelId, formatDiscordGroupRelayMessage(event));
     return {
       platform: "discord",
       message

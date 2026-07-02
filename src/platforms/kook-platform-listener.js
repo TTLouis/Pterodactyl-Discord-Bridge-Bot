@@ -2,6 +2,11 @@ import { CoreEvents } from "../core/core-events.js";
 import { buildActionMessageMeta } from "../lib/action-message-state.js";
 import { buildKookActionMessageForEvent, buildKookStatusPanel } from "../lib/kook-card-formatters.js";
 
+function formatKookGroupRelayMessage(message) {
+  const platform = message.sourcePlatform === "discord" ? "Discord" : "聊天";
+  return `[${platform}] **${message.authorName}**: ${message.content}`;
+}
+
 function formatKookServerNotice(event) {
   if (event.kind === "satisfactory-player-count") {
     const action = event.action === "joined" ? "加入" : "离开";
@@ -31,6 +36,7 @@ export class KookPlatformListener {
       this.eventBus.on(CoreEvents.STATUS_PANEL_UPDATED, (event) => this.#handleSafely("upsert status panel", () => this.#handleStatusPanelUpdated(event))),
       this.eventBus.on(CoreEvents.SERVER_ACTION_MESSAGE, (event) => this.#handleSafely("replace action message", () => this.#handleServerActionMessage(event))),
       this.eventBus.on(CoreEvents.GAME_CHAT_RELAY, (event) => this.#handleSafely("send game chat relay", () => this.#handleGameChatRelay(event))),
+      this.eventBus.on(CoreEvents.GROUP_CHAT_RELAY, (event) => this.#handleSafely("send group chat relay", () => this.#handleGroupChatRelay(event))),
       this.eventBus.on(CoreEvents.SERVER_NOTICE, (event) => this.#handleSafely("send server notice", () => this.#handleServerNotice(event)))
     ];
   }
@@ -81,6 +87,16 @@ export class KookPlatformListener {
     }
 
     await this.kookBridge.sendMessage(kookChannelId, `**${event.authorName}**: ${event.content}`);
+    return { platform: "kook" };
+  }
+
+  async #handleGroupChatRelay(event) {
+    const kookChannelId = event.server.kookChannelId;
+    if (event.sourcePlatform === "kook" || !kookChannelId) {
+      return null;
+    }
+
+    await this.kookBridge.sendMessage(kookChannelId, formatKookGroupRelayMessage(event));
     return { platform: "kook" };
   }
 

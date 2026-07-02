@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import test from "node:test";
 import { KookBridge } from "../src/services/kook-bridge.js";
 
@@ -38,6 +39,166 @@ function createMemoryStateStore() {
     }
   };
 }
+
+class FakeSocket extends EventEmitter {
+  constructor() {
+    super();
+    this.readyState = 1;
+    this.sent = [];
+  }
+
+  send(payload) {
+    this.sent.push(payload);
+  }
+
+  close() {
+    this.readyState = 3;
+    this.emit("close");
+  }
+}
+
+function makeJsonResponse(data) {
+  return {
+    ok: true,
+    status: 200,
+    async json() {
+      return { code: 0, data };
+    }
+  };
+}
+
+test("KOOK gateway text messages are normalized for message handlers", async () => {
+  const originalFetch = globalThis.fetch;
+  const sockets = [];
+  const messages = [];
+  globalThis.fetch = async (url) => {
+    const parsed = new URL(url);
+    const endpoint = parsed.pathname.replace("/api/v3", "");
+
+    if (endpoint === "/user/me") {
+      return makeJsonResponse({ id: "bot-user" });
+    }
+
+    if (endpoint === "/gateway/index") {
+      assert.equal(parsed.searchParams.get("compress"), "0");
+      return makeJsonResponse({ url: "wss://gateway.example.test" });
+    }
+
+    throw new Error(`Unexpected endpoint: ${endpoint}`);
+  };
+
+  try {
+    const bridge = new KookBridge({
+      token: "token",
+      guildId: "guild",
+      stateStore: createMemoryStateStore(),
+      apiBaseUrl: "https://example.test/api/v3",
+      gatewayHeartbeatIntervalMs: 60_000,
+      webSocketFactory(url) {
+        assert.equal(url, "wss://gateway.example.test");
+        const socket = new FakeSocket();
+        sockets.push(socket);
+        return socket;
+      },
+      logger: { info() {}, warn() {} }
+    });
+    bridge.onMessage((message) => {
+      messages.push(message);
+    });
+
+    await bridge.start();
+    sockets[0].emit("message", Buffer.from(JSON.stringify({ s: 1, d: { code: 0, session_id: "session" } })));
+    sockets[0].emit("message", Buffer.from(JSON.stringify({
+      s: 0,
+      sn: 42,
+      d: {
+        channel_type: "GROUP",
+        type: 9,
+        target_id: "kook-channel",
+        author_id: "user-1",
+        content: "hello from kook",
+        msg_id: "msg-1",
+        extra: {
+          guild_id: "guild",
+          author: {
+            nickname: "Kai"
+          }
+        }
+      }
+    })));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await bridge.stop();
+
+    assert.deepEqual(messages, [{
+      sourcePlatform: "kook",
+      authorId: "user-1",
+      authorName: "Kai",
+      channelId: "kook-channel",
+      content: "hello from kook",
+      messageId: "msg-1"
+    }]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("KOOK gateway ignores self-authored messages", async () => {
+  const originalFetch = globalThis.fetch;
+  const sockets = [];
+  const messages = [];
+  globalThis.fetch = async (url) => {
+    const endpoint = new URL(url).pathname.replace("/api/v3", "");
+
+    if (endpoint === "/user/me") {
+      return makeJsonResponse({ id: "bot-user" });
+    }
+
+    if (endpoint === "/gateway/index") {
+      return makeJsonResponse({ url: "wss://gateway.example.test" });
+    }
+
+    throw new Error(`Unexpected endpoint: ${endpoint}`);
+  };
+
+  try {
+    const bridge = new KookBridge({
+      token: "token",
+      guildId: "guild",
+      stateStore: createMemoryStateStore(),
+      apiBaseUrl: "https://example.test/api/v3",
+      gatewayHeartbeatIntervalMs: 60_000,
+      webSocketFactory() {
+        const socket = new FakeSocket();
+        sockets.push(socket);
+        return socket;
+      },
+      logger: { info() {}, warn() {} }
+    });
+    bridge.onMessage((message) => {
+      messages.push(message);
+    });
+
+    await bridge.start();
+    sockets[0].emit("message", JSON.stringify({
+      s: 0,
+      sn: 1,
+      d: {
+        channel_type: "GROUP",
+        type: 9,
+        target_id: "kook-channel",
+        author_id: "bot-user",
+        content: "self echo",
+        extra: { guild_id: "guild" }
+      }
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await bridge.stop();
+
+    assert.deepEqual(messages, []);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
 test("KOOK status panels update known messages and create when the known message is stale", async () => {
   const originalFetch = globalThis.fetch;

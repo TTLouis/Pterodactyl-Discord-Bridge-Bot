@@ -422,6 +422,71 @@ test("rejected or no-op start requests do not trigger an extra status sync", asy
   assert.deepEqual(syncCalls, [undefined]);
 });
 
+test("KOOK channel messages relay to the matching game server", async () => {
+  let kookMessageHandler = null;
+  const handledCommands = [];
+  const emittedEvents = [];
+  const service = new StatusSyncService({
+    config: {
+      discord: { statusChannelId: "status", displayTimeZone: "UTC" },
+      servers: [{
+        name: "Test Server",
+        discordChannelId: "discord-channel",
+        kookChannelId: "kook-channel",
+        pterodactylServerId: "server-id",
+        game: { type: "minecraft", chatCommandTemplate: "/say {content}" },
+        autoStop: null
+      }]
+    },
+    discordBridge: {
+      setSlashCommands() {},
+      onMessage() {},
+      onInteraction() {},
+      onReaction() {}
+    },
+    kookBridge: {
+      onMessage(handler) {
+        kookMessageHandler = handler;
+      }
+    },
+    eventBus: {
+      async emit(name, payload) {
+        emittedEvents.push({ name, payload });
+        return [];
+      }
+    },
+    pterodactylClient: {},
+    autoStopService: {},
+    logger: { error() {}, warn() {}, info() {} }
+  });
+  service.adapters.set("server-id", {
+    async handleChatCommand(command) {
+      handledCommands.push(command);
+    }
+  });
+  service.syncOnce = async () => {};
+
+  await service.start();
+  await kookMessageHandler({
+    sourcePlatform: "kook",
+    channelId: "kook-channel",
+    authorName: "Kai",
+    content: "hello"
+  });
+  await service.stop();
+
+  assert.deepEqual(handledCommands, ["/say hello"]);
+  assert.deepEqual(emittedEvents, [{
+    name: CoreEvents.GROUP_CHAT_RELAY,
+    payload: {
+      server: service.config.servers[0],
+      sourcePlatform: "kook",
+      authorName: "Kai",
+      content: "hello"
+    }
+  }]);
+});
+
 function createRefreshCommandService() {
   let interactionHandler = null;
   const { eventBus } = createRecordingEventBus();
