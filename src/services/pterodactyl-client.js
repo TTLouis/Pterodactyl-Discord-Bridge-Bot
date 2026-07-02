@@ -2,12 +2,20 @@ import WebSocket from "ws";
 import { logger } from "../lib/logger.js";
 
 export class PterodactylClient {
-  constructor({ baseUrl, apiKey, wingsFqdn, wingsWsScheme, wingsWsPort }) {
+  constructor({
+    baseUrl,
+    apiKey,
+    wingsFqdn,
+    wingsWsScheme,
+    wingsWsPort,
+    webSocketFactory = (url, options) => new WebSocket(url, options)
+  }) {
     this.baseUrl = baseUrl.replace(/\/+$/, "");
     this.apiKey = apiKey;
     this.wingsFqdn = wingsFqdn ?? null;
     this.wingsWsScheme = wingsWsScheme ?? null;
     this.wingsWsPort = wingsWsPort ?? null;
+    this.webSocketFactory = webSocketFactory;
     this.commandQueues = new Map();
     this.websocketCredentialCache = new Map();
 
@@ -190,7 +198,7 @@ export class PterodactylClient {
         }
 
         const rewrittenSocket = this.#rewriteWingsSocketUrl(socket);
-        const nextSocket = new WebSocket(rewrittenSocket, {
+        const nextSocket = this.webSocketFactory(rewrittenSocket, {
           headers: {
             Origin: origin
           }
@@ -224,8 +232,9 @@ export class PterodactylClient {
             const isReconnect = hasConnectedSuccessfully;
             currentConnectionIsReconnect = isReconnect;
             hasConnectedSuccessfully = true;
-            awaitingInitialLogs = sendLogs;
-            if (sendLogs) {
+            const shouldRequestLogs = sendLogs && isReconnect;
+            awaitingInitialLogs = shouldRequestLogs;
+            if (shouldRequestLogs) {
               nextSocket.send(JSON.stringify({ event: "send logs", args: [null] }));
             }
             onConnected?.({ isReconnect });
@@ -314,7 +323,7 @@ export class PterodactylClient {
     const rewrittenSocket = this.#rewriteWingsSocketUrl(socket);
 
     return new Promise((resolve, reject) => {
-      const ws = new WebSocket(rewrittenSocket, {
+      const ws = this.webSocketFactory(rewrittenSocket, {
         headers: {
           Origin: origin
         }
