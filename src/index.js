@@ -56,6 +56,7 @@ async function main() {
   const statusSyncService = new StatusSyncService({
     config: runtime.config,
     discordBridge,
+    kookBridge,
     eventBus,
     pterodactylClient,
     autoStopService,

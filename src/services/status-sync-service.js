@@ -2,6 +2,7 @@ import { FactorioAdapter } from "../adapters/factorio-adapter.js";
 import { MinecraftAdapter } from "../adapters/minecraft-adapter.js";
 import { SatisfactoryAdapter } from "../adapters/satisfactory-adapter.js";
 import { CoreEvents } from "../core/core-events.js";
+import { buildGameChatCommand } from "../lib/chat-relay-formatters.js";
 import { CANCEL_AUTO_STOP_REACTION, RESTART_SERVER_REACTION } from "./auto-stop-service.js";
 
 const DEBOUNCE_MS = 500;
@@ -72,9 +73,10 @@ const SLASH_COMMANDS = [
 ];
 
 export class StatusSyncService {
-  constructor({ config, discordBridge, eventBus, pterodactylClient, autoStopService, stateStore, logger }) {
+  constructor({ config, discordBridge, kookBridge = null, eventBus, pterodactylClient, autoStopService, stateStore, logger }) {
     this.config = config;
     this.discordBridge = discordBridge;
+    this.kookBridge = kookBridge;
     this.eventBus = eventBus;
     this.pterodactylClient = pterodactylClient;
     this.autoStopService = autoStopService;
@@ -104,7 +106,11 @@ export class StatusSyncService {
     this.discordBridge.setSlashCommands(SLASH_COMMANDS);
 
     this.discordBridge.onMessage(async (message) => {
-      await this.#handleMessage(message);
+      await this.#handleMessage({ sourcePlatform: "discord", ...message });
+    });
+
+    this.kookBridge?.onMessage(async (message) => {
+      await this.#handleMessage({ sourcePlatform: "kook", ...message });
     });
 
     this.discordBridge.onInteraction(async (interaction) => {
@@ -673,20 +679,47 @@ export class StatusSyncService {
   }
 
   async #handleMessage(message) {
-    const server = this.config.servers.find((entry) => entry.discordChannelId === message.channelId);
+    const sourcePlatform = message.sourcePlatform === "kook" ? "kook" : "discord";
+    const server = this.config.servers.find((entry) => (
+      sourcePlatform === "kook"
+        ? entry.kookChannelId === message.channelId
+        : entry.discordChannelId === message.channelId
+    ));
     if (!server || !message.content) {
       return;
     }
 
     try {
+      await this.eventBus.emit(CoreEvents.GROUP_CHAT_RELAY, {
+        server,
+        sourcePlatform,
+        authorName: message.authorName,
+        content: message.content
+      });
+    } catch (error) {
+      this.logger.warn(`Failed cross-posting ${sourcePlatform.toUpperCase()} message for ${server.name}`, error);
+    }
+
+    try {
       const adapter = this.adapters.get(server.pterodactylServerId);
-      if (!adapter?.supportsDiscordRelay()) {
+      if (!adapter) {
         return;
       }
 
-      await adapter.handleDiscordMessage(message);
+      const command = buildGameChatCommand(server, { ...message, sourcePlatform });
+      if (!command) {
+        return;
+      }
+
+      if (typeof adapter.handleChatCommand === "function") {
+        await adapter.handleChatCommand(command);
+      } else if (typeof adapter.handleChatMessage === "function") {
+        await adapter.handleChatMessage({ ...message, sourcePlatform, command });
+      } else {
+        await adapter.handleDiscordMessage({ ...message, sourcePlatform, command });
+      }
     } catch (error) {
-      this.logger.error(`Failed processing Discord message for ${server.name}`, error);
+      this.logger.error(`Failed processing ${sourcePlatform.toUpperCase()} message for ${server.name}`, error);
       try {
         await this.eventBus.emit(CoreEvents.SERVER_NOTICE, {
           kind: "relay-failed",

@@ -7,7 +7,7 @@ Supports **Factorio**, **Minecraft**, and **Satisfactory**.
 ## Features
 
 - Live status panel per server, updated every minute (player list, CPU/memory, game duration)
-- Discord ↔ game chat relay for Factorio and Minecraft; optional relay for Satisfactory
+- Discord/KOOK ↔ game chat relay for Factorio and Minecraft, plus Discord ↔ KOOK server-channel mirroring; optional game relay for Satisfactory
 - Idle auto-stop with `/start-server` and `/cancel-stop` slash commands, plus reaction controls
 
 Current Satisfactory limitations:
@@ -84,7 +84,7 @@ The bot runs outside of Pterodactyl — on a separate VM or host — and talks t
 
 The server polling, power-state tracking, and auto-stop decisions run in core services. Those services publish domain events such as status panel updates, action messages, game chat relays, and server notices. Discord and KOOK each have platform listeners that render those same events into platform-specific messages.
 
-Discord still owns slash command and reaction inputs. KOOK currently mirrors core output events when `KOOK_ENABLED=true`.
+Discord still owns slash command and reaction inputs. KOOK mirrors core output events and can relay messages from configured KOOK server channels when `KOOK_ENABLED=true`.
 
 ## Config Reference
 
@@ -132,7 +132,8 @@ Discord still owns slash command and reaction inputs. KOOK currently mirrors cor
       "maxPlayers": 32,
       "game": {
         "type": "factorio",
-        "chatCommandTemplate": "/shout DISCORD<{author}>: {content}",
+        "chatCommandTemplate": "/shout {platform}<{author}>: {content}",
+        "kookChatCommandTemplate": "/shout KOOK<{author}>: {content}",
         "playerListRefreshIntervalSeconds": 900
       },
       "autoStop": {
@@ -155,7 +156,8 @@ Discord still owns slash command and reaction inputs. KOOK currently mirrors cor
       "maxPlayers": 20,
       "game": {
         "type": "minecraft",
-        "chatCommandTemplate": "/say [Discord] {author}: {content}"
+        "chatCommandTemplate": "/say [{platform}] {author}: {content}",
+        "kookChatCommandTemplate": "/say [KOOK] {author}: {content}"
       }
     },
     {
@@ -188,8 +190,9 @@ Key notes:
 - `pterodactylServerId` is the client server identifier used by `/api/client/servers/{id}`
 - `discord.displayTimeZone` accepts any IANA timezone (e.g. `America/Toronto`); also overridable via `DISCORD_DISPLAY_TIMEZONE`
 - `discord.logChannelId` is optional — mirrors logger output into a Discord channel, including startup configuration, server snapshots, status refreshes, console bridge subscriptions, and power-state transitions
-- Set `KOOK_ENABLED=true` with `KOOK_TOKEN` to mirror status panels and server-channel action messages to KOOK; `kook.displayTimeZone` defaults to `Asia/Shanghai`
-- `kookChannelId` is optional per server. Servers without it remain Discord-only on KOOK mirrors
+- Set `KOOK_ENABLED=true` with `KOOK_TOKEN` to mirror status panels, server-channel action messages, and chat relay to KOOK; `kook.displayTimeZone` defaults to `Asia/Shanghai`
+- `kookChannelId` is optional per server. Servers without it remain Discord-only on KOOK mirrors and inbound KOOK chat relay
+- `game.chatCommandTemplate` supports `{author}`, `{content}`, and `{platform}`. Use `discordChatCommandTemplate` or `kookChatCommandTemplate` when a platform needs a different in-game label
 - Satisfactory API tokens are application tokens generated from the server console with `server.GenerateAPIToken`
 - Satisfactory often uses self-signed TLS; `game.allowInsecureTls` defaults to `true`
 - `game.apiRequestTimeoutSeconds` defaults to `10` so an unavailable Satisfactory API cannot stall all status updates

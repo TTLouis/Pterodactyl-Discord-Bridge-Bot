@@ -45,7 +45,8 @@
       "maxPlayers": 32,
       "game": {
         "type": "factorio",
-        "chatCommandTemplate": "/shout DISCORD<{author}>: {content}",
+        "chatCommandTemplate": "/shout {platform}<{author}>: {content}",
+        "kookChatCommandTemplate": "/shout KOOK<{author}>: {content}",
         "playerListRefreshIntervalSeconds": 900
       },
       "autoStop": {
@@ -69,7 +70,8 @@
       "maxPlayers": 20,
       "game": {
         "type": "minecraft",
-        "chatCommandTemplate": "/say [Discord] {author}: {content}"
+        "chatCommandTemplate": "/say [{platform}] {author}: {content}",
+        "kookChatCommandTemplate": "/say [KOOK] {author}: {content}"
       }
     },
     {

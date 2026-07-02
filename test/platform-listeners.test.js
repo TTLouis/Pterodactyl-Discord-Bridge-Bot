@@ -70,6 +70,7 @@ test("Discord platform listener renders status, action, chat, and notices", asyn
   await eventBus.emit(CoreEvents.SERVER_ACTION_MESSAGE, { kind: "auto-stop-warning", server, stopAt: new Date() });
   await eventBus.emit(CoreEvents.SERVER_ACTION_MESSAGE, { kind: "server-offline", server, currentState: "offline" });
   await eventBus.emit(CoreEvents.GAME_CHAT_RELAY, { server, authorName: "Player", content: "hello" });
+  await eventBus.emit(CoreEvents.GROUP_CHAT_RELAY, { server, sourcePlatform: "kook", authorName: "Kai", content: "from kook" });
   await eventBus.emit(CoreEvents.SERVER_NOTICE, {
     kind: "satisfactory-player-count",
     server,
@@ -79,6 +80,7 @@ test("Discord platform listener renders status, action, chat, and notices", asyn
     maxPlayers: 8
   });
   await eventBus.emit(CoreEvents.SERVER_ACTION_MESSAGE_DELETE, { server, messageId: "old-message" });
+  await eventBus.emit(CoreEvents.GROUP_CHAT_RELAY, { server, sourcePlatform: "discord", authorName: "Local", content: "skip" });
   listener.stop();
 
   assert.equal(calls[0].method, "upsertStatusPanel");
@@ -100,8 +102,10 @@ test("Discord platform listener renders status, action, chat, and notices", asyn
     state: "offline"
   });
   assert.deepEqual(calls[3], { method: "sendMessage", channelId: "discord-server", content: "**Player**: hello" });
-  assert.deepEqual(calls[4], { method: "sendMessage", channelId: "discord-server", content: "2 players joined **Factory**. (2/8)" });
-  assert.deepEqual(calls[5], { method: "deleteMessage", channelId: "discord-server", messageId: "old-message" });
+  assert.deepEqual(calls[4], { method: "sendMessage", channelId: "discord-server", content: "[KOOK] **Kai**: from kook" });
+  assert.deepEqual(calls[5], { method: "sendMessage", channelId: "discord-server", content: "2 players joined **Factory**. (2/8)" });
+  assert.deepEqual(calls[6], { method: "deleteMessage", channelId: "discord-server", messageId: "old-message" });
+  assert.equal(calls.length, 7);
 });
 
 test("KOOK platform listener renders status, action, chat, and notices", async () => {
@@ -128,6 +132,7 @@ test("KOOK platform listener renders status, action, chat, and notices", async (
   await eventBus.emit(CoreEvents.STATUS_PANEL_UPDATED, { snapshots: [snapshot] });
   await eventBus.emit(CoreEvents.SERVER_ACTION_MESSAGE, { kind: "server-offline", server, currentState: "offline" });
   await eventBus.emit(CoreEvents.GAME_CHAT_RELAY, { server, authorName: "Player", content: "hello" });
+  await eventBus.emit(CoreEvents.GROUP_CHAT_RELAY, { server, sourcePlatform: "discord", authorName: "Louis", content: "from discord" });
   await eventBus.emit(CoreEvents.SERVER_NOTICE, {
     kind: "satisfactory-player-count",
     server,
@@ -136,6 +141,7 @@ test("KOOK platform listener renders status, action, chat, and notices", async (
     playerCount: 2,
     maxPlayers: 8
   });
+  await eventBus.emit(CoreEvents.GROUP_CHAT_RELAY, { server, sourcePlatform: "kook", authorName: "Local", content: "skip" });
   listener.stop();
 
   assert.equal(calls[0].method, "upsertStatusPanel");
@@ -152,5 +158,7 @@ test("KOOK platform listener renders status, action, chat, and notices", async (
     state: "offline"
   });
   assert.deepEqual(calls[2], { method: "sendMessage", channelId: "kook-server", content: "**Player**: hello" });
-  assert.deepEqual(calls[3], { method: "sendMessage", channelId: "kook-server", content: "2 名玩家加入 **Factory**。(2/8)" });
+  assert.deepEqual(calls[3], { method: "sendMessage", channelId: "kook-server", content: "[Discord] **Louis**: from discord" });
+  assert.deepEqual(calls[4], { method: "sendMessage", channelId: "kook-server", content: "2 名玩家加入 **Factory**。(2/8)" });
+  assert.equal(calls.length, 5);
 });
