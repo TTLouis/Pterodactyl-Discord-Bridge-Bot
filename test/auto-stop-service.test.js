@@ -487,7 +487,7 @@ test("KOOK channel messages relay to the matching game server", async () => {
   }]);
 });
 
-function createRefreshCommandService() {
+function createLogCommandService({ onRestartRequested = null, restartDelayMs = 1000 } = {}) {
   let interactionHandler = null;
   const { eventBus } = createRecordingEventBus();
   const discordBridge = {
@@ -517,7 +517,9 @@ function createRefreshCommandService() {
     eventBus,
     pterodactylClient: {},
     autoStopService: {},
-    logger: { error() {}, warn() {}, info() {} }
+    logger: { error() {}, warn() {}, info() {} },
+    onRestartRequested,
+    restartDelayMs
   });
 
   return {
@@ -529,7 +531,7 @@ function createRefreshCommandService() {
 }
 
 test("refresh-status command in the log channel forces a manual status sync", async () => {
-  const { service, getInteractionHandler } = createRefreshCommandService();
+  const { service, getInteractionHandler } = createLogCommandService();
   const syncCalls = [];
   let deferred = false;
   let editReply = null;
@@ -556,7 +558,7 @@ test("refresh-status command in the log channel forces a manual status sync", as
 });
 
 test("refresh-status command outside the log channel is rejected", async () => {
-  const { service, getInteractionHandler } = createRefreshCommandService();
+  const { service, getInteractionHandler } = createLogCommandService();
   const syncCalls = [];
   let reply = null;
   service.syncOnce = async (options) => syncCalls.push(options);
@@ -576,6 +578,69 @@ test("refresh-status command outside the log channel is rejected", async () => {
     ephemeral: true
   });
   assert.deepEqual(syncCalls, [undefined]);
+});
+
+test("restart-bot command in the log channel requests a process restart", async () => {
+  const restartRequests = [];
+  const { service, getInteractionHandler } = createLogCommandService({
+    restartDelayMs: 0,
+    onRestartRequested(request) {
+      restartRequests.push(request);
+    }
+  });
+  let deferred = false;
+  let editReply = null;
+  service.syncOnce = async () => {};
+
+  await service.start();
+  await getInteractionHandler()({
+    commandName: "restart-bot",
+    channelId: "logs",
+    member: { displayName: "Operator" },
+    user: { username: "operator" },
+    async deferReply(options) {
+      deferred = options.ephemeral;
+    },
+    async editReply(payload) {
+      editReply = payload;
+    }
+  });
+  await service.stop();
+
+  assert.equal(deferred, true);
+  assert.deepEqual(editReply, { content: "Restarting bot process. It should come back online shortly." });
+  assert.deepEqual(restartRequests, [{
+    requestedBy: "Operator",
+    channelId: "logs"
+  }]);
+});
+
+test("restart-bot command outside the log channel is rejected", async () => {
+  const restartRequests = [];
+  const { service, getInteractionHandler } = createLogCommandService({
+    restartDelayMs: 0,
+    onRestartRequested(request) {
+      restartRequests.push(request);
+    }
+  });
+  let reply = null;
+  service.syncOnce = async () => {};
+
+  await service.start();
+  await getInteractionHandler()({
+    commandName: "restart-bot",
+    channelId: "server-channel",
+    async reply(payload) {
+      reply = payload;
+    }
+  });
+  await service.stop();
+
+  assert.deepEqual(reply, {
+    content: "This command can only be used in the configured log channel.",
+    ephemeral: true
+  });
+  assert.deepEqual(restartRequests, []);
 });
 
 test("status refresh uses a faster interval while players are online", () => {

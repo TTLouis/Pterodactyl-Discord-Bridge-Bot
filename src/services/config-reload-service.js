@@ -24,6 +24,10 @@ function fixedKookSettings(config) {
   };
 }
 
+function canReloadGameSettings(currentServer, nextServer) {
+  return currentServer.game?.type === "satisfactory" && nextServer.game?.type === "satisfactory";
+}
+
 export function validateReloadCompatibility(currentConfig, nextConfig) {
   const fixedDiscordKeys = ["guildId", "statusChannelId", "logChannelId"];
   for (const key of fixedDiscordKeys) {
@@ -62,7 +66,7 @@ export function validateReloadCompatibility(currentConfig, nextConfig) {
       throw new Error(`KOOK channel changed for "${server.name}"; restart the bot to apply it.`);
     }
 
-    if (stableJson(current.game) !== stableJson(server.game)) {
+    if (stableJson(current.game) !== stableJson(server.game) && !canReloadGameSettings(current, server)) {
       throw new Error(`Game settings changed for "${server.name}"; restart the bot to apply them.`);
     }
   }

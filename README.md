@@ -203,7 +203,9 @@ Key notes:
 - `descriptionLines` preserves manual line breaks, blank lines, Unicode, and Discord Markdown; the older `description` string remains supported
 - `pterodactyl.pollIntervalSeconds` controls empty-server refreshes; `activePlayerPollIntervalSeconds` defaults to `15` seconds while any server has players. Values in `servers.json` take precedence over legacy interval environment variables and reload without a restart
 - Saving a valid `servers.json` automatically refreshes display settings such as descriptions, names, addresses, ports, player limits, timezone, and auto-stop values
-- Server additions/removals, IDs, channel mappings, game settings, Discord/KOOK channel IDs, and Pterodactyl connection changes require a bot restart
+- Saving Satisfactory API settings such as `game.apiToken`, `game.apiUrl`, `game.allowInsecureTls`, or `game.apiRequestTimeoutSeconds` reloads that server's Satisfactory API state without a bot restart
+- Use `/restart-bot` in the configured Discord log channel to gracefully exit the bot so Docker/systemd can restart it
+- Server additions/removals, IDs, channel mappings, non-Satisfactory game settings, Discord/KOOK channel IDs, and Pterodactyl connection changes require a bot restart
 - Invalid JSON or an invalid live change is logged and the bot continues using the previous configuration
 - `autoStop.emptyTimeoutHours` defaults to `24`; `warningMinutesBefore` defaults to `60`
 - Server action messages use 🔴 to cancel a pending auto-stop and 🟢 to restart a stopped server

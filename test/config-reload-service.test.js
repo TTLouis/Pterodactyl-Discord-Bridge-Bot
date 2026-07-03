@@ -127,6 +127,64 @@ test("live reload rejects game setting changes captured by adapters", () => {
   );
 });
 
+test("live reload accepts Satisfactory API setting changes", () => {
+  const current = createConfig({
+    servers: [{
+      name: "Factory",
+      description: "Old description",
+      discordChannelId: "server-channel",
+      kookChannelId: "kook-server-channel",
+      pterodactylServerId: "server-id",
+      publicAddress: "factory.example.com",
+      publicPort: 7777,
+      maxPlayers: 8,
+      game: {
+        type: "satisfactory",
+        apiUrl: "https://factory.example.com:7777/api/v1",
+        apiToken: "old-token",
+        allowInsecureTls: true,
+        apiRequestTimeoutMs: 10000,
+        chatCommandTemplate: null
+      },
+      autoStop: null
+    }]
+  });
+  const originalServer = current.servers[0];
+  const next = createConfig({
+    servers: [{
+      ...current.servers[0],
+      game: {
+        ...current.servers[0].game,
+        apiToken: "new-token",
+        apiRequestTimeoutMs: 5000
+      }
+    }]
+  });
+
+  applyReloadedConfig(current, next);
+
+  assert.equal(current.servers[0], originalServer);
+  assert.equal(current.servers[0].game.apiToken, "new-token");
+  assert.equal(current.servers[0].game.apiRequestTimeoutMs, 5000);
+});
+
+test("live reload rejects game type changes even when Satisfactory is involved", () => {
+  const current = createConfig();
+  const next = createConfig();
+  next.servers[0].game = {
+    type: "satisfactory",
+    apiUrl: "https://factory.example.com:7777/api/v1",
+    apiToken: "token",
+    allowInsecureTls: true,
+    apiRequestTimeoutMs: 10000
+  };
+
+  assert.throws(
+    () => validateReloadCompatibility(current, next),
+    /Game settings changed/
+  );
+});
+
 test("failed reloads keep the running configuration", async () => {
   let reloadCalls = 0;
   const errors = [];

@@ -67,7 +67,11 @@ async function main() {
     pterodactylClient,
     autoStopService,
     stateStore,
-    logger
+    logger,
+    onRestartRequested({ requestedBy }) {
+      logger.info("Restarting bot after Discord command", { requestedBy });
+      void shutdown("BOT_RESTART_REQUESTED");
+    }
   });
 
   discordPlatformListener.start();
@@ -114,6 +118,7 @@ async function main() {
         logger
       });
       applyReloadedConfig(runtime.config, nextConfig);
+      statusSyncService.onConfigReloaded();
       await statusSyncService.syncOnce({ force: true });
       statusSyncService.refreshPeriodicSchedule();
     }
