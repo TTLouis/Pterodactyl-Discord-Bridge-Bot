@@ -97,7 +97,7 @@ function normalizeFactorioGame(server) {
   };
 }
 
-function deriveSatisfactoryApiUrl(server) {
+export function deriveSatisfactoryApiUrl(server) {
   if (server.game?.apiUrl) {
     return server.game.apiUrl;
   }
@@ -221,10 +221,6 @@ function validateConfig(config) {
     }
 
     if (server.game?.type === "satisfactory") {
-      if (!server.game.apiUrl) {
-        throw new Error(`Satisfactory server "${server.name}" requires game.apiUrl or publicAddress/publicPort so the API URL can be derived.`);
-      }
-
       if (!server.game.apiToken) {
         throw new Error(`Satisfactory server "${server.name}" requires game.apiToken.`);
       }

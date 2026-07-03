@@ -9,6 +9,7 @@ import { applyReloadedConfig, ConfigReloadService } from "./services/config-relo
 import { DiscordBridge } from "./services/discord-bridge.js";
 import { KookBridge } from "./services/kook-bridge.js";
 import { PterodactylClient } from "./services/pterodactyl-client.js";
+import { hydrateServerNetworkConfig } from "./services/server-network-config.js";
 import { StatusSyncService } from "./services/status-sync-service.js";
 import { DiscordPlatformListener } from "./platforms/discord-platform-listener.js";
 import { KookPlatformListener } from "./platforms/kook-platform-listener.js";
@@ -18,6 +19,12 @@ async function main() {
   const stateStore = new StateStore();
   stateStore.load();
   const eventBus = new CoreEventBus();
+  const pterodactylClient = new PterodactylClient(runtime.config.pterodactyl);
+  await hydrateServerNetworkConfig({
+    config: runtime.config,
+    pterodactylClient,
+    logger
+  });
 
   const discordBridge = new DiscordBridge({
     token: runtime.discordToken,
@@ -45,7 +52,6 @@ async function main() {
       logger
     })
     : null;
-  const pterodactylClient = new PterodactylClient(runtime.config.pterodactyl);
   const autoStopService = new AutoStopService({
     config: runtime.config,
     pterodactylClient,
@@ -102,6 +108,11 @@ async function main() {
     loadConfig,
     logger,
     async onReload(nextConfig) {
+      await hydrateServerNetworkConfig({
+        config: nextConfig,
+        pterodactylClient,
+        logger
+      });
       applyReloadedConfig(runtime.config, nextConfig);
       await statusSyncService.syncOnce({ force: true });
       statusSyncService.refreshPeriodicSchedule();

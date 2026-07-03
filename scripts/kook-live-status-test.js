@@ -8,6 +8,7 @@ import { normalizeKookConfigId, requireKookEnabled } from "../src/lib/kook-confi
 import { buildKookStatusPanel } from "../src/lib/kook-card-formatters.js";
 import { logger } from "../src/lib/logger.js";
 import { PterodactylClient } from "../src/services/pterodactyl-client.js";
+import { hydrateServerNetworkConfig } from "../src/services/server-network-config.js";
 
 const API_BASE_URL = (process.env.KOOK_API_BASE_URL ?? "https://www.kookapp.cn/api/v3").replace(/\/$/, "");
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -119,6 +120,11 @@ async function main() {
 
   const runtime = loadConfig();
   const pterodactylClient = new PterodactylClient(runtime.config.pterodactyl);
+  await hydrateServerNetworkConfig({
+    config: runtime.config,
+    pterodactylClient,
+    logger
+  });
   const { snapshots, failures } = await fetchLiveSnapshots(runtime.config, pterodactylClient);
   const panel = buildKookStatusPanel(snapshots, {
     displayTimeZone: resolveDisplayTimeZone(rawConfig)
