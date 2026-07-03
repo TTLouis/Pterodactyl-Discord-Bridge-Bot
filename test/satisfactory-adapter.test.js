@@ -103,3 +103,28 @@ test("Satisfactory snapshots reset the count when the server stops", async () =>
     gamePhase: ""
   });
 });
+
+test("Satisfactory config reload clears cached API state", async () => {
+  const adapter = createAdapter(async () => ({
+    numConnectedPlayers: 2,
+    playerLimit: 8,
+    techTier: 6,
+    activeSchematic: "Schematic_6-1",
+    gamePhase: "GamePhase_3",
+    totalGameDuration: 200
+  }));
+
+  await adapter.fetchSnapshot(runningResources);
+  adapter.serverConfig.maxPlayers = 12;
+  adapter.onConfigReloaded();
+  const snapshot = await adapter.fetchSnapshot({ ...runningResources, currentState: "offline" });
+
+  assert.equal(snapshot.playerCount, 0);
+  assert.equal(snapshot.maxPlayers, 12);
+  assert.equal(snapshot.gameDurationMs, null);
+  assert.deepEqual(snapshot.satisfactoryState, {
+    techTier: null,
+    activeSchematic: "",
+    gamePhase: ""
+  });
+});

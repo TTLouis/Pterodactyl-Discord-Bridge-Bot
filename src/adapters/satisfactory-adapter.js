@@ -44,6 +44,15 @@ export class SatisfactoryAdapter {
     return this.supportsDiscordRelay();
   }
 
+  onConfigReloaded() {
+    this.playerCount = 0;
+    this.maxPlayers = this.serverConfig.maxPlayers;
+    this.gameDurationMs = null;
+    this.techTier = null;
+    this.activeSchematic = "";
+    this.gamePhase = "";
+  }
+
   async fetchSnapshot(resources) {
     if (resources.currentState !== "running") {
       this.playerCount = 0;

@@ -69,11 +69,23 @@ function shouldApplyCachedPowerState(cachedState, resourceState) {
 const SLASH_COMMANDS = [
   { name: "start-server", description: "Start a stopped game server" },
   { name: "cancel-stop", description: "Cancel a pending auto-stop" },
-  { name: "refresh-status", description: "Force refresh all game server status panels" }
+  { name: "refresh-status", description: "Force refresh all game server status panels" },
+  { name: "restart-bot", description: "Restart the bot process" }
 ];
 
 export class StatusSyncService {
-  constructor({ config, discordBridge, kookBridge = null, eventBus, pterodactylClient, autoStopService, stateStore, logger }) {
+  constructor({
+    config,
+    discordBridge,
+    kookBridge = null,
+    eventBus,
+    pterodactylClient,
+    autoStopService,
+    stateStore,
+    logger,
+    onRestartRequested = null,
+    restartDelayMs = 1000
+  }) {
     this.config = config;
     this.discordBridge = discordBridge;
     this.kookBridge = kookBridge;
@@ -82,6 +94,8 @@ export class StatusSyncService {
     this.autoStopService = autoStopService;
     this.stateStore = stateStore;
     this.logger = logger;
+    this.onRestartRequested = onRestartRequested;
+    this.restartDelayMs = restartDelayMs;
     this.intervalHandle = null;
     this.debounceHandle = null;
     this.started = false;
@@ -154,6 +168,13 @@ export class StatusSyncService {
 
   refreshPeriodicSchedule() {
     this.#scheduleNextPeriodicSync();
+  }
+
+  onConfigReloaded() {
+    for (const [serverId, adapter] of this.adapters.entries()) {
+      const server = this.config.servers.find((entry) => entry.pterodactylServerId === serverId);
+      adapter.onConfigReloaded?.(server);
+    }
   }
 
   async syncOnce({ force = false, reason = null } = {}) {
@@ -611,6 +632,11 @@ export class StatusSyncService {
       return;
     }
 
+    if (interaction.commandName === "restart-bot") {
+      await this.#handleRestartBotCommand(interaction);
+      return;
+    }
+
     const server = this.config.servers.find((s) => s.discordChannelId === interaction.channelId);
     if (!server) {
       await interaction.reply({ content: "This command can only be used in a configured server channel.", ephemeral: true });
@@ -656,6 +682,47 @@ export class StatusSyncService {
     await interaction.deferReply({ ephemeral: true });
     await this.syncOnce({ force: true, reason: "manual" });
     await interaction.editReply({ content: "Status refresh completed for all configured game servers." });
+  }
+
+  async #handleRestartBotCommand(interaction) {
+    const logChannelId = this.config.discord.logChannelId;
+    if (!logChannelId) {
+      await interaction.reply({ content: "No Discord log channel is configured for this bot.", ephemeral: true });
+      return;
+    }
+
+    if (interaction.channelId !== logChannelId) {
+      await interaction.reply({ content: "This command can only be used in the configured log channel.", ephemeral: true });
+      return;
+    }
+
+    if (!this.onRestartRequested) {
+      await interaction.reply({ content: "Bot restart is not available in this runtime.", ephemeral: true });
+      return;
+    }
+
+    const requestedBy = interaction.member?.displayName ?? interaction.user?.username ?? "Unknown";
+    this.logger.info("Bot restart requested", {
+      requestedBy,
+      channelId: interaction.channelId
+    });
+
+    await interaction.deferReply({ ephemeral: true });
+    await interaction.editReply({ content: "Restarting bot process. It should come back online shortly." });
+
+    const request = () => {
+      void this.onRestartRequested({
+        requestedBy,
+        channelId: interaction.channelId
+      });
+    };
+
+    if (this.restartDelayMs <= 0) {
+      request();
+      return;
+    }
+
+    setTimeout(request, this.restartDelayMs);
   }
 
   async #handleReaction(reaction) {
