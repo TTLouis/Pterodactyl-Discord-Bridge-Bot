@@ -164,6 +164,7 @@ async function main() {
 
     section('servers.json — Pterodactyl settings');
     hint('Get your Client API key: Panel → Account Settings → API Credentials → Create');
+    hint('The key needs allocation read access if you omit publicPort in servers.json');
     const baseUrl = await askRequired('Pterodactyl panel URL (e.g. https://panel.example.com)');
     const apiKey = await askRequired('Pterodactyl client API key');
     const pollIntervalSeconds = await askInt('Pterodactyl poll interval (seconds)', 60);

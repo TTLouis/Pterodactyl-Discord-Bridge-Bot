@@ -31,26 +31,60 @@ export class PterodactylClient {
     }
   }
 
-  async getServerResources(serverId) {
-    const response = await fetch(`${this.baseUrl}/api/client/servers/${serverId}/resources`, {
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        Accept: "application/json",
-        "Content-Type": "application/json"
-      }
+  #apiHeaders() {
+    return {
+      Authorization: `Bearer ${this.apiKey}`,
+      Accept: "application/json",
+      "Content-Type": "application/json"
+    };
+  }
+
+  async #getJson(pathname, errorLabel) {
+    const response = await fetch(`${this.baseUrl}${pathname}`, {
+      headers: this.#apiHeaders()
     });
 
     if (!response.ok) {
-      throw new Error(`Pterodactyl resources request failed with ${response.status}: ${await response.text()}`);
+      throw new Error(`Pterodactyl ${errorLabel} request failed with ${response.status}: ${await response.text()}`);
     }
 
-    const body = await response.json();
+    return response.json();
+  }
+
+  async getServerResources(serverId) {
+    const body = await this.#getJson(`/api/client/servers/${serverId}/resources`, "resources");
     return {
       currentState: body.attributes.current_state,
       memoryBytes: body.attributes.resources?.memory_bytes ?? null,
       cpuPercent: body.attributes.resources?.cpu_absolute ?? null,
       uptimeMs: body.attributes.resources?.uptime ?? null
     };
+  }
+
+  async getServerAllocations(serverId) {
+    const body = await this.#getJson(`/api/client/servers/${serverId}/network/allocations`, "allocations");
+    const rawAllocations = Array.isArray(body.data) ? body.data : [];
+
+    return rawAllocations
+      .map((entry) => {
+        const attributes = entry?.attributes ?? entry;
+        const port = Number(attributes?.port);
+
+        return {
+          id: attributes?.id ?? null,
+          ip: attributes?.ip ?? null,
+          ipAlias: attributes?.ip_alias ?? attributes?.alias ?? null,
+          port: Number.isFinite(port) ? port : null,
+          notes: attributes?.notes ?? null,
+          isDefault: Boolean(attributes?.is_default)
+        };
+      })
+      .filter((allocation) => allocation.port !== null);
+  }
+
+  async getServerDefaultAllocation(serverId) {
+    const allocations = await this.getServerAllocations(serverId);
+    return allocations.find((allocation) => allocation.isDefault) ?? allocations[0] ?? null;
   }
 
   #invalidateWebsocketCredentials(serverId) {
@@ -101,19 +135,7 @@ export class PterodactylClient {
       return cached.credentials;
     }
 
-    const response = await fetch(`${this.baseUrl}/api/client/servers/${serverId}/websocket`, {
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        Accept: "application/json",
-        "Content-Type": "application/json"
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error(`Pterodactyl websocket request failed with ${response.status}: ${await response.text()}`);
-    }
-
-    const body = await response.json();
+    const body = await this.#getJson(`/api/client/servers/${serverId}/websocket`, "websocket");
     const credentials = {
       socket: body.data.socket,
       token: body.data.token,
