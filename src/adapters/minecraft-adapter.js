@@ -3,11 +3,12 @@ const TIME_COMMAND = "/time query gametime";
 
 // Vanilla Minecraft log lines are prefixed with [HH:MM:SS] [Thread/Level]: — some
 // Pterodactyl eggs strip this prefix, so we make it optional throughout.
-const MC_LOG_PREFIX = /^(?:\[\d{2}:\d{2}:\d{2}\] \[[^\]]+\]: )?/;
+const MC_LOG_PREFIX = /^(?:(?:\[\d{2}:\d{2}:\d{2}\]\s+)?(?:\[[^\]]+\]\s*)+:\s*)?/;
 const MC_CHAT_PATTERN = new RegExp(`${MC_LOG_PREFIX.source}<(.+?)>\\s+(.+)$`);
 const MC_PLAYER_EVENT_PATTERN = new RegExp(`${MC_LOG_PREFIX.source}(\\S+) (joined|left) the game$`);
-const MC_LIST_PATTERN = new RegExp(`${MC_LOG_PREFIX.source}There are (\\d+) of a max(?:imum)? of \\d+ players? online:(.*)$`, "i");
+const MC_LIST_PATTERN = new RegExp(`${MC_LOG_PREFIX.source}There are (\\d+)(?:\\s+of a max(?:imum)? of\\s+|\\s*\\/\\s*)\\d+ players? online:(.*)$`, "i");
 const MC_TIME_PATTERN = new RegExp(`${MC_LOG_PREFIX.source}The time is (\\d+)$`, "i");
+const MC_PREFIXED_CONTENT_PATTERN = /^(?:\[\d{2}:\d{2}:\d{2}\]\s+)?(?:\[[^\]]+\]\s*)+:\s*(.*)$/;
 
 const BACKUP_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
 const MS_PER_TICK = 50;
@@ -20,14 +21,19 @@ function normalizeConsoleLines(lines) {
 }
 
 function parsePlayerList(lines) {
-  for (const line of normalizeConsoleLines(lines)) {
+  const normalizedLines = normalizeConsoleLines(lines);
+  for (let index = 0; index < normalizedLines.length; index += 1) {
+    const line = normalizedLines[index];
     const match = line.match(MC_LIST_PATTERN);
     if (!match) continue;
 
     const count = Number(match[1]);
     if (count === 0) return { playerCount: 0, players: [] };
 
-    const players = match[2]
+    const playerText = match[2].trim()
+      || normalizedLines[index + 1]?.match(MC_PREFIXED_CONTENT_PATTERN)?.[1]?.trim()
+      || "";
+    const players = playerText
       .trim()
       .split(",")
       .map((p) => p.trim())
@@ -64,6 +70,7 @@ export class MinecraftAdapter {
     this.serverConfig = serverConfig;
     this.pterodactylClient = pterodactylClient;
     this.onlinePlayers = null;
+    this.onlinePlayerCount = null;
     this.gameDurationMs = null;
     this.gameDurationFetchedAt = null;
     this.playerListRefreshPromise = null;
@@ -90,6 +97,7 @@ export class MinecraftAdapter {
   async fetchSnapshot(resources) {
     if (resources.currentState !== "running") {
       this.onlinePlayers = null;
+      this.onlinePlayerCount = null;
       this.gameDurationMs = null;
       this.gameDurationFetchedAt = null;
 
@@ -118,7 +126,7 @@ export class MinecraftAdapter {
       await this.refreshOnlinePlayers();
     }
 
-    const playerCount = this.onlinePlayers.length;
+    const playerCount = this.onlinePlayerCount ?? this.onlinePlayers.length;
     const gameDurationMs = await this.#resolveGameDuration(playerCount);
 
     return {
@@ -168,6 +176,7 @@ export class MinecraftAdapter {
       );
       const parsed = parsePlayerList(lines);
       this.onlinePlayers = parsed.players;
+      this.onlinePlayerCount = parsed.playerCount;
       return parsed.players;
     })();
 
@@ -205,9 +214,14 @@ export class MinecraftAdapter {
     if (action === "joined") {
       if (!this.onlinePlayers.includes(name)) {
         this.onlinePlayers = [...this.onlinePlayers, name];
+        this.onlinePlayerCount = (this.onlinePlayerCount ?? 0) + 1;
       }
     } else {
+      const wasOnline = this.onlinePlayers.includes(name);
       this.onlinePlayers = this.onlinePlayers.filter((p) => p !== name);
+      if (wasOnline) {
+        this.onlinePlayerCount = Math.max(0, (this.onlinePlayerCount ?? 0) - 1);
+      }
     }
     return true;
   }

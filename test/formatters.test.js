@@ -105,6 +105,16 @@ test("status panels label cached game duration as last known", () => {
   assert.match(serverInfoField.value, /\*\*Last Known Time:\*\* 1h 2m/);
 });
 
+test("status panels mark unavailable game duration explicitly", () => {
+  const snapshot = createSnapshot("");
+  snapshot.gameDurationMs = null;
+
+  const panel = buildStatusPanel([snapshot], { displayTimeZone: "UTC" });
+  const serverInfo = panel.embeds[0].data.fields.find((field) => field.name === "Server Infos");
+
+  assert.match(serverInfo.value, /\*\*Time:\*\* Unavailable/);
+});
+
 test("status panel colors match lifecycle action colors", () => {
   const expectedColors = {
     Online: buildServerOnlineEmbed("Test Server").toJSON().color,

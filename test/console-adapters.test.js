@@ -94,6 +94,51 @@ test("Minecraft snapshots wait for an in-flight player-list refresh", async () =
   assert.deepEqual(refreshedSnapshot.onlinePlayers, []);
 });
 
+test("Minecraft parses alternate dedicated-server list and time output", async () => {
+  const adapter = createMinecraftAdapter(async (_serverId, command) => {
+    if (command === "/list") {
+      return [
+        "[05:30:52] [Server thread/INFO] [minecraft/DedicatedServer]: There are 1/20 players online:",
+        "[05:30:52] [Server thread/INFO] [minecraft/DedicatedServer]: TTLouis"
+      ];
+    }
+
+    if (command === "/time query gametime") {
+      return ["[05:31:48] [Server thread/INFO] [minecraft/DedicatedServer]: Usage: /time <set|add> <value> [dim]"];
+    }
+
+    throw new Error(`Unexpected command: ${command}`);
+  });
+
+  const snapshot = await adapter.fetchSnapshot(runningResources);
+
+  assert.equal(snapshot.playerCount, 1);
+  assert.deepEqual(snapshot.onlinePlayers, ["TTLouis"]);
+  assert.equal(snapshot.gameDurationMs, null);
+});
+
+test("Minecraft detects joins from modded dedicated-server log prefixes", async () => {
+  const adapter = createMinecraftAdapter(async (_serverId, command) => {
+    if (command === "/list") {
+      return ["There are 0/20 players online:"];
+    }
+    if (command === "/time query gametime") {
+      return [];
+    }
+    throw new Error(`Unexpected command: ${command}`);
+  });
+  await adapter.fetchSnapshot(runningResources);
+
+  const joinLine = "[06:09:14] [Server thread/INFO] [minecraft/DedicatedServer]: TTLouis joined the game";
+
+  assert.equal(adapter.shouldRefreshOnlinePlayers(joinLine), true);
+  assert.equal(adapter.applyPlayerEvent(joinLine), true);
+
+  const snapshot = await adapter.fetchSnapshot(runningResources);
+  assert.equal(snapshot.playerCount, 1);
+  assert.deepEqual(snapshot.onlinePlayers, ["TTLouis"]);
+});
+
 test("Factorio snapshots wait for an in-flight player-list refresh", async () => {
   const refresh = deferred();
   const listResponses = [
