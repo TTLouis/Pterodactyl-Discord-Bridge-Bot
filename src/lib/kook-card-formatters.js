@@ -111,7 +111,7 @@ function formatCpu(percent) {
 
 function formatDuration(uptimeMs) {
   if (typeof uptimeMs !== "number" || !Number.isFinite(uptimeMs) || uptimeMs < 0) {
-    return "未知";
+    return "不可用";
   }
 
   const totalSeconds = Math.floor(uptimeMs / 1000);

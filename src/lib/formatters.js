@@ -80,7 +80,7 @@ function formatCpu(percent) {
 
 function formatDuration(uptimeMs) {
   if (typeof uptimeMs !== "number" || !Number.isFinite(uptimeMs) || uptimeMs < 0) {
-    return "Unknown";
+    return "Unavailable";
   }
 
   const totalSeconds = Math.floor(uptimeMs / 1000);
