@@ -139,6 +139,24 @@ test("Minecraft detects joins from modded dedicated-server log prefixes", async 
   assert.deepEqual(snapshot.onlinePlayers, ["TTLouis"]);
 });
 
+test("Minecraft preserves joins that race with an initial stale list response", async () => {
+  const listResponse = deferred();
+  const adapter = createMinecraftAdapter(async (_serverId, command) => {
+    if (command === "/list") return listResponse.promise;
+    if (command === "/time query gametime") return [];
+    throw new Error(`Unexpected command: ${command}`);
+  });
+
+  const snapshotPromise = adapter.fetchSnapshot(runningResources);
+  const joinLine = "[06:09:14] [Server thread/INFO] [minecraft/DedicatedServer]: TTLouis joined the game";
+  assert.equal(adapter.applyPlayerEvent(joinLine), true);
+  listResponse.resolve(["There are 0/20 players online:"]);
+
+  const snapshot = await snapshotPromise;
+  assert.equal(snapshot.playerCount, 1);
+  assert.deepEqual(snapshot.onlinePlayers, ["TTLouis"]);
+});
+
 test("Factorio snapshots wait for an in-flight player-list refresh", async () => {
   const refresh = deferred();
   const listResponses = [

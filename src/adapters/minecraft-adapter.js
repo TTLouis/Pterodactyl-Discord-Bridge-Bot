@@ -71,6 +71,7 @@ export class MinecraftAdapter {
     this.pterodactylClient = pterodactylClient;
     this.onlinePlayers = null;
     this.onlinePlayerCount = null;
+    this.playerEventRevision = 0;
     this.gameDurationMs = null;
     this.gameDurationFetchedAt = null;
     this.playerListRefreshPromise = null;
@@ -98,6 +99,7 @@ export class MinecraftAdapter {
     if (resources.currentState !== "running") {
       this.onlinePlayers = null;
       this.onlinePlayerCount = null;
+      this.playerEventRevision += 1;
       this.gameDurationMs = null;
       this.gameDurationFetchedAt = null;
 
@@ -170,14 +172,17 @@ export class MinecraftAdapter {
     }
 
     this.playerListRefreshPromise = (async () => {
+      const eventRevisionAtStart = this.playerEventRevision;
       const lines = await this.pterodactylClient.runCommand(
         this.serverConfig.pterodactylServerId,
         LIST_COMMAND
       );
       const parsed = parsePlayerList(lines);
-      this.onlinePlayers = parsed.players;
-      this.onlinePlayerCount = parsed.playerCount;
-      return parsed.players;
+      if (this.playerEventRevision === eventRevisionAtStart) {
+        this.onlinePlayers = parsed.players;
+        this.onlinePlayerCount = parsed.playerCount;
+      }
+      return this.onlinePlayers ?? parsed.players;
     })();
 
     try {
@@ -206,9 +211,13 @@ export class MinecraftAdapter {
   }
 
   applyPlayerEvent(line) {
-    if (this.onlinePlayers === null) return false;
     const match = String(line ?? "").trim().match(MC_PLAYER_EVENT_PATTERN);
     if (!match) return false;
+    if (this.onlinePlayers === null) {
+      this.onlinePlayers = [];
+      this.onlinePlayerCount = 0;
+    }
+    this.playerEventRevision += 1;
     const name = match[1];
     const action = match[2];
     if (action === "joined") {
