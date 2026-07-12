@@ -1,5 +1,6 @@
 const LIST_COMMAND = "/list";
 const TIME_COMMAND = "/time query gametime";
+const ANSI_CONTROL_PATTERN = /\u001B\[[0-?]*[ -/]*[@-~]/g;
 
 // Vanilla Minecraft log lines are prefixed with [HH:MM:SS] [Thread/Level]: — some
 // Pterodactyl eggs strip this prefix, so we make it optional throughout.
@@ -16,8 +17,12 @@ const MS_PER_TICK = 50;
 function normalizeConsoleLines(lines) {
   return lines
     .flatMap((line) => String(line ?? "").split(/\r?\n/))
-    .map((line) => line.trim())
+    .map(normalizeConsoleLine)
     .filter(Boolean);
+}
+
+function normalizeConsoleLine(line) {
+  return String(line ?? "").replace(ANSI_CONTROL_PATTERN, "").trim();
 }
 
 function parsePlayerList(lines) {
@@ -42,7 +47,7 @@ function parsePlayerList(lines) {
     return { playerCount: count, players };
   }
 
-  return { playerCount: 0, players: [] };
+  return null;
 }
 
 function parseGameTime(lines) {
@@ -178,11 +183,15 @@ export class MinecraftAdapter {
         LIST_COMMAND
       );
       const parsed = parsePlayerList(lines);
-      if (this.playerEventRevision === eventRevisionAtStart) {
+      if (parsed && this.playerEventRevision === eventRevisionAtStart) {
         this.onlinePlayers = parsed.players;
         this.onlinePlayerCount = parsed.playerCount;
       }
-      return this.onlinePlayers ?? parsed.players;
+      if (this.onlinePlayers === null) {
+        this.onlinePlayers = [];
+        this.onlinePlayerCount = 0;
+      }
+      return this.onlinePlayers;
     })();
 
     try {
@@ -207,11 +216,11 @@ export class MinecraftAdapter {
   }
 
   shouldRefreshOnlinePlayers(line) {
-    return MC_PLAYER_EVENT_PATTERN.test(String(line ?? "").trim());
+    return MC_PLAYER_EVENT_PATTERN.test(normalizeConsoleLine(line));
   }
 
   applyPlayerEvent(line) {
-    const match = String(line ?? "").trim().match(MC_PLAYER_EVENT_PATTERN);
+    const match = normalizeConsoleLine(line).match(MC_PLAYER_EVENT_PATTERN);
     if (!match) return false;
     if (this.onlinePlayers === null) {
       this.onlinePlayers = [];
@@ -236,7 +245,7 @@ export class MinecraftAdapter {
   }
 
   parseConsoleChatLine(line) {
-    const normalized = String(line ?? "").trim();
+    const normalized = normalizeConsoleLine(line);
     const match = normalized.match(MC_CHAT_PATTERN);
     if (!match) return null;
 

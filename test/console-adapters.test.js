@@ -117,6 +117,42 @@ test("Minecraft parses alternate dedicated-server list and time output", async (
   assert.equal(snapshot.gameDurationMs, null);
 });
 
+test("Minecraft parses ANSI-colored alternate list output", async () => {
+  const adapter = createMinecraftAdapter(async (_serverId, command) => {
+    if (command === "/list") {
+      return [
+        "\u001b[32m[07:01:13] [Server thread/INFO] [minecraft/DedicatedServer]: \u001b[0mThere are 1/20 players online:",
+        "\u001b[32m[07:01:13] [Server thread/INFO] [minecraft/DedicatedServer]: \u001b[0mTTLouis"
+      ];
+    }
+    if (command === "/time query gametime") return [];
+    throw new Error(`Unexpected command: ${command}`);
+  });
+
+  const snapshot = await adapter.fetchSnapshot(runningResources);
+  assert.equal(snapshot.playerCount, 1);
+  assert.deepEqual(snapshot.onlinePlayers, ["TTLouis"]);
+});
+
+test("Minecraft keeps its last player list when command output is unrecognized", async () => {
+  const responses = [
+    ["There are 1/20 players online: Alice"],
+    ["unrelated mod log output"]
+  ];
+  const adapter = createMinecraftAdapter(async (_serverId, command) => {
+    if (command === "/list") return responses.shift();
+    if (command === "/time query gametime") return [];
+    throw new Error(`Unexpected command: ${command}`);
+  });
+
+  await adapter.fetchSnapshot(runningResources);
+  await adapter.refreshOnlinePlayers();
+  const snapshot = await adapter.fetchSnapshot(runningResources);
+
+  assert.equal(snapshot.playerCount, 1);
+  assert.deepEqual(snapshot.onlinePlayers, ["Alice"]);
+});
+
 test("Minecraft detects joins from modded dedicated-server log prefixes", async () => {
   const adapter = createMinecraftAdapter(async (_serverId, command) => {
     if (command === "/list") {
