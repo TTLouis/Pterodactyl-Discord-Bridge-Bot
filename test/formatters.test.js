@@ -105,6 +105,22 @@ test("status panels label cached game duration as last known", () => {
   assert.match(serverInfoField.value, /\*\*Last Known Time:\*\* 1h 2m/);
 });
 
+test("status panels distinguish auto-stopped servers from offline servers", () => {
+  const snapshot = createSnapshot("");
+  snapshot.simplifiedStatus = "Offline";
+  snapshot.autoStopped = true;
+
+  const panel = buildStatusPanel([snapshot], { displayTimeZone: "UTC" });
+  const embed = panel.embeds[0].toJSON();
+  const statusField = embed.fields[1].value;
+  const offlineColor = buildServerOfflineEmbed("Test Server").toJSON().color;
+
+  assert.match(statusField, /🟣 Auto-stopped/);
+  assert.doesNotMatch(statusField, /🔴 Offline/);
+  assert.equal(embed.color, 0x8b5cf6);
+  assert.notEqual(embed.color, offlineColor);
+});
+
 test("status panels mark unavailable game duration explicitly", () => {
   const snapshot = createSnapshot("");
   snapshot.gameDurationMs = null;

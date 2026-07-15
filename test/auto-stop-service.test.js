@@ -794,6 +794,70 @@ test("status sync caches latest known game duration for offline snapshots", asyn
   assert.equal(panelSnapshots[1].gameDurationCached, true);
 });
 
+test("status sync marks persisted inactivity stops on offline snapshots", async () => {
+  const panelSnapshots = [];
+  const server = {
+    name: "Test Server",
+    discordChannelId: "server-channel",
+    pterodactylServerId: "server-id",
+    game: { type: "minecraft", chatCommandTemplate: "/say {content}" },
+    autoStop: { enabled: true }
+  };
+  const service = new StatusSyncService({
+    config: {
+      discord: { statusChannelId: "status", displayTimeZone: "UTC" },
+      pterodactyl: { pollIntervalSeconds: 60, activePlayerPollIntervalSeconds: 15 },
+      servers: [server]
+    },
+    discordBridge: {
+      setSlashCommands() {},
+      onMessage() {},
+      onInteraction() {},
+      onReaction() {}
+    },
+    eventBus: {
+      async emit(name, payload) {
+        if (name === CoreEvents.STATUS_PANEL_UPDATED) {
+          panelSnapshots.push(payload.snapshots[0]);
+        }
+        return [];
+      }
+    },
+    pterodactylClient: {
+      subscribeToConsole() { return () => {}; },
+      async getServerResources() {
+        return { currentState: "offline", cpuPercent: 0, memoryBytes: 0 };
+      }
+    },
+    autoStopService: { async onRunningSnapshot() {} },
+    stateStore: {
+      getServerRuntimeState() { return {}; },
+      getAutoStopState() { return { stoppedByBot: true }; }
+    },
+    logger: { error() {}, warn() {}, info() {} }
+  });
+  service.adapters.set("server-id", {
+    supportsConsoleSubscription() { return false; },
+    async fetchSnapshot(resources) {
+      return {
+        name: server.name,
+        description: "",
+        currentState: resources.currentState,
+        simplifiedStatus: "Offline",
+        playerCount: 0,
+        onlinePlayers: [],
+        cpuPercent: resources.cpuPercent,
+        memoryBytes: resources.memoryBytes,
+        gameDurationMs: null
+      };
+    }
+  });
+
+  await service.syncOnce({ force: true });
+
+  assert.equal(panelSnapshots[0].autoStopped, true);
+});
+
 test("Satisfactory count changes emit generic join and leave notifications", async () => {
   let playerCount = 0;
   const messages = [];

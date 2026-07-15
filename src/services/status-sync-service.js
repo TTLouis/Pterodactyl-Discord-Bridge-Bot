@@ -28,7 +28,7 @@ function snapshotKey(snapshot) {
   const satisfactoryState = snapshot.satisfactoryState
     ? `${snapshot.satisfactoryState.techTier}|${snapshot.satisfactoryState.activeSchematic}|${snapshot.satisfactoryState.gamePhase}|${snapshot.gameDurationMs}`
     : "";
-  return `${snapshot.currentState}|${snapshot.playerCount}|${players}|${satisfactoryState}`;
+  return `${snapshot.currentState}|${snapshot.autoStopped === true}|${snapshot.playerCount}|${players}|${satisfactoryState}`;
 }
 
 function isConsoleRelayWarmingUp(connectedAt) {
@@ -192,7 +192,7 @@ export class StatusSyncService {
         const resources = this.#applyCachedPowerState(server, rawResources);
         this.#syncConsoleBridge(server, adapter, resources.currentState);
         const rawSnapshot = await adapter.fetchSnapshot(resources);
-        const snapshot = this.#hydrateCachedSnapshot(server, rawSnapshot);
+        const snapshot = this.#hydrateAutoStopStatus(server, this.#hydrateCachedSnapshot(server, rawSnapshot));
         snapshots.push(snapshot);
         const previousPlayerCount = this.serverPlayerCounts.get(server.pterodactylServerId);
         const previouslyOnline = this.serverOnlineStates.get(server.pterodactylServerId);
@@ -324,6 +324,22 @@ export class StatusSyncService {
       gameDurationMs: runtimeState.lastGameDurationMs,
       gameDurationCached: true,
       gameDurationCachedAt: runtimeState.lastGameDurationSeenAt ?? null
+    };
+  }
+
+  #hydrateAutoStopStatus(server, snapshot) {
+    if (snapshot.currentState !== "offline") {
+      return snapshot;
+    }
+
+    const autoStopState = this.stateStore?.getAutoStopState?.(server.pterodactylServerId);
+    if (autoStopState?.stoppedByBot !== true) {
+      return snapshot;
+    }
+
+    return {
+      ...snapshot,
+      autoStopped: true
     };
   }
 

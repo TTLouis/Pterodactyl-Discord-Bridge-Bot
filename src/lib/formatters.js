@@ -4,7 +4,8 @@ const STATUS_COLORS = {
   Online: 0x22c55e,
   Starting: 0xeab308,
   Stopping: 0xf97316,
-  Offline: 0xef4444
+  Offline: 0xef4444,
+  AutoStopped: 0x8b5cf6
 };
 const MAX_FIELD_VALUE_LENGTH = 1024;
 const MAX_DESCRIPTION_LENGTH = 4096;
@@ -179,14 +180,19 @@ function formatAsciiBlock(snapshot) {
 }
 
 function buildServerEmbed(snapshot, footerText) {
-  const status = getStatusMeta(snapshot.simplifiedStatus);
+  const status = snapshot.autoStopped === true
+    ? { emoji: "🟣", label: "Auto-stopped" }
+    : getStatusMeta(snapshot.simplifiedStatus);
+  const color = snapshot.autoStopped === true
+    ? STATUS_COLORS.AutoStopped
+    : getStatusColor(snapshot.simplifiedStatus);
   const address = formatAddress(snapshot);
   const onlinePlayers = truncate(formatOnlinePlayers(snapshot), PLAYER_NAMES_MAX_LENGTH);
   const asciiBlock = formatAsciiBlock(snapshot);
   const serverInfo = buildServerInfoField(snapshot);
 
   const embed = new EmbedBuilder()
-    .setColor(getStatusColor(snapshot.simplifiedStatus))
+    .setColor(color)
     .addFields([
       {
         name: snapshot.name,
