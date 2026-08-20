@@ -73,6 +73,11 @@ function formatDiscordServerNotice(event) {
     return `Relay failed: ${event.message}`;
   }
 
+  if (event.kind === "relay-queue-expired") {
+    const noun = event.expiredCount === 1 ? "message" : "messages";
+    return `${event.expiredCount} queued relay ${noun} for **${event.server.name}** expired after 24 hours.`;
+  }
+
   return null;
 }
 
@@ -169,7 +174,10 @@ export class DiscordPlatformListener {
   }
 
   async #handleServerNotice(event) {
-    if (!event.server.discordChannelId) {
+    const channelId = event.kind === "relay-queue-expired"
+      ? this.config.discord.logChannelId
+      : event.server.discordChannelId;
+    if (!channelId) {
       return null;
     }
 
@@ -178,7 +186,7 @@ export class DiscordPlatformListener {
       return null;
     }
 
-    const message = await this.discordBridge.sendMessage(event.server.discordChannelId, content);
+    const message = await this.discordBridge.sendMessage(channelId, content);
     return {
       platform: "discord",
       message

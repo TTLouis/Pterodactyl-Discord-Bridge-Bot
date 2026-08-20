@@ -3,6 +3,7 @@ import test from "node:test";
 import { CoreEventBus, CoreEvents } from "../src/core/core-events.js";
 import { DiscordPlatformListener } from "../src/platforms/discord-platform-listener.js";
 import { KookPlatformListener } from "../src/platforms/kook-platform-listener.js";
+import { buildKookActionMessageForEvent } from "../src/lib/kook-card-formatters.js";
 import { CANCEL_AUTO_STOP_REACTION, RESTART_SERVER_REACTION } from "../src/services/auto-stop-service.js";
 
 const snapshot = {
@@ -31,6 +32,7 @@ function createConfig() {
   return {
     discord: {
       statusChannelId: "discord-status",
+      logChannelId: "discord-log",
       displayTimeZone: "UTC"
     },
     kook: {
@@ -161,4 +163,36 @@ test("KOOK platform listener renders status, action, chat, and notices", async (
   assert.deepEqual(calls[3], { method: "sendMessage", channelId: "kook-server", content: "[Discord] **Louis**: from discord" });
   assert.deepEqual(calls[4], { method: "sendMessage", channelId: "kook-server", content: "2 名玩家加入 **Factory**。(2/8)" });
   assert.equal(calls.length, 5);
+});
+
+test("KOOK action cards identify panel-originated starts", () => {
+  const card = buildKookActionMessageForEvent({
+    kind: "server-online",
+    server,
+    startInfo: { source: "pterodactyl-panel" }
+  });
+
+  assert.match(card.content, /Pterodactyl 面板/);
+});
+
+test("relay queue expiry notices are sent only to the Discord log channel", async () => {
+  const eventBus = new CoreEventBus();
+  const calls = [];
+  const listener = new DiscordPlatformListener({
+    eventBus,
+    config: createConfig(),
+    discordBridge: {
+      async sendMessage(channelId, content) {
+        calls.push({ channelId, content });
+      }
+    }
+  });
+  listener.start();
+  await eventBus.emit(CoreEvents.SERVER_NOTICE, { kind: "relay-queue-expired", server, expiredCount: 3 });
+  listener.stop();
+
+  assert.deepEqual(calls, [{
+    channelId: "discord-log",
+    content: "3 queued relay messages for **Factory** expired after 24 hours."
+  }]);
 });

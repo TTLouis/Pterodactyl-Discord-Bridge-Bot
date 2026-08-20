@@ -120,6 +120,7 @@ test("runCommand reuses the subscribed console websocket and serializes commands
 
   const first = client.runCommand("server-id", "/first", { captureMs: 10 });
   const second = client.runCommand("server-id", "/second", { captureMs: 10 });
+  await nextTick();
   assert.deepEqual(sockets[0].sent, [
     { event: "auth", args: ["token"] },
     { event: "send command", args: ["/first"] }
@@ -127,6 +128,7 @@ test("runCommand reuses the subscribed console websocket and serializes commands
 
   emitMessage(sockets[0], { event: "console output", args: ["first output"] });
   assert.deepEqual(await first, ["first output"]);
+  await nextTick();
   assert.deepEqual(sockets[0].sent, [
     { event: "auth", args: ["token"] },
     { event: "send command", args: ["/first"] },
@@ -136,6 +138,134 @@ test("runCommand reuses the subscribed console websocket and serializes commands
   emitMessage(sockets[0], { event: "console output", args: ["second output"] });
   assert.deepEqual(await second, ["second output"]);
   assert.equal(sockets.length, 1);
+  unsubscribe();
+});
+
+test("runCommand rejects while the console subscription is not ready without opening another websocket", async () => {
+  const sockets = [];
+  const client = new PterodactylClient({
+    baseUrl: "https://panel.example.test",
+    apiKey: "api-key",
+    webSocketFactory() {
+      const socket = new FakeWebSocket();
+      sockets.push(socket);
+      return socket;
+    }
+  });
+  client.getServerWebsocket = async () => ({
+    socket: "wss://wings.example.test/api/servers/server-id/ws",
+    token: "token",
+    origin: "https://panel.example.test"
+  });
+
+  const unsubscribe = client.subscribeToConsole("server-id", { onError() {} });
+  await nextTick();
+
+  await assert.rejects(client.runCommand("server-id", "/queued-by-relay"), /not ready/);
+  assert.equal(sockets.length, 1);
+  unsubscribe();
+});
+
+test("onReady waits for reconnect backlog before allowing persistent commands", async () => {
+  const sockets = [];
+  const readyEvents = [];
+  const client = new PterodactylClient({
+    baseUrl: "https://panel.example.test",
+    apiKey: "api-key",
+    webSocketFactory() {
+      const socket = new FakeWebSocket();
+      sockets.push(socket);
+      return socket;
+    }
+  });
+  client.getServerWebsocket = async () => ({
+    socket: "wss://wings.example.test/api/servers/server-id/ws",
+    token: "token",
+    origin: "https://panel.example.test"
+  });
+
+  const unsubscribe = client.subscribeToConsole("server-id", {
+    reconnectDelayMs: 0,
+    onError() {},
+    onReady(event) { readyEvents.push(event); }
+  });
+  await nextTick();
+  sockets[0].emit("open");
+  emitMessage(sockets[0], { event: "auth success", args: [] });
+  sockets[0].emit("close", 1006, Buffer.from("lost"));
+  await nextTick();
+  await nextTick();
+  sockets[1].emit("open");
+  emitMessage(sockets[1], { event: "auth success", args: [] });
+
+  await assert.rejects(client.runCommand("server-id", "/wait-for-backlog"), /not ready/);
+  assert.equal(sockets.length, 2);
+  emitMessage(sockets[1], { event: "console output", args: ["backlog"] });
+  assert.deepEqual(readyEvents, [{ isReconnect: false }, { isReconnect: true }]);
+
+  const command = client.runCommand("server-id", "/after-backlog", { captureMs: 10 });
+  await nextTick();
+  assert.deepEqual(sockets[1].sent.at(-1), { event: "send command", args: ["/after-backlog"] });
+  emitMessage(sockets[1], { event: "console output", args: ["command output"] });
+  assert.deepEqual(await command, ["command output"]);
+  unsubscribe();
+});
+
+test("console subscriptions report authentication timeouts instead of leaving commands blocked", async () => {
+  const sockets = [];
+  const errors = [];
+  const client = new PterodactylClient({
+    baseUrl: "https://panel.example.test",
+    apiKey: "api-key",
+    subscriptionAuthTimeoutMs: 5,
+    reconnectDelayMs: 1000,
+    webSocketFactory() {
+      const socket = new FakeWebSocket();
+      sockets.push(socket);
+      return socket;
+    }
+  });
+  client.getServerWebsocket = async () => ({
+    socket: "wss://wings.example.test/api/servers/server-id/ws",
+    token: "token",
+    origin: "https://panel.example.test"
+  });
+
+  const unsubscribe = client.subscribeToConsole("server-id", {
+    reconnectDelayMs: 1000,
+    onError(error) { errors.push(error); }
+  });
+  await nextTick();
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  assert.equal(sockets.length, 1);
+  assert.match(errors[0].message, /authentication timed out/);
+  unsubscribe();
+});
+
+test("console subscriptions tolerate malformed websocket payloads and remain connected", async () => {
+  const sockets = [];
+  const client = new PterodactylClient({
+    baseUrl: "https://panel.example.test",
+    apiKey: "api-key",
+    webSocketFactory() {
+      const socket = new FakeWebSocket();
+      sockets.push(socket);
+      return socket;
+    }
+  });
+  client.getServerWebsocket = async () => ({
+    socket: "wss://wings.example.test/api/servers/server-id/ws",
+    token: "token",
+    origin: "https://panel.example.test"
+  });
+
+  const unsubscribe = client.subscribeToConsole("server-id", { onError() {} });
+  await nextTick();
+  sockets[0].emit("open");
+  sockets[0].emit("message", "not-json");
+  emitMessage(sockets[0], { event: "auth success", args: [] });
+  assert.equal(client.isConsoleSessionReady("server-id"), true);
   unsubscribe();
 });
 

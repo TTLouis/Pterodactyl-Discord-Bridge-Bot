@@ -455,7 +455,7 @@ test("KOOK channel messages relay to the matching game server", async () => {
         return [];
       }
     },
-    pterodactylClient: {},
+    pterodactylClient: { isConsoleSessionReady() { return true; } },
     autoStopService: {},
     logger: { error() {}, warn() {}, info() {} }
   });
@@ -473,6 +473,7 @@ test("KOOK channel messages relay to the matching game server", async () => {
     authorName: "Kai",
     content: "hello"
   });
+  await new Promise((resolve) => setTimeout(resolve, 0));
   await service.stop();
 
   assert.deepEqual(handledCommands, ["/say hello"]);
@@ -1053,6 +1054,110 @@ test("console relay forwards live chat during websocket warmup", async () => {
     content: "reconnect message"
   });
   await service.stop();
+});
+
+test("Factorio relays stay queued until the running console session is ready", async (t) => {
+  let messageHandler = null;
+  let readyHandler = null;
+  let currentState = "offline";
+  let sessionReady = false;
+  const queues = new Map();
+  const commands = [];
+  const server = {
+    name: "Factory",
+    discordChannelId: "factory-channel",
+    pterodactylServerId: "factory-id",
+    game: { type: "factorio", chatCommandTemplate: "DISCORD<{author}>: {content}" },
+    autoStop: null
+  };
+  const service = new StatusSyncService({
+    config: {
+      discord: { statusChannelId: "status", displayTimeZone: "UTC" },
+      pterodactyl: { pollIntervalSeconds: 60, activePlayerPollIntervalSeconds: 15 },
+      servers: [server]
+    },
+    discordBridge: {
+      setSlashCommands() {},
+      onMessage(handler) { messageHandler = handler; },
+      onInteraction() {},
+      onReaction() {}
+    },
+    eventBus: { async emit() { return []; } },
+    pterodactylClient: {
+      async getServerResources() { return { currentState, cpuPercent: 0, memoryBytes: 0 }; },
+      isConsoleSessionReady() { return sessionReady; },
+      subscribeToConsole(_serverId, options) {
+        readyHandler = options.onReady;
+        return () => {};
+      }
+    },
+    stateStore: {
+      getRelayQueue(serverId) { return queues.get(serverId) ?? []; },
+      setRelayQueue(serverId, queue) { if (queue.length) queues.set(serverId, queue); else queues.delete(serverId); },
+      getServerRuntimeState() { return {}; },
+      setServerRuntimeState() {}
+    },
+    autoStopService: { async onRunningSnapshot() {} },
+    logger: { error() {}, warn() {}, info() {} }
+  });
+  t.after(() => service.stop());
+  service.adapters.set("factory-id", {
+    supportsConsoleSubscription() { return true; },
+    shouldRefreshOnlinePlayersOnConsoleConnect() { return false; },
+    async fetchSnapshot(resources) {
+      return { name: server.name, currentState: resources.currentState, simplifiedStatus: "Offline", playerCount: 0, onlinePlayers: [] };
+    },
+    async handleChatCommand(command) { commands.push(command); }
+  });
+
+  await service.start();
+  await messageHandler({ channelId: "factory-channel", authorName: "Louis", content: "queued" });
+  assert.equal(queues.get("factory-id").length, 1);
+  assert.deepEqual(commands, []);
+
+  currentState = "running";
+  await service.syncOnce({ force: true });
+  sessionReady = true;
+  readyHandler();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.deepEqual(commands, ["DISCORD<[color=#5865F2]Louis[/color]>: queued"]);
+  assert.equal(queues.has("factory-id"), false);
+  await service.stop();
+});
+
+test("expired relay queue entries emit one batch notice and are removed", async () => {
+  const notices = [];
+  const queue = [{ sourcePlatform: "discord", authorName: "Louis", content: "old", enqueuedAt: Date.now() - 25 * 60 * 60 * 1000 }];
+  const server = {
+    name: "Factory",
+    discordChannelId: "factory-channel",
+    pterodactylServerId: "factory-id",
+    game: { type: "factorio", chatCommandTemplate: "DISCORD<{author}>: {content}" },
+    autoStop: null
+  };
+  const service = new StatusSyncService({
+    config: { discord: { statusChannelId: "status", displayTimeZone: "UTC" }, pterodactyl: { pollIntervalSeconds: 60 }, servers: [server] },
+    discordBridge: { setSlashCommands() {}, onMessage() {}, onInteraction() {}, onReaction() {} },
+    eventBus: { async emit(name, payload) { if (name === CoreEvents.SERVER_NOTICE) notices.push(payload); return []; } },
+    pterodactylClient: { async getServerResources() { return { currentState: "offline", cpuPercent: 0, memoryBytes: 0 }; } },
+    stateStore: {
+      getRelayQueue() { return queue; },
+      setRelayQueue(_serverId, entries) { queue.splice(0, queue.length, ...entries); },
+      getServerRuntimeState() { return {}; },
+      setServerRuntimeState() {}
+    },
+    autoStopService: { async onRunningSnapshot() {} },
+    logger: { error() {}, warn() {}, info() {} }
+  });
+  service.adapters.set("factory-id", {
+    supportsConsoleSubscription() { return true; },
+    async fetchSnapshot(resources) { return { name: server.name, currentState: resources.currentState, simplifiedStatus: "Offline", playerCount: 0, onlinePlayers: [] }; }
+  });
+
+  await service.syncOnce({ force: true });
+  assert.deepEqual(queue, []);
+  assert.deepEqual(notices, [{ kind: "relay-queue-expired", server, expiredCount: 1 }]);
 });
 
 test("Satisfactory power-state events trigger a debounced status refresh", async () => {

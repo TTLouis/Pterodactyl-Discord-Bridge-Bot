@@ -1,6 +1,9 @@
 import WebSocket from "ws";
 import { logger } from "../lib/logger.js";
 
+const SUBSCRIPTION_AUTH_TIMEOUT_MS = 10_000;
+const BACKLOG_READY_TIMEOUT_MS = 1_000;
+
 export class PterodactylClient {
   constructor({
     baseUrl,
@@ -8,6 +11,8 @@ export class PterodactylClient {
     wingsFqdn,
     wingsWsScheme,
     wingsWsPort,
+    subscriptionAuthTimeoutMs = SUBSCRIPTION_AUTH_TIMEOUT_MS,
+    backlogReadyTimeoutMs = BACKLOG_READY_TIMEOUT_MS,
     webSocketFactory = (url, options) => new WebSocket(url, options)
   }) {
     this.baseUrl = baseUrl.replace(/\/+$/, "");
@@ -15,6 +20,8 @@ export class PterodactylClient {
     this.wingsFqdn = wingsFqdn ?? null;
     this.wingsWsScheme = wingsWsScheme ?? null;
     this.wingsWsPort = wingsWsPort ?? null;
+    this.subscriptionAuthTimeoutMs = subscriptionAuthTimeoutMs;
+    this.backlogReadyTimeoutMs = backlogReadyTimeoutMs;
     this.webSocketFactory = webSocketFactory;
     this.commandQueues = new Map();
     this.consoleSessions = new Map();
@@ -157,34 +164,51 @@ export class PterodactylClient {
     onLine,
     onError,
     onStatusChange,
+    onReady,
     sendLogs = true,
     reconnectDelayMs = 5000
   } = {}) {
     let ws = null;
     let reconnectHandle = null;
+    let authTimeoutHandle = null;
+    let backlogTimeoutHandle = null;
     let stopped = false;
     let awaitingInitialLogs = false;
     let consoleConnectedAt = null;
     let hasConnectedSuccessfully = false;
     let currentConnectionIsReconnect = false;
     let authenticatedSocket = null;
+    let readySocket = null;
     let activeCommand = null;
-    const pendingCommands = [];
+    let state = "connecting";
+
+    const setState = (nextState) => {
+      state = nextState;
+    };
 
     const clearReconnect = () => {
-      if (!reconnectHandle) {
-        return;
+      if (reconnectHandle) {
+        clearTimeout(reconnectHandle);
+        reconnectHandle = null;
       }
+    };
 
-      clearTimeout(reconnectHandle);
-      reconnectHandle = null;
+    const clearAuthTimeout = () => {
+      if (authTimeoutHandle) {
+        clearTimeout(authTimeoutHandle);
+        authTimeoutHandle = null;
+      }
+    };
+
+    const clearBacklogTimeout = () => {
+      if (backlogTimeoutHandle) {
+        clearTimeout(backlogTimeoutHandle);
+        backlogTimeoutHandle = null;
+      }
     };
 
     const scheduleReconnect = () => {
-      if (stopped || reconnectHandle) {
-        return;
-      }
-
+      if (stopped || reconnectHandle) return;
       reconnectHandle = setTimeout(() => {
         reconnectHandle = null;
         void connect();
@@ -192,13 +216,9 @@ export class PterodactylClient {
     };
 
     const closeSocket = () => {
-      if (!ws) {
-        return;
-      }
-
+      if (!ws) return;
       const activeSocket = ws;
       ws = null;
-
       try {
         activeSocket.close();
       } catch {}
@@ -211,30 +231,39 @@ export class PterodactylClient {
       if (activeCommand === command) activeCommand = null;
       if (error) command.reject(error);
       else command.resolve(command.lines);
-      dispatchNextCommand();
     };
 
     const rejectActiveCommand = (error) => {
       if (activeCommand) finishCommand(activeCommand, error);
     };
 
-    const dispatchNextCommand = () => {
-      if (stopped || activeCommand || !authenticatedSocket || awaitingInitialLogs || pendingCommands.length === 0) {
+    const isReady = () => state === "ready" && authenticatedSocket === ws;
+    const notifyReady = () => {
+      if (readySocket === ws) return;
+      readySocket = ws;
+      onReady?.({ isReconnect: currentConnectionIsReconnect });
+    };
+
+    const sendCommand = (command, { captureMs = 2500, queueDelayMs = null } = {}) => new Promise((resolve, reject) => {
+      if (!isReady() || activeCommand) {
+        reject(new Error(`Pterodactyl console session is not ready for server ${serverId}`));
         return;
       }
 
-      activeCommand = pendingCommands.shift();
+      const queuedCommand = { command, captureMs, resolve, reject, lines: [], settled: false, timeoutHandle: null };
+      activeCommand = queuedCommand;
       try {
-        authenticatedSocket.send(JSON.stringify({ event: "send command", args: [activeCommand.command] }));
-        activeCommand.timeoutHandle = setTimeout(() => finishCommand(activeCommand), activeCommand.captureMs);
+        authenticatedSocket.send(JSON.stringify({ event: "send command", args: [command] }));
+        logger.info("Pterodactyl command dispatched", {
+          serverId,
+          transport: "persistent",
+          queueDelayMs,
+          commandLength: String(command ?? "").length
+        });
+        queuedCommand.timeoutHandle = setTimeout(() => finishCommand(queuedCommand), captureMs);
       } catch (error) {
-        finishCommand(activeCommand, error);
+        finishCommand(queuedCommand, error);
       }
-    };
-
-    const sendCommand = (command, { captureMs = 2500 } = {}) => new Promise((resolve, reject) => {
-      pendingCommands.push({ command, captureMs, resolve, reject, lines: [], settled: false, timeoutHandle: null });
-      dispatchNextCommand();
     });
 
     const handleConsoleOutput = (payloadArgs, metadata = {}) => {
@@ -245,9 +274,7 @@ export class PterodactylClient {
         .filter(Boolean);
 
       for (const line of lines) {
-        if (activeCommand) {
-          activeCommand.lines.push(line);
-        }
+        if (activeCommand && !metadata.isBacklog) activeCommand.lines.push(line);
         onLine?.(line, metadata);
       }
     };
@@ -255,25 +282,35 @@ export class PterodactylClient {
     const connect = async () => {
       try {
         const { socket, token, origin } = await this.getServerWebsocket(serverId);
-        if (stopped) {
-          return;
-        }
+        if (stopped) return;
 
-        const rewrittenSocket = this.#rewriteWingsSocketUrl(socket);
-        const nextSocket = this.webSocketFactory(rewrittenSocket, {
-          headers: {
-            Origin: origin
-          }
+        const nextSocket = this.webSocketFactory(this.#rewriteWingsSocketUrl(socket), {
+          headers: { Origin: origin }
         });
         ws = nextSocket;
+        setState("connecting");
+        clearAuthTimeout();
+        authTimeoutHandle = setTimeout(() => {
+          if (ws !== nextSocket || stopped || authenticatedSocket === nextSocket) return;
+          const error = new Error(`Pterodactyl websocket authentication timed out for server ${serverId}`);
+          setState("disconnected");
+          onError?.(error);
+          closeSocket();
+          scheduleReconnect();
+        }, this.subscriptionAuthTimeoutMs);
 
         nextSocket.on("open", () => {
-          nextSocket.send(JSON.stringify({ event: "auth", args: [token] }));
+          try {
+            nextSocket.send(JSON.stringify({ event: "auth", args: [token] }));
+          } catch (error) {
+            onError?.(error);
+            closeSocket();
+            scheduleReconnect();
+          }
         });
 
         nextSocket.on("message", (buffer) => {
           let payload;
-
           try {
             payload = JSON.parse(buffer.toString());
           } catch (error) {
@@ -282,7 +319,10 @@ export class PterodactylClient {
           }
 
           if (payload.event === "auth error") {
+            clearAuthTimeout();
+            clearBacklogTimeout();
             authenticatedSocket = null;
+            setState("disconnected");
             rejectActiveCommand(new Error(`Pterodactyl websocket auth failed for server ${serverId}`));
             this.#invalidateWebsocketCredentials(serverId);
             onError?.(new Error(`Pterodactyl websocket auth failed for server ${serverId}`));
@@ -292,18 +332,30 @@ export class PterodactylClient {
           }
 
           if (payload.event === "auth success") {
+            clearAuthTimeout();
             authenticatedSocket = nextSocket;
             consoleConnectedAt = Date.now();
             const isReconnect = hasConnectedSuccessfully;
             currentConnectionIsReconnect = isReconnect;
             hasConnectedSuccessfully = true;
-            const shouldRequestLogs = sendLogs && isReconnect;
-            awaitingInitialLogs = shouldRequestLogs;
-            if (shouldRequestLogs) {
+            awaitingInitialLogs = sendLogs && isReconnect;
+            if (awaitingInitialLogs) {
+              setState("backlog-syncing");
               nextSocket.send(JSON.stringify({ event: "send logs", args: [null] }));
+              clearBacklogTimeout();
+              backlogTimeoutHandle = setTimeout(() => {
+                if (ws !== nextSocket || state !== "backlog-syncing") return;
+                awaitingInitialLogs = false;
+                setState("ready");
+                logger.warn("Pterodactyl console backlog timed out; persistent commands are now enabled.", { serverId });
+                notifyReady();
+              }, this.backlogReadyTimeoutMs);
+            } else {
+              setState("ready");
+              notifyReady();
             }
+            logger.info("Pterodactyl console websocket authenticated", { serverId, isReconnect, state });
             onConnected?.({ isReconnect });
-            dispatchNextCommand();
             return;
           }
 
@@ -321,36 +373,42 @@ export class PterodactylClient {
           if (payload.event === "console output") {
             const isBacklog = awaitingInitialLogs;
             awaitingInitialLogs = false;
+            if (isBacklog) {
+              clearBacklogTimeout();
+              setState("ready");
+              logger.info("Pterodactyl console backlog received", { serverId });
+              notifyReady();
+            }
             handleConsoleOutput(payload.args, {
               connectedAt: consoleConnectedAt,
               isBacklog,
               isReconnect: currentConnectionIsReconnect && isBacklog
             });
-            dispatchNextCommand();
           }
         });
 
         nextSocket.on("error", (error) => {
+          if (authenticatedSocket === nextSocket) {
+            authenticatedSocket = null;
+            setState("disconnected");
+          }
           onError?.(error);
         });
 
         nextSocket.on("close", (code, reason) => {
-          if (authenticatedSocket === nextSocket) {
-            authenticatedSocket = null;
-          }
+          clearAuthTimeout();
+          clearBacklogTimeout();
+          if (authenticatedSocket === nextSocket) authenticatedSocket = null;
+          awaitingInitialLogs = false;
+          setState(stopped ? "stopped" : "disconnected");
           rejectActiveCommand(new Error(`Pterodactyl websocket closed before command completed: ${code} ${reason.toString()}`));
-          if (ws === nextSocket) {
-            ws = null;
-          }
-
-          if (stopped || code === 1000) {
-            return;
-          }
-
+          if (ws === nextSocket) ws = null;
+          if (stopped || code === 1000) return;
           onError?.(new Error(`Pterodactyl websocket closed unexpectedly: ${code} ${reason.toString()}`));
           scheduleReconnect();
         });
       } catch (error) {
+        setState("disconnected");
         onError?.(error);
         scheduleReconnect();
       }
@@ -361,31 +419,40 @@ export class PterodactylClient {
     const unsubscribe = () => {
       stopped = true;
       clearReconnect();
+      clearAuthTimeout();
+      clearBacklogTimeout();
+      setState("stopped");
       rejectActiveCommand(new Error(`Pterodactyl console subscription stopped for server ${serverId}`));
-      while (pendingCommands.length > 0) {
-        pendingCommands.shift().reject(new Error(`Pterodactyl console subscription stopped for server ${serverId}`));
-      }
       closeSocket();
-      if (this.consoleSessions.get(serverId) === unsubscribe) {
+      if (this.consoleSessions.get(serverId)?.unsubscribe === unsubscribe) {
         this.consoleSessions.delete(serverId);
       }
     };
 
     unsubscribe.sendCommand = sendCommand;
-    this.consoleSessions.set(serverId, unsubscribe);
+    this.consoleSessions.set(serverId, { unsubscribe, isReady, sendCommand, getState: () => state });
     return unsubscribe;
   }
 
   async runCommand(serverId, command, options = {}) {
-    const session = this.consoleSessions.get(serverId);
-    if (session?.sendCommand) {
-      return session.sendCommand(command, options);
-    }
-
     const current = this.commandQueues.get(serverId) ?? Promise.resolve();
-    const next = current.then(() => this.#executeCommand(serverId, command, options));
+    const queuedAt = Date.now();
+    const next = current.catch(() => {}).then(async () => {
+      const session = this.consoleSessions.get(serverId);
+      if (!session?.isReady()) {
+        throw new Error(`Pterodactyl console session is not ready for server ${serverId}`);
+      }
+      return session.sendCommand(command, {
+        ...options,
+        queueDelayMs: Date.now() - queuedAt
+      });
+    });
     this.commandQueues.set(serverId, next.then(() => {}, () => {}));
     return next;
+  }
+
+  isConsoleSessionReady(serverId) {
+    return this.consoleSessions.get(serverId)?.isReady() ?? false;
   }
 
   async setPowerState(serverId, action) {
@@ -404,85 +471,4 @@ export class PterodactylClient {
     }
   }
 
-  async #executeCommand(serverId, command, options = {}) {
-    const { captureMs = 2500 } = options;
-    const { socket, token, origin } = await this.getServerWebsocket(serverId);
-    const rewrittenSocket = this.#rewriteWingsSocketUrl(socket);
-
-    return new Promise((resolve, reject) => {
-      const ws = this.webSocketFactory(rewrittenSocket, {
-        headers: {
-          Origin: origin
-        }
-      });
-
-      const lines = [];
-      let settled = false;
-      let timeoutHandle = null;
-
-      const finish = (error) => {
-        if (settled) {
-          return;
-        }
-
-        settled = true;
-        if (timeoutHandle) {
-          clearTimeout(timeoutHandle);
-        }
-
-        try {
-          ws.close();
-        } catch {}
-
-        if (error) {
-          reject(error);
-          return;
-        }
-
-        resolve(lines);
-      };
-
-      ws.on("open", () => {
-        ws.send(JSON.stringify({ event: "auth", args: [token] }));
-      });
-
-      ws.on("message", (buffer) => {
-        const payload = JSON.parse(buffer.toString());
-
-        if (payload.event === "auth success") {
-          ws.send(JSON.stringify({ event: "send command", args: [command] }));
-          timeoutHandle = setTimeout(() => finish(), captureMs);
-          return;
-        }
-
-        if (payload.event === "auth error") {
-          this.#invalidateWebsocketCredentials(serverId);
-          finish(new Error(`Pterodactyl websocket auth failed for server ${serverId}`));
-          return;
-        }
-
-        if (payload.event === "ping") {
-          ws.send(JSON.stringify({ event: "pong", args: [] }));
-          return;
-        }
-
-        if (payload.event !== "console output") {
-          return;
-        }
-
-        const line = Array.isArray(payload.args) ? payload.args.join("\n") : String(payload.args ?? "");
-        lines.push(line);
-      });
-
-      ws.on("error", (error) => {
-        finish(error);
-      });
-
-      ws.on("close", (code, reason) => {
-        if (!settled && code !== 1000) {
-          finish(new Error(`Pterodactyl websocket closed unexpectedly: ${code} ${reason.toString()}`));
-        }
-      });
-    });
-  }
 }
