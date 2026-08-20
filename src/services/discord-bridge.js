@@ -65,6 +65,9 @@ export class DiscordBridge {
 
       const payload = {
         authorName: message.member?.displayName ?? message.author.username,
+        authorColor: message.member?.roles?.highest?.color
+          ? message.member.roles.highest.hexColor
+          : null,
         channelId: message.channelId,
         content: message.content.trim()
       };

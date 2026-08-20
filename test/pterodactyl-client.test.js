@@ -92,6 +92,53 @@ test("console subscriptions request logs only after reconnects", async () => {
   unsubscribe();
 });
 
+test("runCommand reuses the subscribed console websocket and serializes commands", async () => {
+  const sockets = [];
+  const client = new PterodactylClient({
+    baseUrl: "https://panel.example.test",
+    apiKey: "api-key",
+    webSocketFactory() {
+      const socket = new FakeWebSocket();
+      sockets.push(socket);
+      return socket;
+    }
+  });
+  client.getServerWebsocket = async () => ({
+    socket: "wss://wings.example.test/api/servers/server-id/ws",
+    token: "token",
+    origin: "https://panel.example.test"
+  });
+
+  const unsubscribe = client.subscribeToConsole("server-id", {
+    sendLogs: false,
+    onError() {}
+  });
+
+  await nextTick();
+  sockets[0].emit("open");
+  emitMessage(sockets[0], { event: "auth success", args: [] });
+
+  const first = client.runCommand("server-id", "/first", { captureMs: 10 });
+  const second = client.runCommand("server-id", "/second", { captureMs: 10 });
+  assert.deepEqual(sockets[0].sent, [
+    { event: "auth", args: ["token"] },
+    { event: "send command", args: ["/first"] }
+  ]);
+
+  emitMessage(sockets[0], { event: "console output", args: ["first output"] });
+  assert.deepEqual(await first, ["first output"]);
+  assert.deepEqual(sockets[0].sent, [
+    { event: "auth", args: ["token"] },
+    { event: "send command", args: ["/first"] },
+    { event: "send command", args: ["/second"] }
+  ]);
+
+  emitMessage(sockets[0], { event: "console output", args: ["second output"] });
+  assert.deepEqual(await second, ["second output"]);
+  assert.equal(sockets.length, 1);
+  unsubscribe();
+});
+
 test("server allocations are normalized from the client API", async () => {
   const originalFetch = globalThis.fetch;
   const requests = [];
