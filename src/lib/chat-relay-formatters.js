@@ -12,6 +12,16 @@ function sanitizeAuthorName(value) {
     .trim();
 }
 
+export const PLATFORM_CHAT_COLORS = Object.freeze({
+  discord: "#5865F2",
+  kook: "#00A1D6"
+});
+
+function sanitizeColor(value, fallback) {
+  const normalized = String(value ?? "").trim();
+  return /^#[0-9a-f]{6}$/i.test(normalized) ? normalized.toUpperCase() : fallback;
+}
+
 function getPlatformName(sourcePlatform) {
   return sourcePlatform === "kook" ? "KOOK" : "Discord";
 }
@@ -56,9 +66,22 @@ export function buildGameChatCommand(server, message) {
   }
 
   const platformName = getPlatformName(sourcePlatform);
+  if (server.game?.type !== "factorio") {
+    return renderTemplate(template, {
+      authorName: sanitizeAuthorName(message.authorName) || platformName,
+      content,
+      platformName
+    });
+  }
+
+  const platformColor = sanitizeColor(
+    message.platformColor,
+    PLATFORM_CHAT_COLORS[sourcePlatform]
+  );
+  const authorColor = sanitizeColor(message.authorColor, platformColor);
   return renderTemplate(template, {
-    authorName: sanitizeAuthorName(message.authorName) || platformName,
+    authorName: `[color=${authorColor}]${sanitizeAuthorName(message.authorName) || platformName}[/color]`,
     content,
-    platformName
+    platformName: `[color=${platformColor}]${platformName}[/color]`
   });
 }

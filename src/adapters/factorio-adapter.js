@@ -55,11 +55,11 @@ function parsePlayerList(lines) {
 }
 
 function isPlatformRelayName(authorName) {
-  return /^(?:DISCORD|KOOK)<.+>$/i.test(authorName);
+  return /^(?:(?:\[color=#[0-9a-f]{6}\])?(?:DISCORD|KOOK)(?:\[\/color\])?)<.+>$/i.test(authorName);
 }
 
 function isPlatformRelayContent(content) {
-  return /^(?:DISCORD|KOOK)<.+>:\s*/i.test(content);
+  return /^(?:(?:\[color=#[0-9a-f]{6}\])?(?:DISCORD|KOOK)(?:\[\/color\])?)<.+>:\s*/i.test(content);
 }
 
 function isGpsOnlyContent(content) {

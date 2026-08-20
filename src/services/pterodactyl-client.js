@@ -17,6 +17,7 @@ export class PterodactylClient {
     this.wingsWsPort = wingsWsPort ?? null;
     this.webSocketFactory = webSocketFactory;
     this.commandQueues = new Map();
+    this.consoleSessions = new Map();
     this.websocketCredentialCache = new Map();
 
     try {
@@ -166,6 +167,9 @@ export class PterodactylClient {
     let consoleConnectedAt = null;
     let hasConnectedSuccessfully = false;
     let currentConnectionIsReconnect = false;
+    let authenticatedSocket = null;
+    let activeCommand = null;
+    const pendingCommands = [];
 
     const clearReconnect = () => {
       if (!reconnectHandle) {
@@ -200,6 +204,39 @@ export class PterodactylClient {
       } catch {}
     };
 
+    const finishCommand = (command, error = null) => {
+      if (!command || command.settled) return;
+      command.settled = true;
+      if (command.timeoutHandle) clearTimeout(command.timeoutHandle);
+      if (activeCommand === command) activeCommand = null;
+      if (error) command.reject(error);
+      else command.resolve(command.lines);
+      dispatchNextCommand();
+    };
+
+    const rejectActiveCommand = (error) => {
+      if (activeCommand) finishCommand(activeCommand, error);
+    };
+
+    const dispatchNextCommand = () => {
+      if (stopped || activeCommand || !authenticatedSocket || awaitingInitialLogs || pendingCommands.length === 0) {
+        return;
+      }
+
+      activeCommand = pendingCommands.shift();
+      try {
+        authenticatedSocket.send(JSON.stringify({ event: "send command", args: [activeCommand.command] }));
+        activeCommand.timeoutHandle = setTimeout(() => finishCommand(activeCommand), activeCommand.captureMs);
+      } catch (error) {
+        finishCommand(activeCommand, error);
+      }
+    };
+
+    const sendCommand = (command, { captureMs = 2500 } = {}) => new Promise((resolve, reject) => {
+      pendingCommands.push({ command, captureMs, resolve, reject, lines: [], settled: false, timeoutHandle: null });
+      dispatchNextCommand();
+    });
+
     const handleConsoleOutput = (payloadArgs, metadata = {}) => {
       const rawLine = Array.isArray(payloadArgs) ? payloadArgs.join("\n") : String(payloadArgs ?? "");
       const lines = rawLine
@@ -208,6 +245,9 @@ export class PterodactylClient {
         .filter(Boolean);
 
       for (const line of lines) {
+        if (activeCommand) {
+          activeCommand.lines.push(line);
+        }
         onLine?.(line, metadata);
       }
     };
@@ -242,6 +282,8 @@ export class PterodactylClient {
           }
 
           if (payload.event === "auth error") {
+            authenticatedSocket = null;
+            rejectActiveCommand(new Error(`Pterodactyl websocket auth failed for server ${serverId}`));
             this.#invalidateWebsocketCredentials(serverId);
             onError?.(new Error(`Pterodactyl websocket auth failed for server ${serverId}`));
             closeSocket();
@@ -250,6 +292,7 @@ export class PterodactylClient {
           }
 
           if (payload.event === "auth success") {
+            authenticatedSocket = nextSocket;
             consoleConnectedAt = Date.now();
             const isReconnect = hasConnectedSuccessfully;
             currentConnectionIsReconnect = isReconnect;
@@ -260,6 +303,7 @@ export class PterodactylClient {
               nextSocket.send(JSON.stringify({ event: "send logs", args: [null] }));
             }
             onConnected?.({ isReconnect });
+            dispatchNextCommand();
             return;
           }
 
@@ -282,6 +326,7 @@ export class PterodactylClient {
               isBacklog,
               isReconnect: currentConnectionIsReconnect && isBacklog
             });
+            dispatchNextCommand();
           }
         });
 
@@ -290,6 +335,10 @@ export class PterodactylClient {
         });
 
         nextSocket.on("close", (code, reason) => {
+          if (authenticatedSocket === nextSocket) {
+            authenticatedSocket = null;
+          }
+          rejectActiveCommand(new Error(`Pterodactyl websocket closed before command completed: ${code} ${reason.toString()}`));
           if (ws === nextSocket) {
             ws = null;
           }
@@ -309,14 +358,30 @@ export class PterodactylClient {
 
     void connect();
 
-    return () => {
+    const unsubscribe = () => {
       stopped = true;
       clearReconnect();
+      rejectActiveCommand(new Error(`Pterodactyl console subscription stopped for server ${serverId}`));
+      while (pendingCommands.length > 0) {
+        pendingCommands.shift().reject(new Error(`Pterodactyl console subscription stopped for server ${serverId}`));
+      }
       closeSocket();
+      if (this.consoleSessions.get(serverId) === unsubscribe) {
+        this.consoleSessions.delete(serverId);
+      }
     };
+
+    unsubscribe.sendCommand = sendCommand;
+    this.consoleSessions.set(serverId, unsubscribe);
+    return unsubscribe;
   }
 
   async runCommand(serverId, command, options = {}) {
+    const session = this.consoleSessions.get(serverId);
+    if (session?.sendCommand) {
+      return session.sendCommand(command, options);
+    }
+
     const current = this.commandQueues.get(serverId) ?? Promise.resolve();
     const next = current.then(() => this.#executeCommand(serverId, command, options));
     this.commandQueues.set(serverId, next.then(() => {}, () => {}));

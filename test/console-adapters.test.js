@@ -288,4 +288,8 @@ test("Factorio chat relay executes formatted commands", async () => {
     adapter.parseConsoleChatLine("2026-07-02 10:52:00 [CHAT] <server>: KOOK<Kai>: hello"),
     null
   );
+  assert.equal(
+    adapter.parseConsoleChatLine("2026-07-02 10:52:00 [CHAT] [color=#00A1D6]KOOK[/color]<[color=#00A1D6]Kai[/color]>: hello"),
+    null
+  );
 });

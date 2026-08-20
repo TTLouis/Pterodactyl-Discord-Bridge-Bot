@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import test from "node:test";
 import { ChannelType } from "discord.js";
 import { DiscordBridge } from "../src/services/discord-bridge.js";
@@ -71,6 +72,41 @@ function createBridge({ actionMessage = null, beforeSend = null } = {}) {
 
   return { bridge, calls, state };
 }
+
+test("Discord inbound messages include the highest colored role", async () => {
+  const bridge = new DiscordBridge({
+    token: "token",
+    guildId: "guild",
+    stateStore: {},
+    logger: { info() {}, warn() {}, error() {} }
+  });
+  const client = new EventEmitter();
+  client.login = async () => {};
+  client.destroy = async () => {};
+  bridge.client = client;
+
+  const messages = [];
+  bridge.onMessage((message) => messages.push(message));
+  await bridge.start();
+  client.emit("messageCreate", {
+    author: { bot: false, username: "louis" },
+    guild: { id: "guild" },
+    member: {
+      displayName: "Louis",
+      roles: { highest: { color: 0x12ab34, hexColor: "#12ab34" } }
+    },
+    channelId: "channel",
+    content: "hello"
+  });
+
+  assert.deepEqual(messages, [{
+    authorName: "Louis",
+    authorColor: "#12ab34",
+    channelId: "channel",
+    content: "hello"
+  }]);
+  await bridge.stop();
+});
 
 test("Discord action message edits safe adjacent server transitions", async () => {
   const { bridge, calls, state } = createBridge({

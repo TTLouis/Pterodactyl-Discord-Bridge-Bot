@@ -38,3 +38,30 @@ test("game chat command formatter sanitizes relay input", () => {
   );
   assert.equal(buildGameChatCommand(server, { content: "" }), null);
 });
+
+test("Factorio chat formatter colors the platform and Discord role", () => {
+  const server = {
+    game: {
+      type: "factorio",
+      chatCommandTemplate: "{platform}<{author}>: {content}"
+    }
+  };
+
+  assert.equal(
+    buildGameChatCommand(server, {
+      sourcePlatform: "discord",
+      authorName: "Louis",
+      authorColor: "#12ab34",
+      content: "hello"
+    }),
+    "[color=#5865F2]Discord[/color]<[color=#12AB34]Louis[/color]>: hello"
+  );
+  assert.equal(
+    buildGameChatCommand(server, {
+      sourcePlatform: "kook",
+      authorName: "Kai",
+      content: "hello"
+    }),
+    "[color=#00A1D6]KOOK[/color]<[color=#00A1D6]Kai[/color]>: hello"
+  );
+});
