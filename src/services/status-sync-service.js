@@ -9,6 +9,7 @@ const DEBOUNCE_MS = 500;
 const CONSOLE_RELAY_WARMUP_MS = 5000;
 const POWER_STATE_OVERRIDE_TTL_MS = 10 * 60 * 1000;
 const RECENT_RELAY_LINE_TTL_MS = 10 * 60 * 1000;
+const RELAY_QUEUE_TTL_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_POLL_INTERVAL_SECONDS = 60;
 const DEFAULT_ACTIVE_PLAYER_POLL_INTERVAL_SECONDS = 15;
 
@@ -106,6 +107,8 @@ export class StatusSyncService {
     this.serverPowerStates = new Map();
     this.lastSnapshotKeys = new Map();
     this.recentRelayLines = new Map();
+    this.relayFlushPromises = new Map();
+    this.inMemoryRelayQueues = new Map();
     this.initialSnapshotLogged = false;
     this.adapters = new Map(
       config.servers.map((server) => [
@@ -191,6 +194,10 @@ export class StatusSyncService {
         const rawResources = await this.pterodactylClient.getServerResources(server.pterodactylServerId);
         const resources = this.#applyCachedPowerState(server, rawResources);
         this.#syncConsoleBridge(server, adapter, resources.currentState);
+        await this.#expireQueuedRelays(server);
+        if (resources.currentState === "running") {
+          void this.#flushQueuedRelays(server, adapter);
+        }
         const rawSnapshot = await adapter.fetchSnapshot(resources);
         const snapshot = this.#hydrateAutoStopStatus(server, this.#hydrateCachedSnapshot(server, rawSnapshot));
         snapshots.push(snapshot);
@@ -395,7 +402,9 @@ export class StatusSyncService {
     const serverId = server.pterodactylServerId;
     const existing = this.consoleUnsubscribers.get(serverId);
     const supportsConsole = Boolean(adapter?.supportsConsoleSubscription());
-    const shouldSubscribe = Boolean(adapter);
+    // Satisfactory uses this channel for power-state events but not console relay.
+    // Console-capable games only keep the socket while their server is running.
+    const shouldSubscribe = supportsConsole ? currentState === "running" : Boolean(adapter);
 
     if (!shouldSubscribe) {
       if (existing) {
@@ -418,9 +427,10 @@ export class StatusSyncService {
 
     const unsubscribe = this.pterodactylClient.subscribeToConsole(serverId, {
       onConnected: () => {
-        if (supportsConsole && currentState === "running") {
-          void this.#handleConsoleConnected(server, adapter);
-        }
+        void this.#handleConsoleConnected(server, adapter);
+      },
+      onReady: () => {
+        void this.#flushQueuedRelays(server, adapter);
       },
       onLine: supportsConsole
         ? (line, metadata) => {
@@ -429,6 +439,7 @@ export class StatusSyncService {
         : undefined,
       onStatusChange: (newState) => {
         this.logger.info(`${server.name} power state changed to: ${newState}`);
+        this.#syncConsoleBridge(server, adapter, newState);
         void this.#handlePowerStateEvent(server, newState);
         this.#scheduleUpdate();
       },
@@ -783,35 +794,127 @@ export class StatusSyncService {
       this.logger.warn(`Failed cross-posting ${sourcePlatform.toUpperCase()} message for ${server.name}`, error);
     }
 
+    const adapter = this.adapters.get(server.pterodactylServerId);
+    if (!adapter) return;
+
+    const relay = {
+      sourcePlatform,
+      authorName: message.authorName,
+      authorColor: message.authorColor ?? null,
+      platformColor: message.platformColor ?? null,
+      content: message.content,
+      enqueuedAt: Date.now()
+    };
+    const command = buildGameChatCommand(server, relay);
+    if (!command) return;
+
+    const gameType = server.type ?? server.game?.type;
+    if (gameType === "factorio" || gameType === "minecraft") {
+      const queue = this.#getRelayQueue(server.pterodactylServerId);
+      queue.push(relay);
+      this.#setRelayQueue(server.pterodactylServerId, queue);
+      this.logger.info("Game relay queued", { server: server.name, serverId: server.pterodactylServerId, queueLength: queue.length });
+      await this.#expireQueuedRelays(server);
+      void this.#flushQueuedRelays(server, adapter);
+      return;
+    }
+
     try {
-      const adapter = this.adapters.get(server.pterodactylServerId);
-      if (!adapter) {
-        return;
-      }
-
-      const command = buildGameChatCommand(server, { ...message, sourcePlatform });
-      if (!command) {
-        return;
-      }
-
-      if (typeof adapter.handleChatCommand === "function") {
-        await adapter.handleChatCommand(command);
-      } else if (typeof adapter.handleChatMessage === "function") {
-        await adapter.handleChatMessage({ ...message, sourcePlatform, command });
-      } else {
-        await adapter.handleDiscordMessage({ ...message, sourcePlatform, command });
-      }
+      await this.#deliverRelay(adapter, command, relay);
     } catch (error) {
-      this.logger.error(`Failed processing ${sourcePlatform.toUpperCase()} message for ${server.name}`, error);
-      try {
-        await this.eventBus.emit(CoreEvents.SERVER_NOTICE, {
-          kind: "relay-failed",
-          server,
-          message: error.message
-        });
-      } catch (sendError) {
-        this.logger.warn(`Failed publishing relay error for ${server.name}`, sendError);
+      await this.#publishRelayFailure(server, sourcePlatform, error);
+    }
+  }
+
+  #getRelayQueue(serverId) {
+    if (typeof this.stateStore?.getRelayQueue === "function") {
+      return [...this.stateStore.getRelayQueue(serverId)];
+    }
+    return [...(this.inMemoryRelayQueues.get(serverId) ?? [])];
+  }
+
+  #setRelayQueue(serverId, queue) {
+    if (typeof this.stateStore?.setRelayQueue === "function") {
+      this.stateStore.setRelayQueue(serverId, queue);
+      return;
+    }
+    if (queue.length > 0) this.inMemoryRelayQueues.set(serverId, queue);
+    else this.inMemoryRelayQueues.delete(serverId);
+  }
+
+  async #expireQueuedRelays(server, now = Date.now()) {
+    const queue = this.#getRelayQueue(server.pterodactylServerId);
+    const retained = queue.filter((relay) => Number(relay.enqueuedAt) + RELAY_QUEUE_TTL_MS > now);
+    const expiredCount = queue.length - retained.length;
+    if (!expiredCount) return;
+
+    this.#setRelayQueue(server.pterodactylServerId, retained);
+    this.logger.warn("Queued game relays expired", { server: server.name, serverId: server.pterodactylServerId, expiredCount });
+    try {
+      await this.eventBus.emit(CoreEvents.SERVER_NOTICE, {
+        kind: "relay-queue-expired",
+        server,
+        expiredCount
+      });
+    } catch (error) {
+      this.logger.warn(`Failed publishing relay queue expiry for ${server.name}`, error);
+    }
+  }
+
+  async #flushQueuedRelays(server, adapter) {
+    const serverId = server.pterodactylServerId;
+    if (this.relayFlushPromises.has(serverId)) return this.relayFlushPromises.get(serverId);
+    if (!this.pterodactylClient.isConsoleSessionReady?.(serverId)) return;
+
+    const flush = (async () => {
+      await this.#expireQueuedRelays(server);
+      let sent = 0;
+      while (this.pterodactylClient.isConsoleSessionReady?.(serverId)) {
+        const queue = this.#getRelayQueue(serverId);
+        const relay = queue[0];
+        if (!relay) break;
+        const command = buildGameChatCommand(server, relay);
+        if (!command) {
+          queue.shift();
+          this.#setRelayQueue(serverId, queue);
+          continue;
+        }
+        try {
+          await this.#deliverRelay(adapter, command, relay);
+        } catch (error) {
+          this.logger.warn("Queued game relay delivery will retry when the console is ready", {
+            server: server.name,
+            serverId,
+            error: error.message
+          });
+          break;
+        }
+        queue.shift();
+        this.#setRelayQueue(serverId, queue);
+        sent += 1;
       }
+      if (sent) this.logger.info("Queued game relays flushed", { server: server.name, serverId, sent, remaining: this.#getRelayQueue(serverId).length });
+    })();
+    this.relayFlushPromises.set(serverId, flush);
+    try {
+      await flush;
+    } finally {
+      if (this.relayFlushPromises.get(serverId) === flush) this.relayFlushPromises.delete(serverId);
+    }
+  }
+
+  async #deliverRelay(adapter, command, relay) {
+    if (typeof adapter.handleChatCommand === "function") return adapter.handleChatCommand(command);
+    if (typeof adapter.handleChatMessage === "function") return adapter.handleChatMessage({ ...relay, command });
+    return adapter.handleDiscordMessage({ ...relay, command });
+  }
+
+  async #publishRelayFailure(server, sourcePlatform, error) {
+    this.logger.error(`Failed processing ${sourcePlatform.toUpperCase()} message for ${server.name}`, error);
+    try {
+      await this.eventBus.emit(CoreEvents.SERVER_NOTICE, { kind: "relay-failed", server, message: error.message });
+    } catch (sendError) {
+      this.logger.warn(`Failed publishing relay error for ${server.name}`, sendError);
     }
   }
 }

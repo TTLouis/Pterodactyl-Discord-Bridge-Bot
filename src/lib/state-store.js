@@ -8,7 +8,8 @@ export class StateStore {
       statusMessages: {},
       actionMessages: {},
       serverRuntime: {},
-      autoStop: {}
+      autoStop: {},
+      relayQueue: {}
     };
   }
 
@@ -23,6 +24,7 @@ export class StateStore {
     this.state.actionMessages ??= {};
     this.state.serverRuntime ??= {};
     this.state.autoStop ??= {};
+    this.state.relayQueue ??= {};
     return this.state;
   }
 
@@ -101,6 +103,20 @@ export class StateStore {
 
   clearAutoStopState(serverId) {
     delete this.state.autoStop[serverId];
+    this.save();
+  }
+
+  getRelayQueue(serverId) {
+    const queue = this.state.relayQueue[serverId];
+    return Array.isArray(queue) ? queue : [];
+  }
+
+  setRelayQueue(serverId, entries) {
+    if (Array.isArray(entries) && entries.length > 0) {
+      this.state.relayQueue[serverId] = entries;
+    } else {
+      delete this.state.relayQueue[serverId];
+    }
     this.save();
   }
 }
