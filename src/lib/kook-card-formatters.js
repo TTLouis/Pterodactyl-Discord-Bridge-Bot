@@ -513,7 +513,9 @@ export function buildKookActionMessageForEvent(event) {
     case "server-online": {
       const requestedBy = event.startInfo?.startedBy
         ? `\n\n启动请求来自 **${event.startInfo.startedBy}**。`
-        : "";
+        : event.startInfo?.source === "pterodactyl-panel"
+          ? "\n\n启动来自 Pterodactyl 面板。"
+          : "";
       return buildActionCard({
         title: `🟢 服务器在线：${event.server.name}`,
         description: `服务器已重新上线。${requestedBy}`,
