@@ -18,24 +18,25 @@ Current Satisfactory limitations:
 
 ## Setup
 
-Clone the repository, then run the interactive setup wizard:
+Clone the repository, then copy the config templates and fill them in:
 
 ```bash
 npm install
-npm run setup
+cp .env.example .env
+cp servers.example.json servers.json
 ```
 
-The wizard creates `.env` and `servers.json` and asks before overwriting either file. Start the bot with:
+Put your Discord bot token in `.env`, then edit `servers.json` with your guild, channel, and Pterodactyl details. Every option is described under [Config Reference](#config-reference).
 
 ```bash
 npm start
 ```
 
-You can rerun `npm run setup` at any time to regenerate the config.
+The bot validates `servers.json` at startup and names the offending field if anything is missing or out of range, so a bad edit fails immediately rather than misbehaving later.
 
 ## Docker Compose
 
-1. Copy the config templates and fill them in:
+1. Copy and fill in the config templates as described under [Setup](#setup):
 
 ```bash
 cp .env.example .env
@@ -75,6 +76,8 @@ Copy these files to the target host, then run `docker compose up -d --build`:
 - `Dockerfile`, `docker-compose.yml`, `.dockerignore`
 - `package.json`, `package-lock.json`, `src/`
 - `.env`, `servers.json`
+
+The interactive setup wizard and the `bootstrap` scripts live on the `onboarding-wizard` branch; they had drifted out of sync with the configuration schema and could emit a `servers.json` that would not load.
 
 ## Hosting
 

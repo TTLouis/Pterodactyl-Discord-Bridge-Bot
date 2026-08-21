@@ -12,11 +12,7 @@ heartbeat
 # Development-only material that never runs inside the image.
 test
 scripts
-docs
 *.md
-bootstrap.sh
-bootstrap.ps1
-setup.js
 
 # Editor and assistant state.
 .vscode

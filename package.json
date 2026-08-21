@@ -14,7 +14,6 @@
     "kook:status-live": "node scripts/kook-live-status-test.js",
     "kook:channel-ops": "node scripts/kook-channel-ops-test.js",
     "kook:channel-ops:keep": "node scripts/kook-channel-ops-test.js --keep",
-    "setup": "node setup.js",
     "test": "node --test \"test/**/*.test.js\""
   },
   "engines": {
