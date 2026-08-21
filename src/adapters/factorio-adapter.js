@@ -94,9 +94,10 @@ function parseGameDuration(lines) {
 const BACKUP_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
 
 export class FactorioAdapter {
-  constructor({ serverConfig, pterodactylClient }) {
+  constructor({ serverConfig, pterodactylClient, logger = null }) {
     this.serverConfig = serverConfig;
     this.pterodactylClient = pterodactylClient;
+    this.logger = logger;
     this.onlinePlayers = null;
     this.gameDurationMs = null;
     this.gameDurationFetchedAt = null;
@@ -146,10 +147,15 @@ export class FactorioAdapter {
       };
     }
 
-    if (this.playerListRefreshPromise) {
-      await this.playerListRefreshPromise;
-    } else if (this.onlinePlayers === null) {
-      await this.refreshOnlinePlayers();
+    try {
+      if (this.playerListRefreshPromise) {
+        await this.playerListRefreshPromise;
+      } else if (this.onlinePlayers === null) {
+        await this.refreshOnlinePlayers();
+      }
+    } catch (error) {
+      this.onlinePlayers ??= [];
+      this.logger?.warn(`Factorio console is not ready for ${this.serverConfig.name}; using the last available player snapshot until it reconnects.`, error);
     }
 
     const playerCount = this.onlinePlayers.length;

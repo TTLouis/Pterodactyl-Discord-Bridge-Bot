@@ -136,6 +136,16 @@ function normalizeSatisfactoryGame(server) {
   };
 }
 
+function validateFactorioRelayTemplate(serverName, template, label) {
+  if (typeof template !== "string" || !template.trim().startsWith("/")) {
+    throw new Error(`Factorio server "${serverName}" ${label} must start with a Factorio console command (for example, /shout).`);
+  }
+
+  if (!template.includes("{content}")) {
+    throw new Error(`Factorio server "${serverName}" ${label} must include the {content} placeholder.`);
+  }
+}
+
 function normalizeAutoStop(server) {
   const raw = server.autoStop;
   if (!raw?.enabled) return null;
@@ -216,7 +226,18 @@ function validateConfig(config) {
       throw new Error("Each server requires name, discordChannelId, and pterodactylServerId");
     }
 
-    if (server.game?.type === "factorio" || server.game?.type === "minecraft") {
+    if (server.game?.type === "factorio") {
+      validateFactorioRelayTemplate(server.name, server.game.chatCommandTemplate, "chatCommandTemplate");
+      if (server.game.discordChatCommandTemplate !== null) {
+        validateFactorioRelayTemplate(server.name, server.game.discordChatCommandTemplate, "discordChatCommandTemplate");
+      }
+      if (server.game.kookChatCommandTemplate !== null) {
+        validateFactorioRelayTemplate(server.name, server.game.kookChatCommandTemplate, "kookChatCommandTemplate");
+      }
+      continue;
+    }
+
+    if (server.game?.type === "minecraft") {
       continue;
     }
 
