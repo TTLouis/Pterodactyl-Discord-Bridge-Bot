@@ -1,8 +1,23 @@
+import { MAX_RELAY_CONTENT_LENGTH } from "./relay-limits.js";
+
+/**
+ * Bounds a single relayed message. Queued relays are persisted to disk, so an
+ * unbounded message would grow runtime state as well as the game console line.
+ */
+export function truncateRelayContent(value) {
+  const text = String(value ?? "");
+  return text.length > MAX_RELAY_CONTENT_LENGTH
+    ? `${text.slice(0, MAX_RELAY_CONTENT_LENGTH - 1)}…`
+    : text;
+}
+
 function sanitizeContent(value) {
-  return String(value ?? "")
+  const normalized = String(value ?? "")
     .replace(/[\u0000-\u001F\u007F]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+
+  return truncateRelayContent(normalized);
 }
 
 function sanitizeAuthorName(value) {

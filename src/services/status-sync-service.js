@@ -3,7 +3,8 @@ import { FactorioAdapter } from "../adapters/factorio-adapter.js";
 import { MinecraftAdapter } from "../adapters/minecraft-adapter.js";
 import { SatisfactoryAdapter } from "../adapters/satisfactory-adapter.js";
 import { CoreEvents } from "../core/core-events.js";
-import { buildGameChatCommand } from "../lib/chat-relay-formatters.js";
+import { buildGameChatCommand, truncateRelayContent } from "../lib/chat-relay-formatters.js";
+import { MAX_RELAY_QUEUE_LENGTH } from "../lib/relay-limits.js";
 import { CANCEL_AUTO_STOP_REACTION, RESTART_SERVER_REACTION } from "./auto-stop-service.js";
 
 const DEBOUNCE_MS = 500;
@@ -109,6 +110,7 @@ export class StatusSyncService {
     this.lastSnapshotKeys = new Map();
     this.recentRelayLines = new Map();
     this.relayFlushPromises = new Map();
+    this.relayOverflowNotified = new Set();
     this.inMemoryRelayQueues = new Map();
     this.initialSnapshotLogged = false;
     this.adapters = new Map(
@@ -824,7 +826,7 @@ export class StatusSyncService {
       authorName: message.authorName,
       authorColor: message.authorColor ?? null,
       platformColor: message.platformColor ?? null,
-      content: message.content,
+      content: truncateRelayContent(message.content),
       enqueuedAt: Date.now()
     };
     const command = buildGameChatCommand(server, relay);
@@ -834,8 +836,15 @@ export class StatusSyncService {
     if (gameType === "factorio" || gameType === "minecraft") {
       const queue = this.#getRelayQueue(server.pterodactylServerId);
       queue.push(relay);
+      const droppedCount = Math.max(0, queue.length - MAX_RELAY_QUEUE_LENGTH);
+      if (droppedCount > 0) {
+        queue.splice(0, droppedCount);
+      }
       this.#setRelayQueue(server.pterodactylServerId, queue);
       this.logger.info("Game relay queued", { server: server.name, serverId: server.pterodactylServerId, queueLength: queue.length });
+      if (droppedCount > 0) {
+        await this.#publishRelayQueueOverflow(server);
+      }
       await this.#expireQueuedRelays(server);
       void this.#flushQueuedRelays(server, adapter);
       return;
@@ -856,12 +865,42 @@ export class StatusSyncService {
   }
 
   #setRelayQueue(serverId, queue) {
+    // Re-arm the overflow notice once the queue has room again, so a full queue
+    // reports once per episode instead of once per dropped message.
+    if (queue.length < MAX_RELAY_QUEUE_LENGTH) {
+      this.relayOverflowNotified.delete(serverId);
+    }
+
     if (typeof this.stateStore?.setRelayQueue === "function") {
       this.stateStore.setRelayQueue(serverId, queue);
       return;
     }
     if (queue.length > 0) this.inMemoryRelayQueues.set(serverId, queue);
     else this.inMemoryRelayQueues.delete(serverId);
+  }
+
+  async #publishRelayQueueOverflow(server) {
+    const serverId = server.pterodactylServerId;
+    this.logger.warn("Queued game relays dropped", {
+      server: server.name,
+      serverId,
+      limit: MAX_RELAY_QUEUE_LENGTH
+    });
+
+    if (this.relayOverflowNotified.has(serverId)) {
+      return;
+    }
+    this.relayOverflowNotified.add(serverId);
+
+    try {
+      await this.eventBus.emit(CoreEvents.SERVER_NOTICE, {
+        kind: "relay-queue-overflow",
+        server,
+        limit: MAX_RELAY_QUEUE_LENGTH
+      });
+    } catch (error) {
+      this.logger.warn(`Failed publishing relay queue overflow for ${server.name}`, error);
+    }
   }
 
   async #expireQueuedRelays(server, now = Date.now()) {

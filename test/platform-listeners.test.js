@@ -37,6 +37,7 @@ function createConfig() {
     },
     kook: {
       statusChannelId: "kook-status",
+      logChannelId: "kook-log",
       displayTimeZone: "Asia/Shanghai"
     },
     servers: [server]
@@ -195,4 +196,75 @@ test("relay queue expiry notices are sent only to the Discord log channel", asyn
     channelId: "discord-log",
     content: "3 queued relay messages for **Factory** expired after 24 hours."
   }]);
+});
+
+test("relay queue overflow notices are sent only to the Discord log channel", async () => {
+  const eventBus = new CoreEventBus();
+  const calls = [];
+  const listener = new DiscordPlatformListener({
+    eventBus,
+    config: createConfig(),
+    discordBridge: {
+      async sendMessage(channelId, content) {
+        calls.push({ channelId, content });
+      }
+    }
+  });
+  listener.start();
+  await eventBus.emit(CoreEvents.SERVER_NOTICE, { kind: "relay-queue-overflow", server, limit: 100 });
+  listener.stop();
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].channelId, "discord-log");
+  assert.match(calls[0].content, /Relay queue for \*\*Factory\*\* is full at 100 messages/);
+});
+
+test("KOOK routes relay queue notices to its log channel, matching Discord", async () => {
+  const eventBus = new CoreEventBus();
+  const calls = [];
+  const listener = new KookPlatformListener({
+    eventBus,
+    config: createConfig(),
+    logger: { warn() {}, error() {}, info() {} },
+    kookBridge: {
+      async sendMessage(channelId, content) {
+        calls.push({ channelId, content });
+      }
+    }
+  });
+  listener.start();
+  await eventBus.emit(CoreEvents.SERVER_NOTICE, { kind: "relay-queue-expired", server, expiredCount: 3 });
+  await eventBus.emit(CoreEvents.SERVER_NOTICE, { kind: "relay-queue-overflow", server, limit: 100 });
+  listener.stop();
+
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls.map((call) => call.channelId), ["kook-log", "kook-log"]);
+  assert.match(calls[0].content, /3 条排队转发消息/);
+  assert.match(calls[1].content, /上限 100 条/);
+});
+
+test("player-facing notices still go to the server channel on both platforms", async () => {
+  const eventBus = new CoreEventBus();
+  const discordCalls = [];
+  const kookCalls = [];
+  const config = createConfig();
+  const discord = new DiscordPlatformListener({
+    eventBus,
+    config,
+    discordBridge: { async sendMessage(channelId, content) { discordCalls.push({ channelId, content }); } }
+  });
+  const kook = new KookPlatformListener({
+    eventBus,
+    config,
+    logger: { warn() {}, error() {}, info() {} },
+    kookBridge: { async sendMessage(channelId, content) { kookCalls.push({ channelId, content }); } }
+  });
+  discord.start();
+  kook.start();
+  await eventBus.emit(CoreEvents.SERVER_NOTICE, { kind: "relay-failed", server, message: "console offline" });
+  discord.stop();
+  kook.stop();
+
+  assert.deepEqual(discordCalls.map((call) => call.channelId), ["discord-server"]);
+  assert.deepEqual(kookCalls.map((call) => call.channelId), ["kook-server"]);
 });

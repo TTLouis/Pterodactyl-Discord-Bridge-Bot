@@ -1,3 +1,5 @@
+import { CHAT_RELAY_CAPTURE_MS } from "../lib/relay-limits.js";
+
 const LIST_COMMAND = "/list";
 const TIME_COMMAND = "/time query gametime";
 const ANSI_CONTROL_PATTERN = /\u001B\[[0-?]*[ -/]*[@-~]/g;
@@ -11,7 +13,7 @@ const MC_LIST_PATTERN = new RegExp(`${MC_LOG_PREFIX.source}There are (\\d+)(?:\\
 const MC_TIME_PATTERN = new RegExp(`${MC_LOG_PREFIX.source}The time is (\\d+)$`, "i");
 const MC_PREFIXED_CONTENT_PATTERN = /^(?:\[\d{2}:\d{2}:\d{2}\]\s+)?(?:\[[^\]]+\]\s*)+:\s*(.*)$/;
 
-const BACKUP_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
+const DEFAULT_BACKUP_REFRESH_INTERVAL_MS = 15 * 60 * 1000;
 const MS_PER_TICK = 50;
 
 function normalizeConsoleLines(lines) {
@@ -90,7 +92,14 @@ export class MinecraftAdapter {
       }
 
       void this.refreshOnlinePlayers().catch(() => {});
-    }, BACKUP_REFRESH_INTERVAL_MS);
+    }, this.#backupRefreshIntervalMs());
+  }
+
+  #backupRefreshIntervalMs() {
+    const seconds = Number(this.serverConfig.game?.playerListRefreshIntervalSeconds);
+    return Number.isFinite(seconds) && seconds > 0
+      ? seconds * 1000
+      : DEFAULT_BACKUP_REFRESH_INTERVAL_MS;
   }
 
   stop() {
@@ -211,7 +220,9 @@ export class MinecraftAdapter {
 
   async handleChatCommand(command) {
     if (!command) return null;
-    await this.pterodactylClient.runCommand(this.serverConfig.pterodactylServerId, command);
+    await this.pterodactylClient.runCommand(this.serverConfig.pterodactylServerId, command, {
+      captureMs: CHAT_RELAY_CAPTURE_MS
+    });
     return null;
   }
 

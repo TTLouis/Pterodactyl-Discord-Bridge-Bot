@@ -3,7 +3,7 @@ import { CoreEventBus } from "./core/core-events.js";
 import { getConfigPath, loadConfig } from "./lib/config.js";
 import { isKookEnabled } from "./lib/kook-config.js";
 import { logger } from "./lib/logger.js";
-import { StateStore } from "./lib/state-store.js";
+import { getStatePath, StateStore } from "./lib/state-store.js";
 import { AutoStopService } from "./services/auto-stop-service.js";
 import { applyReloadedConfig, ConfigReloadService } from "./services/config-reload-service.js";
 import { DiscordBridge } from "./services/discord-bridge.js";
@@ -16,7 +16,7 @@ import { KookPlatformListener } from "./platforms/kook-platform-listener.js";
 
 async function main() {
   const runtime = loadConfig();
-  const stateStore = new StateStore();
+  const stateStore = new StateStore(getStatePath(), { logger });
   stateStore.load();
   const eventBus = new CoreEventBus();
   const pterodactylClient = new PterodactylClient(runtime.config.pterodactyl);
@@ -45,6 +45,12 @@ async function main() {
       await discordBridge?.stop();
     } catch (error) {
       logger.error("Error while shutting down; exiting anyway", error);
+    }
+
+    try {
+      stateStore.flush();
+    } catch (error) {
+      logger.error("Failed to flush runtime state during shutdown", error);
     }
 
     process.exit(exitCode);

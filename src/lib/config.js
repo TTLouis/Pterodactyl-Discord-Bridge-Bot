@@ -144,7 +144,12 @@ function normalizeMinecraftGame(server) {
     type: "minecraft",
     chatCommandTemplate: server.game?.chatCommandTemplate ?? "/say [Discord] {author}: {content}",
     discordChatCommandTemplate: server.game?.discordChatCommandTemplate ?? null,
-    kookChatCommandTemplate: server.game?.kookChatCommandTemplate ?? null
+    kookChatCommandTemplate: server.game?.kookChatCommandTemplate ?? null,
+    playerListRefreshIntervalSeconds: requirePositiveNumber(
+      server.game?.playerListRefreshIntervalSeconds,
+      900,
+      `Server "${server.name}" game.playerListRefreshIntervalSeconds`
+    )
   };
 }
 

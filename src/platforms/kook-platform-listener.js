@@ -7,6 +7,9 @@ function formatKookGroupRelayMessage(message) {
   return `[${platform}] **${message.authorName}**: ${message.content}`;
 }
 
+// Mirrors the Discord listener: relay-queue notices are operator-facing.
+const LOG_CHANNEL_NOTICE_KINDS = new Set(["relay-queue-expired", "relay-queue-overflow"]);
+
 function formatKookServerNotice(event) {
   if (event.kind === "satisfactory-player-count") {
     const action = event.action === "joined" ? "加入" : "离开";
@@ -15,6 +18,14 @@ function formatKookServerNotice(event) {
 
   if (event.kind === "relay-failed") {
     return `转发失败：${event.message}`;
+  }
+
+  if (event.kind === "relay-queue-expired") {
+    return `**${event.server.name}** 有 ${event.expiredCount} 条排队转发消息因超过 24 小时而过期。`;
+  }
+
+  if (event.kind === "relay-queue-overflow") {
+    return `**${event.server.name}** 的转发队列已达上限 ${event.limit} 条，服务器恢复前将丢弃最早的消息。`;
   }
 
   return null;
@@ -101,7 +112,9 @@ export class KookPlatformListener {
   }
 
   async #handleServerNotice(event) {
-    const kookChannelId = event.server.kookChannelId;
+    const kookChannelId = LOG_CHANNEL_NOTICE_KINDS.has(event.kind)
+      ? this.config.kook?.logChannelId
+      : event.server.kookChannelId;
     if (!kookChannelId) {
       return null;
     }

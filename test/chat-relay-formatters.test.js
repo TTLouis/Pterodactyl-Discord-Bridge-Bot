@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildGameChatCommand, hasChatCommandTemplate } from "../src/lib/chat-relay-formatters.js";
+import { buildGameChatCommand, hasChatCommandTemplate, truncateRelayContent } from "../src/lib/chat-relay-formatters.js";
+import { MAX_RELAY_CONTENT_LENGTH } from "../src/lib/relay-limits.js";
 
 test("game chat command formatter renders platform-specific templates", () => {
   const server = {
@@ -64,4 +65,29 @@ test("Factorio chat formatter colors the platform and Discord role", () => {
     }),
     "[color=#00A1D6]KOOK[/color]<[color=#00A1D6]Kai[/color]>: hello"
   );
+});
+
+test("relay content longer than the limit is truncated with an ellipsis", () => {
+  const long = "x".repeat(MAX_RELAY_CONTENT_LENGTH * 2);
+  const truncated = truncateRelayContent(long);
+
+  assert.equal(truncated.length, MAX_RELAY_CONTENT_LENGTH);
+  assert.ok(truncated.endsWith("…"));
+});
+
+test("relay content within the limit is returned unchanged", () => {
+  assert.equal(truncateRelayContent("hello"), "hello");
+  assert.equal(truncateRelayContent(""), "");
+  assert.equal(truncateRelayContent(null), "");
+});
+
+test("built game chat commands are bounded even for oversized input", () => {
+  const command = buildGameChatCommand(
+    { game: { type: "minecraft", chatCommandTemplate: "/say {content}" } },
+    { sourcePlatform: "discord", authorName: "Louis", content: "y".repeat(5000) }
+  );
+
+  assert.ok(command.length < 5000);
+  assert.ok(command.startsWith("/say "));
+  assert.equal(command.slice("/say ".length).length, MAX_RELAY_CONTENT_LENGTH);
 });
