@@ -49,7 +49,7 @@ function createFactorioAdapter(runCommand) {
       maxPlayers: 20,
       discordChannelId: "channel-id",
       pterodactylServerId: "factorio-id",
-      game: { chatCommandTemplate: "DISCORD<{author}>: {content}" }
+      game: { chatCommandTemplate: "/shout DISCORD<{author}>: {content}" }
     },
     pterodactylClient: { runCommand }
   });
@@ -230,6 +230,18 @@ test("Factorio snapshots wait for an in-flight player-list refresh", async () =>
 
   assert.equal(refreshedSnapshot.playerCount, 0);
   assert.deepEqual(refreshedSnapshot.onlinePlayers, []);
+});
+
+test("Factorio snapshots remain available while the console session is connecting", async () => {
+  const adapter = createFactorioAdapter(async () => {
+    throw new Error("Pterodactyl console session is not ready");
+  });
+
+  const snapshot = await adapter.fetchSnapshot(runningResources);
+
+  assert.equal(snapshot.currentState, "running");
+  assert.equal(snapshot.playerCount, 0);
+  assert.deepEqual(snapshot.onlinePlayers, []);
 });
 
 test("Factorio chat parser forwards player chat and ignores Discord relay echoes", () => {

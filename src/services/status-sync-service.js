@@ -290,7 +290,8 @@ export class StatusSyncService {
       case "factorio":
         return new FactorioAdapter({
           serverConfig: server,
-          pterodactylClient: this.pterodactylClient
+          pterodactylClient: this.pterodactylClient,
+          logger: this.logger
         });
       case "minecraft":
         return new MinecraftAdapter({
@@ -439,6 +440,11 @@ export class StatusSyncService {
         void this.#handleConsoleConnected(server, adapter);
       },
       onReady: () => {
+        this.logger.info("Console session ready", {
+          server: server.name,
+          serverId,
+          game: server.game?.type ?? "unknown"
+        });
         void this.#flushQueuedRelays(server, adapter);
       },
       onLine: supportsConsole
@@ -501,6 +507,12 @@ export class StatusSyncService {
       await this.eventBus.emit(CoreEvents.GAME_CHAT_RELAY, {
         server,
         ...relayMessage
+      });
+      this.logger.info("Game console chat forwarded", {
+        server: server.name,
+        serverId: server.pterodactylServerId,
+        game: server.game?.type ?? "unknown",
+        authorName: relayMessage.authorName
       });
     } catch (error) {
       this.logger.error(`Failed forwarding game chat for ${server.name}`, error);

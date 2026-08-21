@@ -30,6 +30,75 @@ test("legacy polling environment values remain a fallback", () => {
   assert.equal(resolvePollingInterval(undefined, "120", 60), 120);
 });
 
+function loadFactorioConfig(game) {
+  const previousEnv = {
+    CONFIG_PATH: process.env.CONFIG_PATH,
+    DISCORD_TOKEN: process.env.DISCORD_TOKEN,
+    KOOK_ENABLED: process.env.KOOK_ENABLED,
+    KOOK_TOKEN: process.env.KOOK_TOKEN
+  };
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "discord-bot-factorio-config-"));
+  const configPath = path.join(tempDir, "servers.json");
+
+  fs.writeFileSync(configPath, JSON.stringify({
+    discord: { guildId: "discord-guild", statusChannelId: "discord-status", displayTimeZone: "UTC" },
+    pterodactyl: { baseUrl: "https://panel.example.com", apiKey: "ptlc_test" },
+    servers: [{
+      name: "Factorio",
+      discordChannelId: "discord-server",
+      pterodactylServerId: "factorio-id",
+      game
+    }]
+  }), "utf8");
+
+  try {
+    process.env.CONFIG_PATH = configPath;
+    process.env.DISCORD_TOKEN = "discord-token";
+    process.env.KOOK_ENABLED = "false";
+    delete process.env.KOOK_TOKEN;
+    return loadConfig();
+  } finally {
+    for (const [name, value] of Object.entries(previousEnv)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+test("Factorio relay config requires an executable command and content placeholder", () => {
+  assert.throws(
+    () => loadFactorioConfig({ type: "factorio", chatCommandTemplate: "{platform}: {content}" }),
+    /Factorio server "Factorio" chatCommandTemplate must start with a Factorio console command/
+  );
+
+  assert.throws(
+    () => loadFactorioConfig({ type: "factorio", chatCommandTemplate: "/shout {author}" }),
+    /Factorio server "Factorio" chatCommandTemplate must include the \{content\} placeholder/
+  );
+});
+
+test("Factorio relay config accepts shared and platform-specific commands", () => {
+  const runtime = loadFactorioConfig({
+    type: "factorio",
+    chatCommandTemplate: "/shout {platform}<{author}>: {content}",
+    discordChatCommandTemplate: "/shout DISCORD<{author}>: {content}",
+    kookChatCommandTemplate: "/shout KOOK<{author}>: {content}"
+  });
+
+  assert.equal(runtime.config.servers[0].game.chatCommandTemplate, "/shout {platform}<{author}>: {content}");
+});
+
+test("both configured Factorio servers use executable relay commands", () => {
+  const rawConfig = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), "servers.json"), "utf8"));
+  const factorioServers = rawConfig.servers.filter((server) => server.game?.type === "factorio");
+
+  assert.equal(factorioServers.length, 2);
+  for (const server of factorioServers) {
+    assert.match(server.game.chatCommandTemplate, /^\/shout .*\{content\}$/);
+  }
+});
+
 test("loadConfig preserves KOOK top-level and per-server channel settings", () => {
   const previousEnv = {
     CONFIG_PATH: process.env.CONFIG_PATH,
