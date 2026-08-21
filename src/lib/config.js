@@ -335,6 +335,11 @@ export function loadConfig() {
         process.env.ACTIVE_PLAYER_UPDATE_INTERVAL_SECONDS,
         15
       ),
+      apiRequestTimeoutMs: requirePositiveNumber(
+        rawConfig.pterodactyl?.apiRequestTimeoutSeconds,
+        10,
+        "pterodactyl.apiRequestTimeoutSeconds"
+      ) * 1000,
       wingsFqdn: process.env.PTERODACTYL_WINGS_FQDN || null,
       wingsWsScheme: process.env.PTERODACTYL_WINGS_WS_SCHEME || null,
       wingsWsPort: process.env.PTERODACTYL_WINGS_WS_PORT || null

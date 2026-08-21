@@ -76,6 +76,17 @@ const SLASH_COMMANDS = [
   { name: "restart-bot", description: "Restart the bot process" }
 ];
 
+function mergeSyncOptions(current, next) {
+  if (!current) {
+    return { force: Boolean(next.force), reason: next.reason ?? null };
+  }
+
+  return {
+    force: Boolean(current.force || next.force),
+    reason: next.reason ?? current.reason ?? null
+  };
+}
+
 export class StatusSyncService {
   constructor({
     config,
@@ -101,6 +112,8 @@ export class StatusSyncService {
     this.restartDelayMs = restartDelayMs;
     this.intervalHandle = null;
     this.debounceHandle = null;
+    this.activeSync = null;
+    this.queuedSyncOptions = null;
     this.started = false;
     this.hasActivePlayers = false;
     this.serverPlayerCounts = new Map();
@@ -183,14 +196,39 @@ export class StatusSyncService {
     }
   }
 
-  async syncOnce({ force = false, reason = null } = {}) {
+  /**
+   * Runs one sync, coalescing concurrent callers. The periodic timer, the
+   * console debounce, /refresh-status, /start-server and config reload can all
+   * fire at once; overlapping runs raced each other over the status panel's
+   * stored message IDs.
+   */
+  async syncOnce(options = {}) {
+    if (this.activeSync) {
+      // Fold into a single follow-up run rather than building an unbounded chain.
+      this.queuedSyncOptions = mergeSyncOptions(this.queuedSyncOptions, options);
+      return this.activeSync;
+    }
+
+    this.activeSync = this.#runSync(options);
+    try {
+      return await this.activeSync;
+    } finally {
+      this.activeSync = null;
+      const queued = this.queuedSyncOptions;
+      this.queuedSyncOptions = null;
+      if (queued) void this.syncOnce(queued);
+    }
+  }
+
+  async #runSync({ force = false, reason = null } = {}) {
     const startedAt = Date.now();
-    const snapshots = [];
     let anyChanged = force || this.lastSnapshotKeys.size === 0;
     let snapshotChanged = this.lastSnapshotKeys.size === 0;
     const failedServers = [];
 
-    for (const server of this.config.servers) {
+    // Poll servers concurrently. With per-request timeouts in place, a slow
+    // panel response should delay only its own server, not every other panel.
+    const results = await Promise.all(this.config.servers.map(async (server) => {
       const adapter = this.adapters.get(server.pterodactylServerId);
 
       try {
@@ -203,7 +241,6 @@ export class StatusSyncService {
         }
         const rawSnapshot = await adapter.fetchSnapshot(resources);
         const snapshot = this.#hydrateAutoStopStatus(server, this.#hydrateCachedSnapshot(server, rawSnapshot));
-        snapshots.push(snapshot);
         const previousPlayerCount = this.serverPlayerCounts.get(server.pterodactylServerId);
         const previouslyOnline = this.serverOnlineStates.get(server.pterodactylServerId);
         this.serverPlayerCounts.set(server.pterodactylServerId, Number(snapshot.playerCount ?? 0));
@@ -223,12 +260,16 @@ export class StatusSyncService {
         if (snapshot.currentState === "running") {
           await this.autoStopService.onRunningSnapshot(server, snapshot.playerCount ?? 0);
         }
+
+        return snapshot;
       } catch (error) {
         failedServers.push(server.name);
         this.logger.error(`Failed syncing ${server.name}`, error);
+        return null;
       }
-    }
+    }));
 
+    const snapshots = results.filter((snapshot) => snapshot !== null);
     const hadActivePlayers = this.hasActivePlayers;
     this.hasActivePlayers = Array.from(this.serverPlayerCounts.values()).some((count) => count > 0);
     if (hadActivePlayers !== this.hasActivePlayers && this.intervalHandle) {

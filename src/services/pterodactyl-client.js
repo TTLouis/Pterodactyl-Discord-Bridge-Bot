@@ -1,6 +1,7 @@
 import WebSocket from "ws";
 import { logger } from "../lib/logger.js";
 
+const DEFAULT_API_REQUEST_TIMEOUT_MS = 10_000;
 const SUBSCRIPTION_AUTH_TIMEOUT_MS = 10_000;
 const BACKLOG_READY_TIMEOUT_MS = 1_000;
 
@@ -11,6 +12,7 @@ export class PterodactylClient {
     wingsFqdn,
     wingsWsScheme,
     wingsWsPort,
+    apiRequestTimeoutMs = DEFAULT_API_REQUEST_TIMEOUT_MS,
     subscriptionAuthTimeoutMs = SUBSCRIPTION_AUTH_TIMEOUT_MS,
     backlogReadyTimeoutMs = BACKLOG_READY_TIMEOUT_MS,
     webSocketFactory = (url, options) => new WebSocket(url, options)
@@ -20,6 +22,7 @@ export class PterodactylClient {
     this.wingsFqdn = wingsFqdn ?? null;
     this.wingsWsScheme = wingsWsScheme ?? null;
     this.wingsWsPort = wingsWsPort ?? null;
+    this.apiRequestTimeoutMs = apiRequestTimeoutMs;
     this.subscriptionAuthTimeoutMs = subscriptionAuthTimeoutMs;
     this.backlogReadyTimeoutMs = backlogReadyTimeoutMs;
     this.webSocketFactory = webSocketFactory;
@@ -47,10 +50,26 @@ export class PterodactylClient {
     };
   }
 
+  // Node's fetch has no default timeout. Without one, a panel that accepts the
+  // connection and then stalls blocks the poll loop forever, which stops every
+  // status update rather than only the request that hung.
+  async #request(pathname, init, errorLabel) {
+    try {
+      return await fetch(`${this.baseUrl}${pathname}`, {
+        ...init,
+        headers: this.#apiHeaders(),
+        signal: AbortSignal.timeout(this.apiRequestTimeoutMs)
+      });
+    } catch (error) {
+      if (error?.name === "TimeoutError") {
+        throw new Error(`Pterodactyl ${errorLabel} request timed out after ${this.apiRequestTimeoutMs}ms`);
+      }
+      throw error;
+    }
+  }
+
   async #getJson(pathname, errorLabel) {
-    const response = await fetch(`${this.baseUrl}${pathname}`, {
-      headers: this.#apiHeaders()
-    });
+    const response = await this.#request(pathname, {}, errorLabel);
 
     if (!response.ok) {
       throw new Error(`Pterodactyl ${errorLabel} request failed with ${response.status}: ${await response.text()}`);
@@ -456,15 +475,11 @@ export class PterodactylClient {
   }
 
   async setPowerState(serverId, action) {
-    const response = await fetch(`${this.baseUrl}/api/client/servers/${serverId}/power`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        Accept: "application/json",
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ signal: action })
-    });
+    const response = await this.#request(
+      `/api/client/servers/${serverId}/power`,
+      { method: "POST", body: JSON.stringify({ signal: action }) },
+      "power"
+    );
 
     if (!response.ok) {
       throw new Error(`Pterodactyl power request failed with ${response.status}: ${await response.text()}`);

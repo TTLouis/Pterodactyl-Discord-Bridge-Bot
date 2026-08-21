@@ -163,6 +163,10 @@ test("unauthorized members cannot restart a manually stopped server", async () =
 function createAutoStopService({ autoStopState = {}, resources = { currentState: "offline" }, powerError = null } = {}) {
   const events = [];
   const powerRequests = [];
+  // Ordered log of side effects, so tests can pin that the stop is issued
+  // before the bot announces it.
+  const sequence = [];
+  let currentPowerError = powerError;
   let actionMessageId = null;
   let nextMessageId = 1;
   const state = { ...autoStopState };
@@ -179,13 +183,18 @@ function createAutoStopService({ autoStopState = {}, resources = { currentState:
         return resources;
       },
       async setPowerState(serverId, powerState) {
-        if (powerError) throw powerError;
+        if (currentPowerError) {
+          sequence.push(`power-failed:${powerState}`);
+          throw currentPowerError;
+        }
+        sequence.push(`power:${powerState}`);
         powerRequests.push({ serverId, powerState });
       }
     },
     eventBus: {
       async emit(name, payload) {
         events.push({ name, payload });
+        sequence.push(`${name}:${payload.kind}`);
         if (name === CoreEvents.SERVER_ACTION_MESSAGE) {
         const message = { id: `message-${nextMessageId++}` };
         actionMessageId = message.id;
@@ -223,8 +232,12 @@ function createAutoStopService({ autoStopState = {}, resources = { currentState:
     service,
     messages: events,
     powerRequests,
+    sequence,
     state,
     runtimeState,
+    setPowerError(value) {
+      currentPowerError = value;
+    },
     setActionMessageId(value) {
       actionMessageId = value;
       const match = /^message-(\d+)$/.exec(value);
@@ -261,8 +274,8 @@ test("auto-stop warning replaces the action message and adds the red cancel reac
   assert.equal(typeof state.warningSentAt, "number");
 });
 
-test("auto-stop sends a fresh restartable stopped message before stopping the server", async () => {
-  const { service, messages, powerRequests, state } = createAutoStopService({
+test("auto-stop issues the stop before announcing it", async () => {
+  const { service, messages, powerRequests, sequence, state } = createAutoStopService({
     autoStopState: { lastNonEmptyAt: Date.now() - 3600001 }
   });
 
@@ -272,6 +285,55 @@ test("auto-stop sends a fresh restartable stopped message before stopping the se
   assert.deepEqual(powerRequests, [{ serverId: "factory-id", powerState: "stop" }]);
   assert.equal(state.stoppedByBot, true);
   assert.equal(state.warningMessageId, null);
+  // The announcement must follow the stop, never precede it.
+  assert.deepEqual(sequence, ["power:stop", "server-action-message:auto-stopped"]);
+});
+
+test("a failed auto-stop does not claim the server stopped", async () => {
+  const { service, messages, powerRequests, state } = createAutoStopService({
+    autoStopState: { lastNonEmptyAt: Date.now() - 3600001 },
+    powerError: new Error("panel unreachable")
+  });
+
+  await service.onRunningSnapshot(autoStopServer, 0);
+
+  assert.deepEqual(powerRequests, []);
+  assert.equal(messages.some((event) => event.payload.kind === "auto-stopped"), false);
+  assert.notEqual(state.stoppedByBot, true);
+
+  const notice = messages.find((event) => event.payload.kind === "auto-stop-failed");
+  assert.ok(notice, "expected an auto-stop-failed notice");
+  assert.equal(notice.payload.message, "panel unreachable");
+  assert.equal(typeof state.lastStopAttemptAt, "number");
+});
+
+test("a failed auto-stop is not retried during the cooldown", async () => {
+  const harness = createAutoStopService({
+    autoStopState: { lastNonEmptyAt: Date.now() - 3600001 },
+    powerError: new Error("panel unreachable")
+  });
+
+  await harness.service.onRunningSnapshot(autoStopServer, 0);
+  harness.setPowerError(null);
+  await harness.service.onRunningSnapshot(autoStopServer, 0);
+
+  assert.deepEqual(harness.powerRequests, [], "should still be inside the cooldown");
+  assert.notEqual(harness.state.stoppedByBot, true);
+});
+
+test("a failed auto-stop retries once the cooldown has passed", async () => {
+  const harness = createAutoStopService({
+    autoStopState: { lastNonEmptyAt: Date.now() - 3600001 },
+    powerError: new Error("panel unreachable")
+  });
+
+  await harness.service.onRunningSnapshot(autoStopServer, 0);
+  harness.setPowerError(null);
+  harness.state.lastStopAttemptAt = Date.now() - 6 * 60 * 1000;
+  await harness.service.onRunningSnapshot(autoStopServer, 0);
+
+  assert.deepEqual(harness.powerRequests, [{ serverId: "factory-id", powerState: "stop" }]);
+  assert.equal(harness.state.stoppedByBot, true);
 });
 
 test("red reaction cancels a pending auto-stop from the current action message", async () => {

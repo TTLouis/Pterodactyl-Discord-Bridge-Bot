@@ -305,3 +305,50 @@ test("Factorio chat relay executes formatted commands", async () => {
     null
   );
 });
+
+test("Factorio keeps the last known player list when console output is unparsable", async () => {
+  let output = ["Players (1):", "Louis (online)"];
+  const adapter = new FactorioAdapter({
+    serverConfig: { name: "Factory", pterodactylServerId: "factory-id", game: { type: "factorio" } },
+    pterodactylClient: { async runCommand() { return output; } }
+  });
+
+  assert.deepEqual(await adapter.refreshOnlinePlayers(), ["Louis"]);
+
+  // A command that returns nothing parsable must not read as an empty server.
+  output = ["", "Some unrelated console noise"];
+  assert.deepEqual(await adapter.refreshOnlinePlayers(), ["Louis"]);
+});
+
+test("Factorio discards a player list that raced a live join or leave", async () => {
+  let release = null;
+  const adapter = new FactorioAdapter({
+    serverConfig: { name: "Factory", pterodactylServerId: "factory-id", game: { type: "factorio" } },
+    pterodactylClient: {
+      async runCommand() {
+        await new Promise((resolve) => { release = resolve; });
+        return ["Players (1):", "Louis (online)"];
+      }
+    }
+  });
+
+  adapter.onlinePlayers = ["Louis", "Ada"];
+  const pending = adapter.refreshOnlinePlayers();
+  // Ada leaves while /players o is still in flight.
+  adapter.applyPlayerEvent("2026-08-20 12:00:00 [LEAVE] Ada left the game");
+  release();
+  await pending;
+
+  assert.deepEqual(adapter.onlinePlayers, ["Louis"], "the live event should win over the stale list");
+});
+
+test("Minecraft does not relay bridged messages back into chat", () => {
+  const adapter = new MinecraftAdapter({
+    serverConfig: { name: "MC", pterodactylServerId: "mc-id", game: { type: "minecraft" } },
+    pterodactylClient: {}
+  });
+
+  assert.deepEqual(adapter.parseConsoleChatLine("<Louis> hello"), { authorName: "Louis", content: "hello" });
+  assert.equal(adapter.parseConsoleChatLine("<Server> [Discord] Louis: hello"), null);
+  assert.equal(adapter.parseConsoleChatLine("<[KOOK] Louis> hello"), null);
+});

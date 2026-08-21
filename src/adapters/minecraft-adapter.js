@@ -13,6 +13,10 @@ const MC_LIST_PATTERN = new RegExp(`${MC_LOG_PREFIX.source}There are (\\d+)(?:\\
 const MC_TIME_PATTERN = new RegExp(`${MC_LOG_PREFIX.source}The time is (\\d+)$`, "i");
 const MC_PREFIXED_CONTENT_PATTERN = /^(?:\[\d{2}:\d{2}:\d{2}\]\s+)?(?:\[[^\]]+\]\s*)+:\s*(.*)$/;
 
+// Mirrors the Factorio adapter: never relay our own bridged messages back out,
+// in case an egg or plugin reformats /say output into <name> chat form.
+const MC_PLATFORM_RELAY_PATTERN = /^\[(?:discord|kook)\]\s/i;
+
 const DEFAULT_BACKUP_REFRESH_INTERVAL_MS = 15 * 60 * 1000;
 const MS_PER_TICK = 50;
 
@@ -263,6 +267,7 @@ export class MinecraftAdapter {
     const authorName = match[1].trim();
     const content = match[2].trim();
     if (!authorName || !content) return null;
+    if (MC_PLATFORM_RELAY_PATTERN.test(authorName) || MC_PLATFORM_RELAY_PATTERN.test(content)) return null;
 
     return { authorName, content };
   }

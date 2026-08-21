@@ -2,6 +2,8 @@ import { MessageFlags, PermissionFlagsBits } from "discord.js";
 import { CoreEvents } from "../core/core-events.js";
 import { buildStartRequestedEmbed } from "../lib/formatters.js";
 
+const STOP_RETRY_COOLDOWN_MS = 5 * 60 * 1000;
+
 export const CANCEL_AUTO_STOP_REACTION = "🔴";
 export const RESTART_SERVER_REACTION = "🟢";
 
@@ -85,20 +87,7 @@ export class AutoStopService {
     const idleMs = now - state.lastNonEmptyAt;
 
     if (idleMs >= stopMs) {
-      this.logger.info(`Auto-stopping ${server.name} after ${Math.round(idleMs / 3600000)}h of inactivity`);
-      try {
-        await this.#deleteLegacyWarningMessage(server);
-        await this.#publishActionMessage(server, {
-          kind: "auto-stopped"
-        });
-        this.stateStore.setAutoStopState(server.pterodactylServerId, {
-          stoppedByBot: true,
-          warningMessageId: null
-        });
-        await this.pterodactylClient.setPowerState(server.pterodactylServerId, "stop");
-      } catch (error) {
-        this.logger.error(`Failed to auto-stop ${server.name}`, error);
-      }
+      await this.#autoStopServer(server, { idleMs, state, now });
       return;
     }
 
@@ -118,6 +107,53 @@ export class AutoStopService {
       } catch (error) {
         this.logger.error(`Failed to send auto-stop warning for ${server.name}`, error);
       }
+    }
+  }
+
+  /**
+   * Issues the stop, then records and announces it.
+   *
+   * The old order announced the stop and set stoppedByBot first, so a failed
+   * power request left Discord claiming the server had stopped while it kept
+   * running, and the stoppedByBot short-circuit then disabled auto-stop for
+   * that server until it next came online, which it never would.
+   */
+  async #autoStopServer(server, { idleMs, state, now }) {
+    const serverId = server.pterodactylServerId;
+
+    if (state.lastStopAttemptAt && now - state.lastStopAttemptAt < STOP_RETRY_COOLDOWN_MS) {
+      return;
+    }
+
+    this.logger.info(`Auto-stopping ${server.name} after ${Math.round(idleMs / 3600000)}h of inactivity`);
+
+    try {
+      await this.pterodactylClient.setPowerState(serverId, "stop");
+    } catch (error) {
+      this.logger.error(`Failed to auto-stop ${server.name}`, error);
+      this.stateStore.setAutoStopState(serverId, { lastStopAttemptAt: now });
+      try {
+        await this.eventBus.emit(CoreEvents.SERVER_NOTICE, {
+          kind: "auto-stop-failed",
+          server,
+          message: error.message
+        });
+      } catch (noticeError) {
+        this.logger.warn(`Failed publishing auto-stop failure for ${server.name}`, noticeError);
+      }
+      return;
+    }
+
+    // Record before the offline transition lands, so onWentOffline suppresses
+    // the duplicate "stopped externally" notice.
+    this.stateStore.setAutoStopState(serverId, { stoppedByBot: true, lastStopAttemptAt: null });
+
+    try {
+      await this.#deleteLegacyWarningMessage(server);
+      this.stateStore.setAutoStopState(serverId, { warningMessageId: null });
+      await this.#publishActionMessage(server, { kind: "auto-stopped" });
+    } catch (error) {
+      this.logger.error(`Failed to announce auto-stop for ${server.name}`, error);
     }
   }
 
