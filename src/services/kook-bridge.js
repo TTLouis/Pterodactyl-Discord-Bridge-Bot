@@ -1,4 +1,5 @@
 import { getKookStatePath } from "../lib/kook-config.js";
+import { runHandlers } from "../lib/run-handlers.js";
 import { StateStore } from "../lib/state-store.js";
 import WebSocket from "ws";
 import {
@@ -361,9 +362,10 @@ export class KookBridge {
       messageId: event.msg_id ?? null
     };
 
-    for (const handler of this.handlers) {
-      await handler(message);
-    }
+    await runHandlers(this.handlers, message, {
+      logger: this.logger,
+      label: `KOOK message in channel ${channelId}`
+    });
   }
 
   #startHeartbeat() {

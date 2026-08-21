@@ -207,7 +207,7 @@ Key notes:
 - Use `/restart-bot` in the configured Discord log channel to gracefully exit the bot so Docker/systemd can restart it
 - Server additions/removals, IDs, channel mappings, non-Satisfactory game settings, Discord/KOOK channel IDs, and Pterodactyl connection changes require a bot restart
 - Invalid JSON or an invalid live change is logged and the bot continues using the previous configuration
-- `autoStop.emptyTimeoutHours` defaults to `24`; `warningMinutesBefore` defaults to `60`
+- `autoStop.emptyTimeoutHours` defaults to `24`; `warningMinutesBefore` defaults to `60`. Both must be positive, and `warningMinutesBefore` must be smaller than the idle window in minutes; an invalid value is reported and the previous configuration is kept
 - Server action messages use 🔴 to cancel a pending auto-stop and 🟢 to restart a stopped server
 - Override `CONFIG_PATH` and `STATE_PATH` env vars if you want config or Discord runtime state at custom paths
 - Override `KOOK_STATE_PATH` if you want KOOK runtime state at a custom path; KOOK message IDs are kept separate from Discord message IDs

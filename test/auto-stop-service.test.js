@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { PermissionFlagsBits } from "discord.js";
+import { MessageFlags, PermissionFlagsBits } from "discord.js";
 import { CoreEvents } from "../src/core/core-events.js";
 import {
   AutoStopService,
@@ -595,7 +595,7 @@ test("refresh-status command in the log channel forces a manual status sync", as
     member: { displayName: "Operator" },
     user: { username: "operator" },
     async deferReply(options) {
-      deferred = options.ephemeral;
+      deferred = options.flags;
     },
     async editReply(payload) {
       editReply = payload;
@@ -603,7 +603,7 @@ test("refresh-status command in the log channel forces a manual status sync", as
   });
   await service.stop();
 
-  assert.equal(deferred, true);
+  assert.equal(deferred, MessageFlags.Ephemeral);
   assert.deepEqual(editReply, { content: "Status refresh completed for all configured game servers." });
   assert.deepEqual(syncCalls, [undefined, { force: true, reason: "manual" }]);
 });
@@ -626,7 +626,7 @@ test("refresh-status command outside the log channel is rejected", async () => {
 
   assert.deepEqual(reply, {
     content: "This command can only be used in the configured log channel.",
-    ephemeral: true
+    flags: MessageFlags.Ephemeral
   });
   assert.deepEqual(syncCalls, [undefined]);
 });
@@ -650,7 +650,7 @@ test("restart-bot command in the log channel requests a process restart", async 
     member: { displayName: "Operator" },
     user: { username: "operator" },
     async deferReply(options) {
-      deferred = options.ephemeral;
+      deferred = options.flags;
     },
     async editReply(payload) {
       editReply = payload;
@@ -658,7 +658,7 @@ test("restart-bot command in the log channel requests a process restart", async 
   });
   await service.stop();
 
-  assert.equal(deferred, true);
+  assert.equal(deferred, MessageFlags.Ephemeral);
   assert.deepEqual(editReply, { content: "Restarting bot process. It should come back online shortly." });
   assert.deepEqual(restartRequests, [{
     requestedBy: "Operator",
@@ -689,7 +689,7 @@ test("restart-bot command outside the log channel is rejected", async () => {
 
   assert.deepEqual(reply, {
     content: "This command can only be used in the configured log channel.",
-    ephemeral: true
+    flags: MessageFlags.Ephemeral
   });
   assert.deepEqual(restartRequests, []);
 });

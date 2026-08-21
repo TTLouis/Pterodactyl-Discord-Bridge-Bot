@@ -1,3 +1,4 @@
+import { MessageFlags } from "discord.js";
 import { FactorioAdapter } from "../adapters/factorio-adapter.js";
 import { MinecraftAdapter } from "../adapters/minecraft-adapter.js";
 import { SatisfactoryAdapter } from "../adapters/satisfactory-adapter.js";
@@ -687,7 +688,7 @@ export class StatusSyncService {
 
     const server = this.config.servers.find((s) => s.discordChannelId === interaction.channelId);
     if (!server) {
-      await interaction.reply({ content: "This command can only be used in a configured server channel.", ephemeral: true });
+      await interaction.reply({ content: "This command can only be used in a configured server channel.", flags: MessageFlags.Ephemeral });
       return;
     }
 
@@ -704,7 +705,7 @@ export class StatusSyncService {
       this.logger.error(`Failed handling /${interaction.commandName} for ${server.name}`, error);
       try {
         const replyMethod = interaction.replied || interaction.deferred ? "followUp" : "reply";
-        await interaction[replyMethod]({ content: "Something went wrong. Try again later.", ephemeral: true });
+        await interaction[replyMethod]({ content: "Something went wrong. Try again later.", flags: MessageFlags.Ephemeral });
       } catch {}
     }
   }
@@ -712,12 +713,12 @@ export class StatusSyncService {
   async #handleRefreshStatusCommand(interaction) {
     const logChannelId = this.config.discord.logChannelId;
     if (!logChannelId) {
-      await interaction.reply({ content: "No Discord log channel is configured for this bot.", ephemeral: true });
+      await interaction.reply({ content: "No Discord log channel is configured for this bot.", flags: MessageFlags.Ephemeral });
       return;
     }
 
     if (interaction.channelId !== logChannelId) {
-      await interaction.reply({ content: "This command can only be used in the configured log channel.", ephemeral: true });
+      await interaction.reply({ content: "This command can only be used in the configured log channel.", flags: MessageFlags.Ephemeral });
       return;
     }
 
@@ -727,7 +728,7 @@ export class StatusSyncService {
       channelId: interaction.channelId
     });
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     await this.syncOnce({ force: true, reason: "manual" });
     await interaction.editReply({ content: "Status refresh completed for all configured game servers." });
   }
@@ -735,17 +736,17 @@ export class StatusSyncService {
   async #handleRestartBotCommand(interaction) {
     const logChannelId = this.config.discord.logChannelId;
     if (!logChannelId) {
-      await interaction.reply({ content: "No Discord log channel is configured for this bot.", ephemeral: true });
+      await interaction.reply({ content: "No Discord log channel is configured for this bot.", flags: MessageFlags.Ephemeral });
       return;
     }
 
     if (interaction.channelId !== logChannelId) {
-      await interaction.reply({ content: "This command can only be used in the configured log channel.", ephemeral: true });
+      await interaction.reply({ content: "This command can only be used in the configured log channel.", flags: MessageFlags.Ephemeral });
       return;
     }
 
     if (!this.onRestartRequested) {
-      await interaction.reply({ content: "Bot restart is not available in this runtime.", ephemeral: true });
+      await interaction.reply({ content: "Bot restart is not available in this runtime.", flags: MessageFlags.Ephemeral });
       return;
     }
 
@@ -755,7 +756,7 @@ export class StatusSyncService {
       channelId: interaction.channelId
     });
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     await interaction.editReply({ content: "Restarting bot process. It should come back online shortly." });
 
     const request = () => {

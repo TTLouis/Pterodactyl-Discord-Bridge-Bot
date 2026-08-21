@@ -161,3 +161,104 @@ test("loadConfig preserves KOOK top-level and per-server channel settings", () =
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+function loadConfigWithServer(serverOverrides) {
+  const previousEnv = {
+    CONFIG_PATH: process.env.CONFIG_PATH,
+    DISCORD_TOKEN: process.env.DISCORD_TOKEN,
+    KOOK_ENABLED: process.env.KOOK_ENABLED,
+    KOOK_TOKEN: process.env.KOOK_TOKEN
+  };
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "discord-bot-server-config-"));
+  const configPath = path.join(tempDir, "servers.json");
+
+  fs.writeFileSync(configPath, JSON.stringify({
+    discord: { guildId: "discord-guild", statusChannelId: "discord-status", displayTimeZone: "UTC" },
+    pterodactyl: { baseUrl: "https://panel.example.com", apiKey: "ptlc_test" },
+    servers: [{
+      name: "Factorio",
+      discordChannelId: "discord-server",
+      pterodactylServerId: "factorio-id",
+      game: { type: "factorio" },
+      ...serverOverrides
+    }]
+  }), "utf8");
+
+  try {
+    process.env.CONFIG_PATH = configPath;
+    process.env.DISCORD_TOKEN = "discord-token";
+    process.env.KOOK_ENABLED = "false";
+    delete process.env.KOOK_TOKEN;
+    return loadConfig();
+  } finally {
+    for (const [name, value] of Object.entries(previousEnv)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+test("autoStop timeouts fall back to defaults when omitted", () => {
+  const { config } = loadConfigWithServer({ autoStop: { enabled: true } });
+  assert.deepEqual(config.servers[0].autoStop, {
+    enabled: true,
+    emptyTimeoutHours: 24,
+    warningMinutesBefore: 60
+  });
+});
+
+test("a zero autoStop timeout is rejected instead of silently defaulting", () => {
+  assert.throws(
+    () => loadConfigWithServer({ autoStop: { enabled: true, emptyTimeoutHours: 0 } }),
+    /autoStop\.emptyTimeoutHours must be a positive number/
+  );
+});
+
+test("a non-numeric autoStop timeout is rejected", () => {
+  assert.throws(
+    () => loadConfigWithServer({ autoStop: { enabled: true, warningMinutesBefore: "soon" } }),
+    /autoStop\.warningMinutesBefore must be a positive number/
+  );
+});
+
+test("a warning window wider than the idle window is rejected", () => {
+  assert.throws(
+    () => loadConfigWithServer({
+      autoStop: { enabled: true, emptyTimeoutHours: 1, warningMinutesBefore: 120 }
+    }),
+    /warningMinutesBefore \(120\) must be less than autoStop\.emptyTimeoutHours in minutes \(60\)/
+  );
+});
+
+test("disabled autoStop skips numeric validation entirely", () => {
+  const { config } = loadConfigWithServer({ autoStop: { enabled: false, emptyTimeoutHours: 0 } });
+  assert.equal(config.servers[0].autoStop, null);
+});
+
+test("publicPort is normalized to a number and defaults to null", () => {
+  assert.equal(loadConfigWithServer({ publicPort: "34197" }).config.servers[0].publicPort, 34197);
+  assert.equal(loadConfigWithServer({}).config.servers[0].publicPort, null);
+});
+
+test("an out-of-range publicPort is rejected", () => {
+  assert.throws(
+    () => loadConfigWithServer({ publicPort: 70000 }),
+    /publicPort must be an integer between 1 and 65535/
+  );
+  assert.throws(
+    () => loadConfigWithServer({ publicPort: "not-a-port" }),
+    /publicPort must be an integer between 1 and 65535/
+  );
+});
+
+test("playerListRefreshIntervalSeconds defaults to 900 and rejects invalid values", () => {
+  assert.equal(
+    loadConfigWithServer({}).config.servers[0].game.playerListRefreshIntervalSeconds,
+    900
+  );
+  assert.throws(
+    () => loadConfigWithServer({ game: { type: "factorio", playerListRefreshIntervalSeconds: -5 } }),
+    /game\.playerListRefreshIntervalSeconds must be a positive number/
+  );
+});

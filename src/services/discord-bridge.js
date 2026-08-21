@@ -1,4 +1,5 @@
 import { ChannelType, Client, Events, GatewayIntentBits, Partials, REST, Routes } from "discord.js";
+import { runHandlers } from "../lib/run-handlers.js";
 import {
   getActionMessageEntry,
   setActionMessageEntry,
@@ -53,9 +54,10 @@ export class DiscordBridge {
 
     this.client.on(Events.InteractionCreate, async (interaction) => {
       if (!interaction.isChatInputCommand() || interaction.guildId !== this.guildId) return;
-      for (const handler of this.interactionHandlers) {
-        await handler(interaction);
-      }
+      await runHandlers(this.interactionHandlers, interaction, {
+        logger: this.logger,
+        label: `Discord interaction /${interaction.commandName}`
+      });
     });
 
     this.client.on(Events.MessageCreate, async (message) => {
@@ -72,9 +74,10 @@ export class DiscordBridge {
         content: message.content.trim()
       };
 
-      for (const handler of this.handlers) {
-        await handler(payload);
-      }
+      await runHandlers(this.handlers, payload, {
+        logger: this.logger,
+        label: `Discord message in channel ${payload.channelId}`
+      });
     });
 
     this.client.on(Events.MessageReactionAdd, async (reaction, user) => {
@@ -269,9 +272,10 @@ export class DiscordBridge {
       }
     };
 
-    for (const handler of this.reactionHandlers) {
-      await handler(payload);
-    }
+    await runHandlers(this.reactionHandlers, payload, {
+      logger: this.logger,
+      label: `Discord reaction ${payload.emoji} in channel ${payload.channelId}`
+    });
   }
 
   async #getTextChannel(channelId) {
