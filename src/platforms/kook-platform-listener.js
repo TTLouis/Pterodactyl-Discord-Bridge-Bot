@@ -1,6 +1,10 @@
 import { CoreEvents } from "../core/core-events.js";
 import { buildActionMessageMeta } from "../lib/action-message-state.js";
-import { buildKookActionMessageForEvent, buildKookStatusPanel } from "../lib/kook-card-formatters.js";
+import {
+  buildKookActionMessageForEvent,
+  buildKookStatusPanel,
+  MAX_STATUS_PANEL_SERVERS
+} from "../lib/kook-card-formatters.js";
 
 function formatKookGroupRelayMessage(message) {
   const platform = message.sourcePlatform === "discord" ? "Discord" : "聊天";
@@ -46,6 +50,7 @@ export class KookPlatformListener {
     this.config = config;
     this.logger = logger;
     this.unsubscribers = [];
+    this.warnedAboutTruncation = false;
   }
 
   start() {
@@ -67,10 +72,25 @@ export class KookPlatformListener {
     this.unsubscribers = [];
   }
 
+  #warnIfTruncated(snapshots) {
+    if (snapshots.length <= MAX_STATUS_PANEL_SERVERS || this.warnedAboutTruncation) {
+      return;
+    }
+
+    this.warnedAboutTruncation = true;
+    this.logger?.warn("KOOK status panel is truncated", {
+      configuredServers: snapshots.length,
+      shown: MAX_STATUS_PANEL_SERVERS,
+      omitted: snapshots.slice(MAX_STATUS_PANEL_SERVERS).map((snapshot) => snapshot.name)
+    });
+  }
+
   async #handleStatusPanelUpdated({ snapshots }) {
     if (!this.config.kook?.statusChannelId) {
       return null;
     }
+
+    this.#warnIfTruncated(snapshots);
 
     await this.kookBridge.upsertStatusPanel(
       this.config.kook.statusChannelId,

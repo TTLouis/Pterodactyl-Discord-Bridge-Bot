@@ -98,6 +98,7 @@ export class StatusSyncService {
     stateStore,
     logger,
     onRestartRequested = null,
+    onSyncCompleted = null,
     restartDelayMs = 1000
   }) {
     this.config = config;
@@ -109,6 +110,7 @@ export class StatusSyncService {
     this.stateStore = stateStore;
     this.logger = logger;
     this.onRestartRequested = onRestartRequested;
+    this.onSyncCompleted = onSyncCompleted;
     this.restartDelayMs = restartDelayMs;
     this.intervalHandle = null;
     this.debounceHandle = null;
@@ -270,6 +272,10 @@ export class StatusSyncService {
     }));
 
     const snapshots = results.filter((snapshot) => snapshot !== null);
+    // The loop finished, which is the liveness signal a healthcheck needs.
+    // Per-server failures do not change that the bot is running and polling.
+    this.onSyncCompleted?.();
+
     const hadActivePlayers = this.hasActivePlayers;
     this.hasActivePlayers = Array.from(this.serverPlayerCounts.values()).some((count) => count > 0);
     if (hadActivePlayers !== this.hasActivePlayers && this.intervalHandle) {

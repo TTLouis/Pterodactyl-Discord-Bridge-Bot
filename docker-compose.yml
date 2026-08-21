@@ -16,6 +16,7 @@ services:
       CONFIG_PATH: /config/servers.json
       STATE_PATH: /data/runtime-state.json
       KOOK_STATE_PATH: /data/kook-runtime-state.json
+      HEARTBEAT_PATH: /data/heartbeat
 
     volumes:
       - ./servers.json:/config/servers.json:ro
@@ -24,6 +25,16 @@ services:
     mem_limit: 256m
     cpus: "0.50"
     pids_limit: 128
+
+    # Reports whether the poll loop is still completing passes. Note that Docker
+    # does not restart unhealthy containers on its own; this surfaces the state
+    # for "docker ps" and any external watchdog.
+    healthcheck:
+      test: ["CMD", "node", "src/healthcheck.js"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
 
     security_opt:
       - no-new-privileges:true

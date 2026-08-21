@@ -1,4 +1,4 @@
-import { ChannelType, Client, Events, GatewayIntentBits, Partials, REST, Routes } from "discord.js";
+import { Client, Events, GatewayIntentBits, Partials, REST, Routes } from "discord.js";
 import { runHandlers } from "../lib/run-handlers.js";
 import {
   getActionMessageEntry,
@@ -7,11 +7,12 @@ import {
 } from "../lib/action-message-state.js";
 
 export class DiscordBridge {
-  constructor({ token, guildId, stateStore, logger }) {
+  constructor({ token, guildId, stateStore, logger, isWatchedChannel = () => true }) {
     this.token = token;
     this.guildId = guildId;
     this.stateStore = stateStore;
     this.logger = logger;
+    this.isWatchedChannel = isWatchedChannel;
     this.client = new Client({
       intents: [
         GatewayIntentBits.Guilds,
@@ -239,6 +240,13 @@ export class DiscordBridge {
   }
 
   async #handleReaction(reaction, user) {
+    // Filter by channel before fetching anything. Reactions fire for the whole
+    // guild, and resolving partials plus the guild member is an API call each.
+    const channelId = reaction.message?.channelId ?? null;
+    if (!channelId || !this.isWatchedChannel(channelId)) {
+      return;
+    }
+
     try {
       if (reaction.partial) {
         reaction = await reaction.fetch();
@@ -284,8 +292,9 @@ export class DiscordBridge {
 
   async #getTextChannel(channelId) {
     const channel = await this.client.channels.fetch(channelId);
-    if (!channel || channel.type !== ChannelType.GuildText) {
-      throw new Error(`Channel ${channelId} was not found or is not a text channel`);
+    // Accept announcement channels and threads too, not just plain text channels.
+    if (!channel?.isTextBased?.() || channel.isDMBased?.()) {
+      throw new Error(`Channel ${channelId} was not found or is not a guild text channel`);
     }
 
     return channel;

@@ -3,6 +3,7 @@ import { CoreEventBus } from "./core/core-events.js";
 import { getConfigPath, loadConfig } from "./lib/config.js";
 import { isKookEnabled } from "./lib/kook-config.js";
 import { logger } from "./lib/logger.js";
+import { getHeartbeatPath, writeHeartbeat } from "./lib/heartbeat.js";
 import { getStatePath, StateStore } from "./lib/state-store.js";
 import { AutoStopService } from "./services/auto-stop-service.js";
 import { applyReloadedConfig, ConfigReloadService } from "./services/config-reload-service.js";
@@ -85,7 +86,10 @@ async function main() {
     token: runtime.discordToken,
     guildId: runtime.config.discord.guildId,
     stateStore,
-    logger
+    logger,
+    isWatchedChannel: (channelId) => runtime.config.servers.some(
+      (server) => server.discordChannelId === channelId
+    )
   });
   kookBridge = isKookEnabled()
     ? new KookBridge({
@@ -97,7 +101,8 @@ async function main() {
   discordPlatformListener = new DiscordPlatformListener({
     eventBus,
     discordBridge,
-    config: runtime.config
+    config: runtime.config,
+    logger
   });
   kookPlatformListener = kookBridge
     ? new KookPlatformListener({
@@ -126,6 +131,9 @@ async function main() {
     onRestartRequested({ requestedBy }) {
       logger.info("Restarting bot after Discord command", { requestedBy });
       void shutdown("BOT_RESTART_REQUESTED");
+    },
+    onSyncCompleted() {
+      writeHeartbeat(getHeartbeatPath(), logger);
     }
   });
 

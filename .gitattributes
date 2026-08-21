@@ -3,3 +3,11 @@
 *.js text eol=lf
 *.json text eol=lf
 *.md text eol=lf
+
+# Deployment files are consumed by Linux tooling; CRLF breaks shell lines.
+*.yml text eol=lf
+*.yaml text eol=lf
+Dockerfile text eol=lf
+.dockerignore text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
