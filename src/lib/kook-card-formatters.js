@@ -17,6 +17,9 @@ const STATUS_META = {
   Offline: { emoji: "🔴", label: "离线" }
 };
 const MAX_CARD_COUNT = 5;
+
+/** One card is spent on the update header, leaving the rest for servers. */
+export const MAX_STATUS_PANEL_SERVERS = MAX_CARD_COUNT - 1;
 const MAX_HEADER_LENGTH = 100;
 const MAX_KMARKDOWN_LENGTH = 5000;
 const MAX_PLAIN_TEXT_LENGTH = 2000;
@@ -270,7 +273,7 @@ export function buildKookStatusPanel(snapshots, { displayTimeZone = "UTC", now =
         }
       ]
     },
-    ...snapshots.slice(0, MAX_CARD_COUNT - 1).map((snapshot) => buildServerCard(snapshot, footerText))
+    ...snapshots.slice(0, MAX_STATUS_PANEL_SERVERS).map((snapshot) => buildServerCard(snapshot, footerText))
   ];
 
   return {

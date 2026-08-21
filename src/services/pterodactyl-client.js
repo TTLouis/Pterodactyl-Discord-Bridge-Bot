@@ -1,4 +1,5 @@
 import WebSocket from "ws";
+import { nextReconnectDelayMs } from "../lib/reconnect-backoff.js";
 import { logger } from "../lib/logger.js";
 
 const DEFAULT_API_REQUEST_TIMEOUT_MS = 10_000;
@@ -192,6 +193,7 @@ export class PterodactylClient {
     let authTimeoutHandle = null;
     let backlogTimeoutHandle = null;
     let stopped = false;
+    let reconnectAttempts = 0;
     let awaitingInitialLogs = false;
     let consoleConnectedAt = null;
     let hasConnectedSuccessfully = false;
@@ -228,10 +230,17 @@ export class PterodactylClient {
 
     const scheduleReconnect = () => {
       if (stopped || reconnectHandle) return;
+      const delayMs = nextReconnectDelayMs(reconnectDelayMs, reconnectAttempts);
+      reconnectAttempts += 1;
+      logger.info("Scheduling Pterodactyl console reconnect", {
+        serverId,
+        attempt: reconnectAttempts,
+        delayMs
+      });
       reconnectHandle = setTimeout(() => {
         reconnectHandle = null;
         void connect();
-      }, reconnectDelayMs);
+      }, delayMs);
     };
 
     const closeSocket = () => {
@@ -352,6 +361,7 @@ export class PterodactylClient {
 
           if (payload.event === "auth success") {
             clearAuthTimeout();
+            reconnectAttempts = 0;
             authenticatedSocket = nextSocket;
             consoleConnectedAt = Date.now();
             const isReconnect = hasConnectedSuccessfully;

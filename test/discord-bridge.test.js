@@ -29,6 +29,8 @@ function createBridge({ actionMessage = null, beforeSend = null } = {}) {
   };
   const channel = {
     type: ChannelType.GuildText,
+    isTextBased() { return true; },
+    isDMBased() { return false; },
     messages: {
       async edit(messageId, payload) {
         calls.push({ method: "edit", messageId, payload });
@@ -296,4 +298,58 @@ test("Discord action message serializes duplicate stopped replacements for one c
   ]);
   assert.equal(state.actionMessage.messageId, "new-action-1");
   assert.equal(state.actionMessage.kind, "manual-stopped");
+});
+
+test("reactions outside configured server channels are ignored without API calls", async () => {
+  const memberFetches = [];
+  const bridge = new DiscordBridge({
+    token: "token",
+    guildId: "guild",
+    stateStore: {},
+    logger: { info() {}, warn() {}, error() {} },
+    isWatchedChannel: (channelId) => channelId === "factory-channel"
+  });
+  const client = new EventEmitter();
+  client.login = async () => {};
+  client.destroy = async () => {};
+  bridge.client = client;
+
+  const reactions = [];
+  bridge.onReaction((payload) => reactions.push(payload));
+  await bridge.start();
+
+  const makeReaction = (channelId) => ({
+    partial: false,
+    emoji: { name: "🟢" },
+    message: {
+      id: "message-1",
+      channelId,
+      guild: {
+        id: "guild",
+        members: {
+          async fetch(userId) {
+            memberFetches.push({ channelId, userId });
+            return { displayName: "Louis" };
+          }
+        }
+      }
+    },
+    users: { async remove() {} }
+  });
+  const user = { partial: false, bot: false, id: "user-1", username: "louis" };
+
+  client.emit("messageReactionAdd", makeReaction("some-other-channel"), user);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(reactions, [], "unwatched channel should not reach handlers");
+  assert.deepEqual(memberFetches, [], "unwatched channel should not cost a member fetch");
+
+  client.emit("messageReactionAdd", makeReaction("factory-channel"), user);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(reactions.length, 1);
+  assert.equal(reactions[0].channelId, "factory-channel");
+  assert.deepEqual(memberFetches, [{ channelId: "factory-channel", userId: "user-1" }]);
+
+  await bridge.stop();
 });

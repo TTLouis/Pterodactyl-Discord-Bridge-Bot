@@ -10,7 +10,8 @@ import {
   buildServerStartingEmbed,
   buildServerStartingStateEmbed,
   buildServerStoppingStateEmbed,
-  buildStatusPanel
+  buildStatusPanel,
+  MAX_STATUS_PANEL_SERVERS
 } from "../lib/formatters.js";
 import { buildActionMessageMeta } from "../lib/action-message-state.js";
 import { CANCEL_AUTO_STOP_REACTION, RESTART_SERVER_REACTION } from "../services/auto-stop-service.js";
@@ -98,11 +99,13 @@ function formatDiscordServerNotice(event) {
 }
 
 export class DiscordPlatformListener {
-  constructor({ eventBus, discordBridge, config }) {
+  constructor({ eventBus, discordBridge, config, logger = null }) {
     this.eventBus = eventBus;
     this.discordBridge = discordBridge;
     this.config = config;
+    this.logger = logger;
     this.unsubscribers = [];
+    this.warnedAboutTruncation = false;
   }
 
   start() {
@@ -125,7 +128,21 @@ export class DiscordPlatformListener {
     this.unsubscribers = [];
   }
 
+  #warnIfTruncated(snapshots) {
+    if (snapshots.length <= MAX_STATUS_PANEL_SERVERS || this.warnedAboutTruncation) {
+      return;
+    }
+
+    this.warnedAboutTruncation = true;
+    this.logger?.warn("Discord status panel is truncated", {
+      configuredServers: snapshots.length,
+      shown: MAX_STATUS_PANEL_SERVERS,
+      omitted: snapshots.slice(MAX_STATUS_PANEL_SERVERS).map((snapshot) => snapshot.name)
+    });
+  }
+
   async #handleStatusPanelUpdated({ snapshots }) {
+    this.#warnIfTruncated(snapshots);
     await this.discordBridge.upsertStatusPanel(
       this.config.discord.statusChannelId,
       buildStatusPanel(snapshots, {

@@ -141,3 +141,32 @@ test("snapshot order follows configuration order, not response order", async () 
 
   assert.deepEqual(panels[0].map((snapshot) => snapshot.name), ["alpha", "beta", "gamma"]);
 });
+
+test("the heartbeat is written after every completed poll loop", async () => {
+  const beats = [];
+  const { service } = createService({
+    servers: [makeServer("alpha")],
+    async getServerResources() { return { currentState: "offline", cpuPercent: 0, memoryBytes: 0 }; }
+  });
+  service.onSyncCompleted = () => beats.push(Date.now());
+
+  await service.syncOnce({ force: true });
+  await service.syncOnce({ force: true });
+
+  assert.equal(beats.length, 2);
+});
+
+test("the heartbeat still fires when every server fails", async () => {
+  const beats = [];
+  const { service } = createService({
+    servers: [makeServer("alpha"), makeServer("beta")],
+    async getServerResources() { throw new Error("panel unreachable"); }
+  });
+  service.onSyncCompleted = () => beats.push(Date.now());
+
+  await service.syncOnce({ force: true });
+
+  // The loop completing is the liveness signal; a restart would not fix an
+  // unreachable panel, so panel failures must not mark the bot unhealthy.
+  assert.equal(beats.length, 1);
+});

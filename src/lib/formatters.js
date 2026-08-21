@@ -7,6 +7,9 @@ const STATUS_COLORS = {
   Offline: 0xef4444,
   AutoStopped: 0x8b5cf6
 };
+/** Discord allows at most 10 embeds per message. */
+export const MAX_STATUS_PANEL_SERVERS = 10;
+
 const MAX_FIELD_VALUE_LENGTH = 1024;
 const MAX_DESCRIPTION_LENGTH = 4096;
 const PLAYER_NAMES_MAX_LENGTH = 700;
@@ -238,7 +241,7 @@ export function buildStatusPanel(snapshots, { displayTimeZone } = {}) {
 
   return {
     content: `Last update: ${localTimestamp} (${relativeTimestamp})`,
-    embeds: snapshots.slice(0, 10).map((snapshot) => buildServerEmbed(snapshot, footerText))
+    embeds: snapshots.slice(0, MAX_STATUS_PANEL_SERVERS).map((snapshot) => buildServerEmbed(snapshot, footerText))
   };
 }
 

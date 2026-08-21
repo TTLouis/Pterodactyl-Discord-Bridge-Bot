@@ -1,4 +1,5 @@
 import { getKookStatePath } from "../lib/kook-config.js";
+import { nextReconnectDelayMs } from "../lib/reconnect-backoff.js";
 import { runHandlers } from "../lib/run-handlers.js";
 import { StateStore } from "../lib/state-store.js";
 import WebSocket from "ws";
@@ -88,6 +89,7 @@ export class KookBridge {
     this.heartbeatHandle = null;
     this.reconnectHandle = null;
     this.lastSequence = 0;
+    this.reconnectAttempts = 0;
     this.sessionId = null;
     this.botUserId = null;
     this.stopped = true;
@@ -318,6 +320,7 @@ export class KookBridge {
       }
 
       this.sessionId = payload.d?.session_id ?? this.sessionId;
+      this.reconnectAttempts = 0;
       this.#startHeartbeat();
       return;
     }
@@ -405,13 +408,19 @@ export class KookBridge {
       return;
     }
 
+    const delayMs = nextReconnectDelayMs(this.gatewayReconnectDelayMs, this.reconnectAttempts);
+    this.reconnectAttempts += 1;
+    this.logger?.info("Scheduling KOOK gateway reconnect", {
+      attempt: this.reconnectAttempts,
+      delayMs
+    });
     this.reconnectHandle = setTimeout(() => {
       this.reconnectHandle = null;
       this.#connectGateway().catch((error) => {
         this.logger.warn("Failed to reconnect KOOK gateway; will retry.", error);
         this.#scheduleReconnect();
       });
-    }, this.gatewayReconnectDelayMs);
+    }, delayMs);
   }
 
   async #deleteStaleStatusMessages(channelId, messageIds) {

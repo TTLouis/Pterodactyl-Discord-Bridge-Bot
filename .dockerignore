@@ -1,10 +1,28 @@
 node_modules
-.env
-servers.json
-runtime-state.json
-npm-debug.log*
-.DS_Store
 .git
+.github
+
+# Local secrets and runtime state; these are mounted or live in a volume.
+.env
+.env.*
+servers.json
+*runtime-state.json
+heartbeat
+
+# Development-only material that never runs inside the image.
+test
+scripts
+docs
+*.md
+bootstrap.sh
+bootstrap.ps1
+setup.js
+
+# Editor and assistant state.
 .vscode
 .idea
-*.md
+.claude
+.fallow
+.agents
+.DS_Store
+npm-debug.log*

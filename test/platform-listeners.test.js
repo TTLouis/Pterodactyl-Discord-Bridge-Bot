@@ -268,3 +268,63 @@ test("player-facing notices still go to the server channel on both platforms", a
   assert.deepEqual(discordCalls.map((call) => call.channelId), ["discord-server"]);
   assert.deepEqual(kookCalls.map((call) => call.channelId), ["kook-server"]);
 });
+
+function makeSnapshots(count) {
+  return Array.from({ length: count }, (_value, index) => ({ ...snapshot, name: `Server ${index + 1}` }));
+}
+
+test("Discord warns once when more servers are configured than the panel can show", async () => {
+  const eventBus = new CoreEventBus();
+  const warnings = [];
+  const listener = new DiscordPlatformListener({
+    eventBus,
+    config: createConfig(),
+    logger: { warn(message, meta) { warnings.push({ message, meta }); }, error() {}, info() {} },
+    discordBridge: { async upsertStatusPanel() {} }
+  });
+  listener.start();
+  await eventBus.emit(CoreEvents.STATUS_PANEL_UPDATED, { snapshots: makeSnapshots(12) });
+  await eventBus.emit(CoreEvents.STATUS_PANEL_UPDATED, { snapshots: makeSnapshots(12) });
+  listener.stop();
+
+  assert.equal(warnings.length, 1, "should warn once, not on every refresh");
+  assert.equal(warnings[0].meta.shown, 10);
+  assert.deepEqual(warnings[0].meta.omitted, ["Server 11", "Server 12"]);
+});
+
+test("KOOK warns about its tighter card limit", async () => {
+  const eventBus = new CoreEventBus();
+  const warnings = [];
+  const listener = new KookPlatformListener({
+    eventBus,
+    config: createConfig(),
+    logger: { warn(message, meta) { warnings.push({ message, meta }); }, error() {}, info() {} },
+    kookBridge: { async upsertStatusPanel() {} }
+  });
+  listener.start();
+  await eventBus.emit(CoreEvents.STATUS_PANEL_UPDATED, { snapshots: makeSnapshots(6) });
+  listener.stop();
+
+  assert.equal(warnings.length, 1);
+  assert.equal(warnings[0].meta.shown, 4, "KOOK shows fewer servers than Discord");
+  assert.deepEqual(warnings[0].meta.omitted, ["Server 5", "Server 6"]);
+});
+
+test("neither platform warns while every server fits", async () => {
+  const eventBus = new CoreEventBus();
+  const warnings = [];
+  const logger = { warn(message, meta) { warnings.push({ message, meta }); }, error() {}, info() {} };
+  const discord = new DiscordPlatformListener({
+    eventBus, config: createConfig(), logger, discordBridge: { async upsertStatusPanel() {} }
+  });
+  const kook = new KookPlatformListener({
+    eventBus, config: createConfig(), logger, kookBridge: { async upsertStatusPanel() {} }
+  });
+  discord.start();
+  kook.start();
+  await eventBus.emit(CoreEvents.STATUS_PANEL_UPDATED, { snapshots: makeSnapshots(4) });
+  discord.stop();
+  kook.stop();
+
+  assert.deepEqual(warnings, []);
+});
