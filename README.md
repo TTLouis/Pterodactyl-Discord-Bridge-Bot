@@ -207,8 +207,10 @@ Key notes:
 - Use `/restart-bot` in the configured Discord log channel to gracefully exit the bot so Docker/systemd can restart it
 - Server additions/removals, IDs, channel mappings, non-Satisfactory game settings, Discord/KOOK channel IDs, and Pterodactyl connection changes require a bot restart
 - Invalid JSON or an invalid live change is logged and the bot continues using the previous configuration
+- `pterodactyl.apiRequestTimeoutSeconds` defaults to `10` and bounds every panel REST call, so an unresponsive panel cannot stall status updates for every server. Changing it requires a bot restart
 - `game.playerListRefreshIntervalSeconds` sets the backup player-list refresh for Factorio and Minecraft and defaults to `900`. It is a safety net behind the live join/leave console events, so long intervals are fine
 - Chat relayed to a stopped server is queued and delivered when its console is ready. The queue holds at most 100 messages per server and each message is capped at 500 characters; older messages are dropped first and expire after 24 hours. Both events are reported in the configured log channel
+- A failed auto-stop is reported in the log channel and retried after five minutes; the bot never announces a stop it could not perform
 - `autoStop.emptyTimeoutHours` defaults to `24`; `warningMinutesBefore` defaults to `60`. Both must be positive, and `warningMinutesBefore` must be smaller than the idle window in minutes; an invalid value is reported and the previous configuration is kept
 - Server action messages use 🔴 to cancel a pending auto-stop and 🟢 to restart a stopped server
 - Override `CONFIG_PATH` and `STATE_PATH` env vars if you want config or Discord runtime state at custom paths

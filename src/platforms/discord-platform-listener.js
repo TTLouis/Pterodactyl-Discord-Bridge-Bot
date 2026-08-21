@@ -65,7 +65,11 @@ function buildDiscordActionMessage(event) {
 
 // Notices about the relay queue itself are operator-facing, so they go to the
 // log channel rather than the player-facing server channel.
-const LOG_CHANNEL_NOTICE_KINDS = new Set(["relay-queue-expired", "relay-queue-overflow"]);
+const LOG_CHANNEL_NOTICE_KINDS = new Set([
+  "relay-queue-expired",
+  "relay-queue-overflow",
+  "auto-stop-failed"
+]);
 
 function formatDiscordServerNotice(event) {
   if (event.kind === "satisfactory-player-count") {
@@ -80,6 +84,10 @@ function formatDiscordServerNotice(event) {
   if (event.kind === "relay-queue-expired") {
     const noun = event.expiredCount === 1 ? "message" : "messages";
     return `${event.expiredCount} queued relay ${noun} for **${event.server.name}** expired after 24 hours.`;
+  }
+
+  if (event.kind === "auto-stop-failed") {
+    return `Auto-stop for **${event.server.name}** failed: ${event.message}. It will be retried after a short cooldown.`;
   }
 
   if (event.kind === "relay-queue-overflow") {

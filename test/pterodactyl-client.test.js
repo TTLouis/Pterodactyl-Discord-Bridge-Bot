@@ -325,3 +325,52 @@ test("server allocations are normalized from the client API", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test("panel requests time out with a clear error instead of hanging forever", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (url, options) => new Promise((_resolve, reject) => {
+    options.signal.addEventListener("abort", () => reject(options.signal.reason));
+  });
+
+  try {
+    const client = new PterodactylClient({
+      baseUrl: "https://panel.example.test",
+      apiKey: "ptlc_test",
+      apiRequestTimeoutMs: 25
+    });
+
+    await assert.rejects(
+      () => client.getServerResources("server-id"),
+      /Pterodactyl resources request timed out after 25ms/
+    );
+    await assert.rejects(
+      () => client.setPowerState("server-id", "stop"),
+      /Pterodactyl power request timed out after 25ms/
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("power requests carry the API credentials and abort signal", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url, options });
+    return { ok: true, async json() { return {}; }, async text() { return ""; } };
+  };
+
+  try {
+    const client = new PterodactylClient({ baseUrl: "https://panel.example.test/", apiKey: "ptlc_test" });
+    await client.setPowerState("server-id", "stop");
+
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].url, "https://panel.example.test/api/client/servers/server-id/power");
+    assert.equal(requests[0].options.method, "POST");
+    assert.equal(requests[0].options.headers.Authorization, "Bearer ptlc_test");
+    assert.equal(requests[0].options.body, JSON.stringify({ signal: "stop" }));
+    assert.ok(requests[0].options.signal, "expected an abort signal on the request");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

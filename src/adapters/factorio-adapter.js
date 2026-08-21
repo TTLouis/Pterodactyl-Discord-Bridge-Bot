@@ -45,7 +45,9 @@ function parsePlayerList(lines) {
   );
   const headerIndex = normalizedLines.findIndex((line) => /Players\s*\(\d+\):/i.test(line));
   if (headerIndex === -1) {
-    return { playerCount: 0, players: [] };
+    // No parsable output is not the same as an empty server; let the caller keep
+    // the last known list instead of reporting zero players.
+    return null;
   }
 
   const players = normalizedLines
@@ -101,6 +103,7 @@ export class FactorioAdapter {
     this.pterodactylClient = pterodactylClient;
     this.logger = logger;
     this.onlinePlayers = null;
+    this.playerEventRevision = 0;
     this.gameDurationMs = null;
     this.gameDurationFetchedAt = null;
     this.playerListRefreshPromise = null;
@@ -134,6 +137,7 @@ export class FactorioAdapter {
   async fetchSnapshot(resources) {
     if (resources.currentState !== "running") {
       this.onlinePlayers = null;
+      this.playerEventRevision += 1;
       this.gameDurationMs = null;
       this.gameDurationFetchedAt = null;
 
@@ -211,10 +215,17 @@ export class FactorioAdapter {
     }
 
     this.playerListRefreshPromise = (async () => {
+      const eventRevisionAtStart = this.playerEventRevision;
       const lines = await this.pterodactylClient.runCommand(this.serverConfig.pterodactylServerId, ONLINE_PLAYERS_COMMAND);
       const parsed = parsePlayerList(lines);
-      this.onlinePlayers = parsed.players;
-      return parsed.players;
+      // Discard the result if a join or leave landed while the command was in flight.
+      if (parsed && this.playerEventRevision === eventRevisionAtStart) {
+        this.onlinePlayers = parsed.players;
+      }
+      if (this.onlinePlayers === null) {
+        this.onlinePlayers = [];
+      }
+      return this.onlinePlayers;
     })();
 
     try {
@@ -293,6 +304,7 @@ export class FactorioAdapter {
     const normalized = String(line ?? "").trim();
     const joinMatch = normalized.match(/\[JOIN\] (.+) joined the game$/);
     if (joinMatch) {
+      this.playerEventRevision += 1;
       const name = joinMatch[1];
       if (!this.onlinePlayers.includes(name)) {
         this.onlinePlayers = [...this.onlinePlayers, name];
@@ -301,6 +313,7 @@ export class FactorioAdapter {
     }
     const leaveMatch = normalized.match(/\[LEAVE\] (.+) left the game$/);
     if (leaveMatch) {
+      this.playerEventRevision += 1;
       this.onlinePlayers = this.onlinePlayers.filter((p) => p !== leaveMatch[1]);
       return true;
     }

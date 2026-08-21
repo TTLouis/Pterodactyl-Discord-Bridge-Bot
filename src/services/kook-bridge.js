@@ -83,7 +83,7 @@ export class KookBridge {
     this.interactionHandlers = [];
     this.reactionHandlers = [];
     this.slashCommands = [];
-    this.actionMessageQueues = new Map();
+    this.channelQueues = new Map();
     this.socket = null;
     this.heartbeatHandle = null;
     this.reconnectHandle = null;
@@ -167,7 +167,7 @@ export class KookBridge {
   }
 
   async replaceActionMessage(channelId, content, { reactions = [], meta = {}, preferEdit = false } = {}) {
-    return this.#withActionMessageQueue(channelId, () => this.#replaceActionMessage(channelId, content, {
+    return this.#withChannelQueue(channelId, () => this.#replaceActionMessage(channelId, content, {
       reactions,
       meta,
       preferEdit
@@ -230,16 +230,16 @@ export class KookBridge {
     return message;
   }
 
-  async #withActionMessageQueue(channelId, callback) {
-    const previous = this.actionMessageQueues.get(channelId) ?? Promise.resolve();
+  async #withChannelQueue(channelId, callback) {
+    const previous = this.channelQueues.get(channelId) ?? Promise.resolve();
     const current = previous.catch(() => {}).then(callback);
-    this.actionMessageQueues.set(channelId, current);
+    this.channelQueues.set(channelId, current);
 
     try {
       return await current;
     } finally {
-      if (this.actionMessageQueues.get(channelId) === current) {
-        this.actionMessageQueues.delete(channelId);
+      if (this.channelQueues.get(channelId) === current) {
+        this.channelQueues.delete(channelId);
       }
     }
   }
@@ -249,6 +249,10 @@ export class KookBridge {
   }
 
   async upsertStatusPanel(channelId, panel) {
+    return this.#withChannelQueue(channelId, () => this.#upsertStatusPanel(channelId, panel));
+  }
+
+  async #upsertStatusPanel(channelId, panel) {
     const knownMessageIds = this.stateStore.getStatusMessageIds(channelId);
     const knownMessageId = knownMessageIds[0] ?? null;
     const payload = this.#normalizeMessagePayload(panel);

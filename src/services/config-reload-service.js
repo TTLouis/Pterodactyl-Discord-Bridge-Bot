@@ -10,6 +10,7 @@ function fixedPterodactylSettings(config) {
   return {
     baseUrl: config.baseUrl,
     apiKey: config.apiKey,
+    apiRequestTimeoutMs: config.apiRequestTimeoutMs,
     wingsFqdn: config.wingsFqdn,
     wingsWsScheme: config.wingsWsScheme,
     wingsWsPort: config.wingsWsPort

@@ -8,7 +8,11 @@ function formatKookGroupRelayMessage(message) {
 }
 
 // Mirrors the Discord listener: relay-queue notices are operator-facing.
-const LOG_CHANNEL_NOTICE_KINDS = new Set(["relay-queue-expired", "relay-queue-overflow"]);
+const LOG_CHANNEL_NOTICE_KINDS = new Set([
+  "relay-queue-expired",
+  "relay-queue-overflow",
+  "auto-stop-failed"
+]);
 
 function formatKookServerNotice(event) {
   if (event.kind === "satisfactory-player-count") {
@@ -18,6 +22,10 @@ function formatKookServerNotice(event) {
 
   if (event.kind === "relay-failed") {
     return `转发失败：${event.message}`;
+  }
+
+  if (event.kind === "auto-stop-failed") {
+    return `**${event.server.name}** 自动停止失败：${event.message}。冷却后将重试。`;
   }
 
   if (event.kind === "relay-queue-expired") {
