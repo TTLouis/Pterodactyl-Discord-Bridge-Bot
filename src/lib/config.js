@@ -55,6 +55,36 @@ function normalizePositiveNumber(value, fallback) {
   return Number.isFinite(number) && number > 0 ? number : fallback;
 }
 
+// Like normalizePositiveNumber, but a present-but-invalid value is a hard error
+// instead of a silent fallback. A typo such as `emptyTimeoutHours: 0` should stop
+// startup (or be rejected by the config reload) rather than quietly become 24.
+function requirePositiveNumber(value, fallback, label) {
+  if (value === undefined || value === null || value === "") {
+    return fallback;
+  }
+
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) {
+    throw new Error(`${label} must be a positive number. Received: ${JSON.stringify(value)}`);
+  }
+
+  return number;
+}
+
+function normalizePublicPort(server) {
+  const raw = server.publicPort;
+  if (raw === undefined || raw === null || raw === "") {
+    return null;
+  }
+
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`Server "${server.name}" publicPort must be an integer between 1 and 65535. Received: ${JSON.stringify(raw)}`);
+  }
+
+  return port;
+}
+
 export function resolvePollingInterval(configValue, environmentValue, fallback) {
   return normalizePositiveNumber(configValue ?? environmentValue, fallback);
 }
@@ -84,16 +114,16 @@ export function normalizeDescription(server) {
 }
 
 function normalizeFactorioGame(server) {
-  const playerListRefreshIntervalSeconds = Number(server.game?.playerListRefreshIntervalSeconds);
-
   return {
     type: "factorio",
     chatCommandTemplate: server.game?.chatCommandTemplate ?? "/shout DISCORD<{author}>: {content}",
     discordChatCommandTemplate: server.game?.discordChatCommandTemplate ?? null,
     kookChatCommandTemplate: server.game?.kookChatCommandTemplate ?? null,
-    playerListRefreshIntervalSeconds: Number.isFinite(playerListRefreshIntervalSeconds)
-      ? playerListRefreshIntervalSeconds
-      : 900
+    playerListRefreshIntervalSeconds: requirePositiveNumber(
+      server.game?.playerListRefreshIntervalSeconds,
+      900,
+      `Server "${server.name}" game.playerListRefreshIntervalSeconds`
+    )
   };
 }
 
@@ -149,11 +179,27 @@ function validateFactorioRelayTemplate(serverName, template, label) {
 function normalizeAutoStop(server) {
   const raw = server.autoStop;
   if (!raw?.enabled) return null;
-  return {
-    enabled: true,
-    emptyTimeoutHours: Number.isFinite(Number(raw.emptyTimeoutHours)) ? Number(raw.emptyTimeoutHours) : 24,
-    warningMinutesBefore: Number.isFinite(Number(raw.warningMinutesBefore)) ? Number(raw.warningMinutesBefore) : 60
-  };
+
+  const emptyTimeoutHours = requirePositiveNumber(
+    raw.emptyTimeoutHours,
+    24,
+    `Server "${server.name}" autoStop.emptyTimeoutHours`
+  );
+  const warningMinutesBefore = requirePositiveNumber(
+    raw.warningMinutesBefore,
+    60,
+    `Server "${server.name}" autoStop.warningMinutesBefore`
+  );
+
+  // A warning window at least as wide as the idle window makes warningMs negative,
+  // which fires the auto-stop warning on the very first empty poll.
+  if (warningMinutesBefore >= emptyTimeoutHours * 60) {
+    throw new Error(
+      `Server "${server.name}" autoStop.warningMinutesBefore (${warningMinutesBefore}) must be less than autoStop.emptyTimeoutHours in minutes (${emptyTimeoutHours * 60}).`
+    );
+  }
+
+  return { enabled: true, emptyTimeoutHours, warningMinutesBefore };
 }
 
 function normalizeServer(server) {
@@ -164,7 +210,7 @@ function normalizeServer(server) {
     asciiTitle: normalizeAsciiTitle(server),
     description: normalizeDescription(server),
     publicAddress: server.publicAddress ?? "",
-    publicPort: server.publicPort ?? null,
+    publicPort: normalizePublicPort(server),
     maxPlayers: server.maxPlayers ?? null,
     discordChannelId: server.discordChannelId,
     kookChannelId: normalizeKookConfigId(server.kookChannelId),

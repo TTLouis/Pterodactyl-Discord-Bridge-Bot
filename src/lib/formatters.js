@@ -334,14 +334,3 @@ export function buildCancelStopEmbed(serverName, cancelledBy) {
     .setTitle(`✅ Auto-stop cancelled: ${serverName}`)
     .setDescription(`Auto-stop was cancelled by **${cancelledBy}**. The idle timer has been reset.`);
 }
-
-export function buildCommandReply(serverName, result) {
-  const output = result.outputLines.length > 0 ? result.outputLines.join("\n") : "(no output)";
-  return [
-    `**${serverName}**`,
-    `Command: \`${result.command}\``,
-    "```text",
-    output,
-    "```"
-  ].join("\n");
-}

@@ -1,4 +1,4 @@
-import { PermissionFlagsBits } from "discord.js";
+import { MessageFlags, PermissionFlagsBits } from "discord.js";
 import { CoreEvents } from "../core/core-events.js";
 import { buildStartRequestedEmbed } from "../lib/formatters.js";
 
@@ -165,22 +165,22 @@ export class AutoStopService {
       requestedBy,
       member: interaction.member,
       onAlreadyRunning: async () => {
-        await interaction.reply({ content: "The server is already running.", ephemeral: true });
+        await interaction.reply({ content: "The server is already running.", flags: MessageFlags.Ephemeral });
       },
       onPanelUnavailable: async () => {
-        await interaction.reply({ content: "Could not reach the panel. Try again in a moment.", ephemeral: true });
+        await interaction.reply({ content: "Could not reach the panel. Try again in a moment.", flags: MessageFlags.Ephemeral });
       },
       onUnauthorized: async () => {
         await interaction.reply({
           content: `This server was stopped externally. Only ${describeExternalRestartAccess(this.config.discord)} can restart it.`,
-          ephemeral: true
+          flags: MessageFlags.Ephemeral
         });
       },
       onAccepted: async () => {
-        await interaction.reply({ embeds: [buildStartRequestedEmbed(server.name)], ephemeral: true });
+        await interaction.reply({ embeds: [buildStartRequestedEmbed(server.name)], flags: MessageFlags.Ephemeral });
       },
       onFailure: async () => {
-        await interaction.followUp({ content: "Failed to send the start signal. Check the panel.", ephemeral: true });
+        await interaction.followUp({ content: "Failed to send the start signal. Check the panel.", flags: MessageFlags.Ephemeral });
       }
     });
 
@@ -260,18 +260,18 @@ export class AutoStopService {
   // Handler for the /cancel-stop slash command.
   async handleCancelStopCommand(server, interaction) {
     if (!server.autoStop?.enabled) {
-      await interaction.reply({ content: "Auto-stop is not enabled for this server.", ephemeral: true });
+      await interaction.reply({ content: "Auto-stop is not enabled for this server.", flags: MessageFlags.Ephemeral });
       return;
     }
 
     const state = this.stateStore.getAutoStopState(server.pterodactylServerId);
     if (!state.warningSentAt || state.stoppedByBot) {
-      await interaction.reply({ content: "There is no pending auto-stop to cancel.", ephemeral: true });
+      await interaction.reply({ content: "There is no pending auto-stop to cancel.", flags: MessageFlags.Ephemeral });
       return;
     }
 
     const cancelledBy = interaction.member?.displayName ?? interaction.user.username;
-    await interaction.reply({ content: "Auto-stop cancelled.", ephemeral: true });
+    await interaction.reply({ content: "Auto-stop cancelled.", flags: MessageFlags.Ephemeral });
     try {
       await this.#cancelPendingAutoStop(server, cancelledBy);
     } catch (error) {

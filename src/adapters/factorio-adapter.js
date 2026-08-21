@@ -91,7 +91,7 @@ function parseGameDuration(lines) {
   return matched ? totalMs : null;
 }
 
-const BACKUP_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
+const DEFAULT_BACKUP_REFRESH_INTERVAL_MS = 15 * 60 * 1000;
 
 export class FactorioAdapter {
   constructor({ serverConfig, pterodactylClient, logger = null }) {
@@ -112,7 +112,14 @@ export class FactorioAdapter {
       }
 
       void this.refreshOnlinePlayers().catch(() => {});
-    }, BACKUP_REFRESH_INTERVAL_MS);
+    }, this.#backupRefreshIntervalMs());
+  }
+
+  #backupRefreshIntervalMs() {
+    const seconds = Number(this.serverConfig.game?.playerListRefreshIntervalSeconds);
+    return Number.isFinite(seconds) && seconds > 0
+      ? seconds * 1000
+      : DEFAULT_BACKUP_REFRESH_INTERVAL_MS;
   }
 
   stop() {

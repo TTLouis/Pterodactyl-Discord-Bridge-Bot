@@ -20,31 +20,80 @@ async function main() {
   stateStore.load();
   const eventBus = new CoreEventBus();
   const pterodactylClient = new PterodactylClient(runtime.config.pterodactyl);
+
+  // Declared up front so shutdown() is safe to call at any point during startup,
+  // including from the process-level error handlers registered below.
+  let discordBridge = null;
+  let kookBridge = null;
+  let discordPlatformListener = null;
+  let kookPlatformListener = null;
+  let statusSyncService = null;
+  let configReloadService = null;
+  let shuttingDown = false;
+
+  async function shutdown(signal, exitCode = 0) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    logger.info(`Received ${signal}. Shutting down.`);
+
+    try {
+      configReloadService?.stop();
+      await statusSyncService?.stop();
+      kookPlatformListener?.stop();
+      discordPlatformListener?.stop();
+      await kookBridge?.stop();
+      await discordBridge?.stop();
+    } catch (error) {
+      logger.error("Error while shutting down; exiting anyway", error);
+    }
+
+    process.exit(exitCode);
+  }
+
+  process.once("SIGINT", () => void shutdown("SIGINT"));
+  process.once("SIGTERM", () => void shutdown("SIGTERM"));
+
+  // A rejected Discord/KOOK/panel call should degrade that one operation,
+  // not take the whole bot down.
+  process.on("unhandledRejection", (reason) => {
+    logger.error(
+      "Unhandled promise rejection",
+      reason instanceof Error ? reason : new Error(String(reason))
+    );
+  });
+
+  // An uncaught exception leaves process state unknown. Exit non-zero so the
+  // container runtime restarts us instead of treating it as a clean stop.
+  process.on("uncaughtException", (error) => {
+    logger.error("Uncaught exception", error);
+    void shutdown("UNCAUGHT_EXCEPTION", 1);
+  });
+
   await hydrateServerNetworkConfig({
     config: runtime.config,
     pterodactylClient,
     logger
   });
 
-  const discordBridge = new DiscordBridge({
+  discordBridge = new DiscordBridge({
     token: runtime.discordToken,
     guildId: runtime.config.discord.guildId,
     stateStore,
     logger
   });
-  const kookBridge = isKookEnabled()
+  kookBridge = isKookEnabled()
     ? new KookBridge({
       token: runtime.kookToken,
       guildId: runtime.config.kook.guildId,
       logger
     })
     : null;
-  const discordPlatformListener = new DiscordPlatformListener({
+  discordPlatformListener = new DiscordPlatformListener({
     eventBus,
     discordBridge,
     config: runtime.config
   });
-  const kookPlatformListener = kookBridge
+  kookPlatformListener = kookBridge
     ? new KookPlatformListener({
       eventBus,
       kookBridge,
@@ -59,7 +108,7 @@ async function main() {
     stateStore,
     logger
   });
-  const statusSyncService = new StatusSyncService({
+  statusSyncService = new StatusSyncService({
     config: runtime.config,
     discordBridge,
     kookBridge,
@@ -107,7 +156,7 @@ async function main() {
 
   await statusSyncService.start();
 
-  const configReloadService = new ConfigReloadService({
+  configReloadService = new ConfigReloadService({
     configPath: getConfigPath(),
     loadConfig,
     logger,
@@ -124,20 +173,6 @@ async function main() {
     }
   });
   configReloadService.start();
-
-  const shutdown = async (signal) => {
-    logger.info(`Received ${signal}. Shutting down.`);
-    configReloadService.stop();
-    await statusSyncService.stop();
-    kookPlatformListener?.stop();
-    discordPlatformListener.stop();
-    await kookBridge?.stop();
-    await discordBridge.stop();
-    process.exit(0);
-  };
-
-  process.once("SIGINT", () => void shutdown("SIGINT"));
-  process.once("SIGTERM", () => void shutdown("SIGTERM"));
 }
 
 main().catch((error) => {
