@@ -1,3 +1,5 @@
+import { CHAT_RELAY_CAPTURE_MS } from "../lib/relay-limits.js";
+
 const ONLINE_PLAYERS_COMMAND = "/players o";
 const TIME_COMMAND = "/time";
 const ANSI_CONTROL_PATTERN = /\u001B\[[0-?]*[ -/]*[@-~]/g;
@@ -234,7 +236,9 @@ export class FactorioAdapter {
     if (!command) {
       return null;
     }
-    await this.pterodactylClient.runCommand(this.serverConfig.pterodactylServerId, command);
+    await this.pterodactylClient.runCommand(this.serverConfig.pterodactylServerId, command, {
+      captureMs: CHAT_RELAY_CAPTURE_MS
+    });
     return null;
   }
 

@@ -63,6 +63,10 @@ function buildDiscordActionMessage(event) {
   }
 }
 
+// Notices about the relay queue itself are operator-facing, so they go to the
+// log channel rather than the player-facing server channel.
+const LOG_CHANNEL_NOTICE_KINDS = new Set(["relay-queue-expired", "relay-queue-overflow"]);
+
 function formatDiscordServerNotice(event) {
   if (event.kind === "satisfactory-player-count") {
     const noun = event.changedPlayers === 1 ? "player" : "players";
@@ -76,6 +80,10 @@ function formatDiscordServerNotice(event) {
   if (event.kind === "relay-queue-expired") {
     const noun = event.expiredCount === 1 ? "message" : "messages";
     return `${event.expiredCount} queued relay ${noun} for **${event.server.name}** expired after 24 hours.`;
+  }
+
+  if (event.kind === "relay-queue-overflow") {
+    return `Relay queue for **${event.server.name}** is full at ${event.limit} messages. The oldest queued messages are being dropped until the server is back online.`;
   }
 
   return null;
@@ -174,7 +182,7 @@ export class DiscordPlatformListener {
   }
 
   async #handleServerNotice(event) {
-    const channelId = event.kind === "relay-queue-expired"
+    const channelId = LOG_CHANNEL_NOTICE_KINDS.has(event.kind)
       ? this.config.discord.logChannelId
       : event.server.discordChannelId;
     if (!channelId) {

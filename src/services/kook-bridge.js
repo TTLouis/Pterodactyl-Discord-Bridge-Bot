@@ -60,8 +60,8 @@ export class KookBridge {
   constructor({
     token,
     guildId,
-    stateStore = new StateStore(getKookStatePath()),
     logger,
+    stateStore = new StateStore(getKookStatePath(), { logger }),
     apiBaseUrl = process.env.KOOK_API_BASE_URL ?? DEFAULT_API_BASE_URL,
     requestTimeoutMs = parsePositiveInteger(process.env.KOOK_REQUEST_TIMEOUT_MS, DEFAULT_REQUEST_TIMEOUT_MS),
     requestRetryDelayMs = REQUEST_RETRY_DELAY_MS,
@@ -134,6 +134,11 @@ export class KookBridge {
 
   async stop() {
     this.stopped = true;
+    try {
+      this.stateStore.flush?.();
+    } catch (error) {
+      this.logger?.error("Failed to flush KOOK runtime state during shutdown", error);
+    }
     this.#clearHeartbeat();
     if (this.reconnectHandle) {
       clearTimeout(this.reconnectHandle);

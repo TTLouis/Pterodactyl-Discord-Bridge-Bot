@@ -1,16 +1,32 @@
 import fs from "node:fs";
 import path from "node:path";
 
+const SAVE_DEBOUNCE_MS = 250;
+
+export function getStatePath() {
+  return path.resolve(process.cwd(), process.env.STATE_PATH ?? "./runtime-state.json");
+}
+
+function createDefaultState() {
+  return {
+    statusMessages: {},
+    actionMessages: {},
+    serverRuntime: {},
+    autoStop: {},
+    relayQueue: {}
+  };
+}
+
 export class StateStore {
-  constructor(filePath = path.resolve(process.cwd(), process.env.STATE_PATH ?? "./runtime-state.json")) {
+  constructor(
+    filePath = getStatePath(),
+    { logger = null, saveDebounceMs = SAVE_DEBOUNCE_MS } = {}
+  ) {
     this.filePath = filePath;
-    this.state = {
-      statusMessages: {},
-      actionMessages: {},
-      serverRuntime: {},
-      autoStop: {},
-      relayQueue: {}
-    };
+    this.logger = logger;
+    this.saveDebounceMs = saveDebounceMs;
+    this.state = createDefaultState();
+    this.pendingSaveHandle = null;
   }
 
   load() {
@@ -19,7 +35,24 @@ export class StateStore {
       return this.state;
     }
 
-    this.state = JSON.parse(fs.readFileSync(this.filePath, "utf8"));
+    let parsed = null;
+    let parseError = null;
+    try {
+      parsed = JSON.parse(fs.readFileSync(this.filePath, "utf8"));
+    } catch (error) {
+      parseError = error;
+    }
+
+    // A truncated write or a hand-edited file must not turn into a permanent
+    // crash loop: quarantine it and start clean instead of throwing at startup.
+    if (parseError || !parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      this.#quarantineUnreadableState(parseError);
+      this.state = createDefaultState();
+      this.save();
+      return this.state;
+    }
+
+    this.state = parsed;
     this.state.statusMessages ??= {};
     this.state.actionMessages ??= {};
     this.state.serverRuntime ??= {};
@@ -28,9 +61,77 @@ export class StateStore {
     return this.state;
   }
 
+  #quarantineUnreadableState(error) {
+    const quarantinePath = `${this.filePath}.corrupt-${Date.now()}`;
+    let quarantined = false;
+    try {
+      fs.renameSync(this.filePath, quarantinePath);
+      quarantined = true;
+    } catch {
+      // Keeping a copy is best effort; resetting state matters more.
+    }
+
+    this.logger?.error(
+      `Runtime state at ${this.filePath} was unreadable and has been reset. `
+      + (quarantined ? `The previous file was kept at ${quarantinePath}. ` : "")
+      + "Status and action message IDs are gone, so the bot will post fresh messages "
+      + "and any earlier ones must be removed by hand.",
+      error ?? undefined
+    );
+  }
+
+  /** Persists immediately, superseding any debounced write. */
   save() {
+    this.#cancelPendingSave();
+    this.#writeStateFile();
+  }
+
+  /**
+   * Persists on a short debounce, coalescing bursts into one write. Used for
+   * high-frequency mutations such as the relay queue, where writing the whole
+   * file per message turns a queue drain into O(n^2) disk writes.
+   */
+  saveSoon() {
+    if (this.pendingSaveHandle) {
+      return;
+    }
+
+    this.pendingSaveHandle = setTimeout(() => {
+      this.pendingSaveHandle = null;
+      try {
+        this.#writeStateFile();
+      } catch (error) {
+        // Runs detached from any caller, so it must never reject into the timer.
+        this.logger?.error(`Failed to persist runtime state to ${this.filePath}`, error);
+      }
+    }, this.saveDebounceMs);
+    this.pendingSaveHandle.unref?.();
+  }
+
+  /** Writes any debounced state now. Call before the process exits. */
+  flush() {
+    if (!this.pendingSaveHandle) {
+      return;
+    }
+
+    this.#cancelPendingSave();
+    this.#writeStateFile();
+  }
+
+  #cancelPendingSave() {
+    if (this.pendingSaveHandle) {
+      clearTimeout(this.pendingSaveHandle);
+      this.pendingSaveHandle = null;
+    }
+  }
+
+  // Write-then-rename so a process death mid-write leaves the previous state
+  // intact rather than a half-written file.
+  #writeStateFile() {
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
-    fs.writeFileSync(this.filePath, `${JSON.stringify(this.state, null, 2)}\n`, "utf8");
+    const tempPath = `${this.filePath}.tmp`;
+    fs.writeFileSync(tempPath, `${JSON.stringify(this.state, null, 2)}\n`, "utf8");
+    fs.renameSync(tempPath, this.filePath);
   }
 
   getStatusMessageIds(channelId) {
@@ -149,6 +250,6 @@ export class StateStore {
     } else {
       delete this.state.relayQueue[serverId];
     }
-    this.save();
+    this.saveSoon();
   }
 }
