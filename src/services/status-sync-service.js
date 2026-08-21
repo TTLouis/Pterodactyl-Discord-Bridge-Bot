@@ -390,11 +390,20 @@ export class StatusSyncService {
     });
   }
 
-  #getLastStartInfo(server) {
-    const runtimeState = this.stateStore?.getServerRuntimeState?.(server.pterodactylServerId) ?? {};
+  #consumeStartAttribution(server) {
+    const pending = this.stateStore?.consumePendingStartAttribution?.(server.pterodactylServerId);
+    if (pending?.source === "discord" && pending.startedBy) {
+      return {
+        source: "discord",
+        startedBy: pending.startedBy,
+        startedAt: pending.startedAt ?? null
+      };
+    }
+
     return {
-      startedBy: runtimeState.lastStartRequestedBy ?? null,
-      startedAt: runtimeState.lastStartRequestedAt ?? null
+      source: "pterodactyl-panel",
+      startedBy: null,
+      startedAt: null
     };
   }
 
@@ -586,7 +595,7 @@ export class StatusSyncService {
       if (currentState === "offline") {
         await this.autoStopService.onWentOffline(server);
       } else if (currentState === "running") {
-        await this.autoStopService.onCameOnline(server);
+        await this.autoStopService.onCameOnline(server, this.#consumeStartAttribution(server));
       }
       return;
     }
@@ -606,7 +615,7 @@ export class StatusSyncService {
           server,
           previousState,
           currentState,
-          startInfo: this.#getLastStartInfo(server)
+          startInfo: this.#consumeStartAttribution(server)
         });
       } else {
         this.logger.info(`No action message for unhandled ${server.name} state transition`, {

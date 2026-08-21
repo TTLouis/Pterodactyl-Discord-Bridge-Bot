@@ -92,6 +92,38 @@ export class StateStore {
     this.save();
   }
 
+  setPendingStartAttribution(serverId, attribution) {
+    this.setServerRuntimeState(serverId, {
+      pendingStartAttribution: {
+        ...attribution,
+        source: attribution.source ?? "discord"
+      }
+    });
+  }
+
+  getPendingStartAttribution(serverId) {
+    const attribution = this.getServerRuntimeState(serverId).pendingStartAttribution;
+    return attribution && typeof attribution === "object" ? attribution : null;
+  }
+
+  consumePendingStartAttribution(serverId) {
+    const attribution = this.getPendingStartAttribution(serverId);
+    if (!attribution) return null;
+
+    const runtimeState = this.getServerRuntimeState(serverId);
+    delete runtimeState.pendingStartAttribution;
+    this.setServerRuntimeState(serverId, runtimeState);
+    return attribution;
+  }
+
+  clearPendingStartAttribution(serverId) {
+    const runtimeState = this.getServerRuntimeState(serverId);
+    if (!Object.hasOwn(runtimeState, "pendingStartAttribution")) return;
+
+    delete runtimeState.pendingStartAttribution;
+    this.setServerRuntimeState(serverId, runtimeState);
+  }
+
   getAutoStopState(serverId) {
     return this.state.autoStop[serverId] ?? {};
   }

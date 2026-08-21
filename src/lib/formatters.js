@@ -286,7 +286,7 @@ export function buildStartRequestedEmbed(serverName) {
     .setDescription("The start request was accepted. The server action message has been updated.");
 }
 
-export function buildServerOnlineEmbed(serverName, { startedBy = null, startedAt = null } = {}) {
+export function buildServerOnlineEmbed(serverName, { source = null, startedBy = null, startedAt = null } = {}) {
   const description = ["Server is back online."];
   const startedAtDate = typeof startedAt === "number" ? new Date(startedAt) : startedAt;
 
@@ -296,6 +296,8 @@ export function buildServerOnlineEmbed(serverName, { startedBy = null, startedAt
       `Started by **${startedBy}**.`,
       `Start requested ${formatDiscordTimestamp(startedAtDate, "R")} (${formatDiscordTimestamp(startedAtDate, "f")}).`
     );
+  } else if (source === "pterodactyl-panel") {
+    description.push("", "Started from the Pterodactyl panel.");
   }
 
   return new EmbedBuilder()

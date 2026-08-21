@@ -160,7 +160,7 @@ test("unauthorized members cannot restart a manually stopped server", async () =
   assert.equal(getClearedStates(), 0);
 });
 
-function createAutoStopService({ autoStopState = {}, resources = { currentState: "offline" } } = {}) {
+function createAutoStopService({ autoStopState = {}, resources = { currentState: "offline" }, powerError = null } = {}) {
   const events = [];
   const powerRequests = [];
   let actionMessageId = null;
@@ -179,6 +179,7 @@ function createAutoStopService({ autoStopState = {}, resources = { currentState:
         return resources;
       },
       async setPowerState(serverId, powerState) {
+        if (powerError) throw powerError;
         powerRequests.push({ serverId, powerState });
       }
     },
@@ -349,6 +350,55 @@ test("online action message includes the last successful start requester", async
   assert.equal(messages.at(-1).payload.kind, "server-online");
   assert.equal(messages.at(-1).payload.startInfo.startedBy, "Starter");
   assert.equal(typeof messages.at(-1).payload.startInfo.startedAt, "number");
+});
+
+test("online attribution is consumed and panel starts are labeled separately", async () => {
+  const { service, messages, runtimeState } = createAutoStopService({
+    autoStopState: { stoppedByBot: true }
+  });
+
+  await service.handleStartCommand(autoStopServer, {
+    member: {
+      displayName: "Discord Starter",
+      permissions: { has() { return false; } },
+      roles: { cache: new Map() }
+    },
+    user: { username: "Fallback" },
+    async reply() {},
+    async followUp() {}
+  });
+
+  assert.equal(runtimeState[autoStopServer.pterodactylServerId].pendingStartAttribution.startedBy, "Discord Starter");
+  await service.onCameOnline(autoStopServer);
+  assert.equal(messages.at(-1).payload.startInfo.startedBy, "Discord Starter");
+  assert.equal(runtimeState[autoStopServer.pterodactylServerId].pendingStartAttribution, undefined);
+
+  await service.onCameOnline(autoStopServer);
+  assert.deepEqual(messages.at(-1).payload.startInfo, {
+    source: "pterodactyl-panel",
+    startedBy: null,
+    startedAt: null
+  });
+});
+
+test("failed Discord starts clear pending attribution", async () => {
+  const { service, runtimeState } = createAutoStopService({
+    powerError: new Error("panel unavailable")
+  });
+
+  const started = await service.handleStartCommand(autoStopServer, {
+    member: {
+      displayName: "Failed Starter",
+      permissions: { has() { return false; } },
+      roles: { cache: new Map() }
+    },
+    user: { username: "Fallback" },
+    async reply() {},
+    async followUp() {}
+  });
+
+  assert.equal(started, false);
+  assert.equal(runtimeState[autoStopServer.pterodactylServerId]?.pendingStartAttribution, undefined);
 });
 
 function createStatusService(startRequested) {
@@ -1329,7 +1379,7 @@ test("external power-state stop events notify before the debounced status refres
 });
 
 test("starting power-state events do not offer restart and override stale offline panel state", async () => {
-  const currentState = "offline";
+  let currentState = "offline";
   let statusHandler = null;
   const actionMessages = [];
   const panelStates = [];
@@ -1400,7 +1450,9 @@ test("starting power-state events do not offer restart and override stale offlin
         name: server.name,
         description: "",
         currentState: resources.currentState,
-        simplifiedStatus: resources.currentState === "starting" ? "Starting" : "Offline",
+        simplifiedStatus: resources.currentState === "starting"
+          ? "Starting"
+          : resources.currentState === "running" ? "Online" : "Offline",
         playerCount: 0,
         maxPlayers: 8,
         onlinePlayers: [],
@@ -1421,5 +1473,16 @@ test("starting power-state events do not offer restart and override stale offlin
   assert.equal(actionMessages.at(-1).kind, "server-starting-state");
   assert.match(panelStates.at(-1), /Starting/);
   assert.doesNotMatch(panelStates.at(-1), /Offline/);
+
+  currentState = "running";
+  statusHandler("running");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(actionMessages.at(-1).kind, "server-online");
+  assert.deepEqual(actionMessages.at(-1).startInfo, {
+    source: "pterodactyl-panel",
+    startedBy: null,
+    startedAt: null
+  });
   await service.stop();
 });

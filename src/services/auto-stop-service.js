@@ -145,13 +145,13 @@ export class AutoStopService {
   }
 
   // Called when a server transitions from offline → running.
-  async onCameOnline(server) {
+  async onCameOnline(server, startInfo = null) {
     this.stateStore.clearAutoStopState(server.pterodactylServerId);
-    const startInfo = this.#getLastStartInfo(server);
+    const resolvedStartInfo = startInfo ?? this.#consumeStartAttribution(server);
     try {
       await this.#publishActionMessage(server, {
         kind: "server-online",
-        startInfo
+        startInfo: resolvedStartInfo
       });
     } catch (error) {
       this.logger.error(`Failed to send online notification for ${server.name}`, error);
@@ -245,11 +245,12 @@ export class AutoStopService {
         kind: "server-starting-requested",
         requestedBy
       });
+      this.#recordPendingStart(server, { requestedBy, requestedAt });
       await this.pterodactylClient.setPowerState(server.pterodactylServerId, "start");
-      this.#recordStartRequest(server, { requestedBy, requestedAt });
       this.stateStore.clearAutoStopState(server.pterodactylServerId);
       return true;
     } catch (error) {
+      this.#clearPendingStart(server);
       this.logger.error(`Failed to start ${server.name} via /start-server`, error);
       await onFailure();
       return false;
@@ -323,18 +324,63 @@ export class AutoStopService {
     return reaction.messageId === this.stateStore.getActionMessageId(server.discordChannelId);
   }
 
-  #recordStartRequest(server, { requestedBy, requestedAt }) {
+  #recordPendingStart(server, { requestedBy, requestedAt }) {
+    if (this.stateStore.setPendingStartAttribution) {
+      this.stateStore.setPendingStartAttribution(server.pterodactylServerId, {
+        source: "discord",
+        startedBy: requestedBy,
+        startedAt: requestedAt
+      });
+      return;
+    }
+
     this.stateStore.setServerRuntimeState?.(server.pterodactylServerId, {
-      lastStartRequestedBy: requestedBy,
-      lastStartRequestedAt: requestedAt
+      pendingStartAttribution: {
+        source: "discord",
+        startedBy: requestedBy,
+        startedAt: requestedAt
+      }
     });
   }
 
-  #getLastStartInfo(server) {
-    const runtimeState = this.stateStore.getServerRuntimeState?.(server.pterodactylServerId) ?? {};
+  #clearPendingStart(server) {
+    if (this.stateStore.clearPendingStartAttribution) {
+      this.stateStore.clearPendingStartAttribution(server.pterodactylServerId);
+      return;
+    }
+
+    const runtimeState = this.stateStore.getServerRuntimeState?.(server.pterodactylServerId);
+    if (runtimeState?.pendingStartAttribution) {
+      delete runtimeState.pendingStartAttribution;
+      this.stateStore.setServerRuntimeState?.(server.pterodactylServerId, runtimeState);
+    }
+  }
+
+  #consumeStartAttribution(server) {
+    let pending;
+    if (this.stateStore.consumePendingStartAttribution) {
+      pending = this.stateStore.consumePendingStartAttribution(server.pterodactylServerId);
+    } else {
+      const runtimeState = this.stateStore.getServerRuntimeState?.(server.pterodactylServerId) ?? {};
+      pending = runtimeState.pendingStartAttribution ?? null;
+      if (pending) {
+        delete runtimeState.pendingStartAttribution;
+        this.stateStore.setServerRuntimeState?.(server.pterodactylServerId, runtimeState);
+      }
+    }
+
+    if (pending?.source === "discord" && pending.startedBy) {
+      return {
+        source: "discord",
+        startedBy: pending.startedBy,
+        startedAt: pending.startedAt ?? null
+      };
+    }
+
     return {
-      startedBy: runtimeState.lastStartRequestedBy ?? null,
-      startedAt: runtimeState.lastStartRequestedAt ?? null
+      source: "pterodactyl-panel",
+      startedBy: null,
+      startedAt: null
     };
   }
 

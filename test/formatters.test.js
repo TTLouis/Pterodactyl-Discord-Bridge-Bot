@@ -159,3 +159,11 @@ test("server online embeds can include start attribution", () => {
   assert.match(embed.description, /Started by \*\*Tester\*\*/);
   assert.match(embed.description, /Start requested <t:1782874200:R> \(<t:1782874200:f>\)/);
 });
+
+test("server online embeds identify panel-originated starts", () => {
+  const embed = buildServerOnlineEmbed("Test Server", {
+    source: "pterodactyl-panel"
+  }).toJSON();
+
+  assert.match(embed.description, /Started from the Pterodactyl panel/);
+});
