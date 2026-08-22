@@ -1014,7 +1014,7 @@ export class StatusSyncService {
   async #deliverRelay(adapter, command, relay) {
     if (typeof adapter.handleChatCommand === "function") return adapter.handleChatCommand(command);
     if (typeof adapter.handleChatMessage === "function") return adapter.handleChatMessage({ ...relay, command });
-    return adapter.handleDiscordMessage({ ...relay, command });
+    throw new Error(`Game adapter for ${adapter.serverConfig?.name ?? "unknown server"} cannot handle chat relay commands`);
   }
 
   async #publishRelayFailure(server, sourcePlatform, error) {

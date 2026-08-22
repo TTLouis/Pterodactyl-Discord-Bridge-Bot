@@ -58,12 +58,16 @@ function parsePlayerList(lines) {
   return { playerCount: players.length, players };
 }
 
+function stripFactorioColorTags(value) {
+  return String(value ?? "").replace(/\[\/?color(?:=#[0-9a-f]{6})?\]/gi, "");
+}
+
 function isPlatformRelayName(authorName) {
-  return /^(?:(?:\[color=#[0-9a-f]{6}\])?(?:DISCORD|KOOK)(?:\[\/color\])?)<.+>$/i.test(authorName);
+  return /^(?:DISCORD|KOOK)<.+>$/i.test(stripFactorioColorTags(authorName));
 }
 
 function isPlatformRelayContent(content) {
-  return /^(?:(?:\[color=#[0-9a-f]{6}\])?(?:DISCORD|KOOK)(?:\[\/color\])?)<.+>:\s*/i.test(content);
+  return /^(?:DISCORD|KOOK)<.+>:\s*/i.test(stripFactorioColorTags(content));
 }
 
 function isGpsOnlyContent(content) {
@@ -197,12 +201,8 @@ export class FactorioAdapter {
     return true;
   }
 
-  supportsDiscordRelay() {
-    return true;
-  }
-
   supportsChatRelay() {
-    return this.supportsDiscordRelay();
+    return true;
   }
 
   shouldRefreshOnlinePlayersOnConsoleConnect() {
@@ -233,10 +233,6 @@ export class FactorioAdapter {
     } finally {
       this.playerListRefreshPromise = null;
     }
-  }
-
-  async handleDiscordMessage(message) {
-    return this.handleChatCommand(message.command);
   }
 
   async handleChatMessage(message) {
@@ -300,12 +296,15 @@ export class FactorioAdapter {
   }
 
   applyPlayerEvent(line) {
-    if (this.onlinePlayers === null) return false;
     const normalized = String(line ?? "").trim();
     const joinMatch = normalized.match(/\[JOIN\] (.+) joined the game$/);
     if (joinMatch) {
       this.playerEventRevision += 1;
       const name = joinMatch[1];
+      // Console events can arrive before the initial /players o response. Like
+      // Minecraft, keep that event immediately instead of briefly showing zero
+      // players until the next refresh completes.
+      this.onlinePlayers ??= [];
       if (!this.onlinePlayers.includes(name)) {
         this.onlinePlayers = [...this.onlinePlayers, name];
       }
@@ -314,6 +313,7 @@ export class FactorioAdapter {
     const leaveMatch = normalized.match(/\[LEAVE\] (.+) left the game$/);
     if (leaveMatch) {
       this.playerEventRevision += 1;
+      this.onlinePlayers ??= [];
       this.onlinePlayers = this.onlinePlayers.filter((p) => p !== leaveMatch[1]);
       return true;
     }

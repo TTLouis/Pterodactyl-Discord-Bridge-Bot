@@ -3,31 +3,22 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { loadConfig, normalizeDescription, resolvePollingInterval } from "../src/lib/config.js";
+import { loadConfig, normalizeDescription } from "../src/lib/config.js";
 
-test("descriptionLines takes precedence and preserves authored lines", () => {
+test("description preserves authored lines", () => {
   assert.equal(normalizeDescription({
-    description: "legacy",
-    descriptionLines: ["**Heading**", "", "中文说明"]
+    description: ["**Heading**", "", "中文说明"]
   }), "**Heading**\n\n中文说明");
 });
 
-test("descriptionLines preserves intentional spacing", () => {
+test("description preserves intentional spacing", () => {
   assert.equal(normalizeDescription({
-    descriptionLines: ["  indented", "", "trailing  "]
+    description: ["  indented", "", "trailing  "]
   }), "  indented\n\ntrailing  ");
 });
 
-test("legacy description strings remain supported", () => {
-  assert.equal(normalizeDescription({ description: "  Legacy description  " }), "Legacy description");
-});
-
-test("servers.json polling intervals take precedence over legacy environment values", () => {
-  assert.equal(resolvePollingInterval(300, "60", 60), 300);
-});
-
-test("legacy polling environment values remain a fallback", () => {
-  assert.equal(resolvePollingInterval(undefined, "120", 60), 120);
+test("description must be an array of lines", () => {
+  assert.equal(normalizeDescription({ description: "Single-line descriptions are no longer supported" }), "");
 });
 
 function loadFactorioConfig(game) {
@@ -78,12 +69,10 @@ test("Factorio relay config requires an executable command and content placehold
   );
 });
 
-test("Factorio relay config accepts shared and platform-specific commands", () => {
+test("Factorio relay config uses one core-resolved platform template", () => {
   const runtime = loadFactorioConfig({
     type: "factorio",
-    chatCommandTemplate: "/shout {platform}<{author}>: {content}",
-    discordChatCommandTemplate: "/shout DISCORD<{author}>: {content}",
-    kookChatCommandTemplate: "/shout KOOK<{author}>: {content}"
+    chatCommandTemplate: "/shout {platform}<{author}>: {content}"
   });
 
   assert.equal(runtime.config.servers[0].game.chatCommandTemplate, "/shout {platform}<{author}>: {content}");

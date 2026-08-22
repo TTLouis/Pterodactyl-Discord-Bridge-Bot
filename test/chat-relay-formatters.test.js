@@ -6,8 +6,7 @@ import { MAX_RELAY_CONTENT_LENGTH } from "../src/lib/relay-limits.js";
 test("game chat command formatter renders platform-specific templates", () => {
   const server = {
     game: {
-      chatCommandTemplate: "/shout {platform}<{author}>: {content}",
-      kookChatCommandTemplate: "/shout KOOK<{author}>: {content}"
+      chatCommandTemplate: "/shout {platform}<{author}>: {content}"
     }
   };
 
@@ -55,7 +54,7 @@ test("Factorio chat formatter colors the platform and Discord role", () => {
       authorColor: "#12ab34",
       content: "hello"
     }),
-    "[color=#5865F2]Discord[/color]<[color=#12AB34]Louis[/color]>: hello"
+    "[color=#5865F2]Discord[/color][color=#12AB34]<Louis>[/color]: hello"
   );
   assert.equal(
     buildGameChatCommand(server, {
@@ -63,7 +62,7 @@ test("Factorio chat formatter colors the platform and Discord role", () => {
       authorName: "Kai",
       content: "hello"
     }),
-    "[color=#00A1D6]KOOK[/color]<[color=#00A1D6]Kai[/color]>: hello"
+    "[color=#00A1D6]KOOK[/color][color=#00A1D6]<Kai>[/color]: hello"
   );
 });
 

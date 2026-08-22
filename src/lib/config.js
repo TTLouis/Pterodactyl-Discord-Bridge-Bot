@@ -85,18 +85,9 @@ function normalizePublicPort(server) {
   return port;
 }
 
-export function resolvePollingInterval(configValue, environmentValue, fallback) {
-  return normalizePositiveNumber(configValue ?? environmentValue, fallback);
-}
-
 function normalizeAsciiTitle(server) {
-  if (typeof server.asciiTitle === "string") {
-    const value = server.asciiTitle.trim();
-    return value ? value : null;
-  }
-
-  if (Array.isArray(server.asciiTitleLines)) {
-    const lines = server.asciiTitleLines.map((line) => String(line ?? ""));
+  if (Array.isArray(server.asciiTitle)) {
+    const lines = server.asciiTitle.map((line) => String(line ?? ""));
     const value = lines.join("\n").trim();
     return value ? value : null;
   }
@@ -105,20 +96,18 @@ function normalizeAsciiTitle(server) {
 }
 
 export function normalizeDescription(server) {
-  if (Array.isArray(server.descriptionLines)) {
-    const value = server.descriptionLines.map((line) => String(line ?? "")).join("\n");
+  if (Array.isArray(server.description)) {
+    const value = server.description.map((line) => String(line ?? "")).join("\n");
     return value.trim() ? value : "";
   }
 
-  return typeof server.description === "string" ? server.description.trim() : "";
+  return "";
 }
 
 function normalizeFactorioGame(server) {
   return {
     type: "factorio",
-    chatCommandTemplate: server.game?.chatCommandTemplate ?? "/shout DISCORD<{author}>: {content}",
-    discordChatCommandTemplate: server.game?.discordChatCommandTemplate ?? null,
-    kookChatCommandTemplate: server.game?.kookChatCommandTemplate ?? null,
+    chatCommandTemplate: server.game?.chatCommandTemplate ?? "/shout {platform}<{author}>: {content}",
     playerListRefreshIntervalSeconds: requirePositiveNumber(
       server.game?.playerListRefreshIntervalSeconds,
       900,
@@ -142,9 +131,7 @@ export function deriveSatisfactoryApiUrl(server) {
 function normalizeMinecraftGame(server) {
   return {
     type: "minecraft",
-    chatCommandTemplate: server.game?.chatCommandTemplate ?? "/say [Discord] {author}: {content}",
-    discordChatCommandTemplate: server.game?.discordChatCommandTemplate ?? null,
-    kookChatCommandTemplate: server.game?.kookChatCommandTemplate ?? null,
+    chatCommandTemplate: server.game?.chatCommandTemplate ?? "/say [{platform}] {author}: {content}",
     playerListRefreshIntervalSeconds: requirePositiveNumber(
       server.game?.playerListRefreshIntervalSeconds,
       900,
@@ -165,9 +152,7 @@ function normalizeSatisfactoryGame(server) {
     apiToken: server.game?.apiToken ?? null,
     allowInsecureTls: server.game?.allowInsecureTls ?? true,
     apiRequestTimeoutMs: apiRequestTimeoutSeconds * 1000,
-    chatCommandTemplate: server.game?.chatCommandTemplate ?? null,
-    discordChatCommandTemplate: server.game?.discordChatCommandTemplate ?? null,
-    kookChatCommandTemplate: server.game?.kookChatCommandTemplate ?? null
+    chatCommandTemplate: server.game?.chatCommandTemplate ?? null
   };
 }
 
@@ -279,12 +264,6 @@ function validateConfig(config) {
 
     if (server.game?.type === "factorio") {
       validateFactorioRelayTemplate(server.name, server.game.chatCommandTemplate, "chatCommandTemplate");
-      if (server.game.discordChatCommandTemplate !== null) {
-        validateFactorioRelayTemplate(server.name, server.game.discordChatCommandTemplate, "discordChatCommandTemplate");
-      }
-      if (server.game.kookChatCommandTemplate !== null) {
-        validateFactorioRelayTemplate(server.name, server.game.kookChatCommandTemplate, "kookChatCommandTemplate");
-      }
       continue;
     }
 
@@ -325,16 +304,8 @@ export function loadConfig() {
     kook: normalizeKookConfig(rawConfig.kook),
     pterodactyl: {
       ...rawConfig.pterodactyl,
-      pollIntervalSeconds: resolvePollingInterval(
-        rawConfig.pterodactyl?.pollIntervalSeconds,
-        process.env.PANEL_UPDATE_INTERVAL_SECONDS,
-        60
-      ),
-      activePlayerPollIntervalSeconds: resolvePollingInterval(
-        rawConfig.pterodactyl?.activePlayerPollIntervalSeconds,
-        process.env.ACTIVE_PLAYER_UPDATE_INTERVAL_SECONDS,
-        15
-      ),
+      pollIntervalSeconds: normalizePositiveNumber(rawConfig.pterodactyl?.pollIntervalSeconds, 60),
+      activePlayerPollIntervalSeconds: normalizePositiveNumber(rawConfig.pterodactyl?.activePlayerPollIntervalSeconds, 15),
       apiRequestTimeoutMs: requirePositiveNumber(
         rawConfig.pterodactyl?.apiRequestTimeoutSeconds,
         10,

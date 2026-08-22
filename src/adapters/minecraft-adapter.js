@@ -172,12 +172,8 @@ export class MinecraftAdapter {
     return true;
   }
 
-  supportsDiscordRelay() {
-    return true;
-  }
-
   supportsChatRelay() {
-    return this.supportsDiscordRelay();
+    return true;
   }
 
   shouldRefreshOnlinePlayersOnConsoleConnect() {
@@ -212,10 +208,6 @@ export class MinecraftAdapter {
     } finally {
       this.playerListRefreshPromise = null;
     }
-  }
-
-  async handleDiscordMessage(message) {
-    return this.handleChatCommand(message.command);
   }
 
   async handleChatMessage(message) {

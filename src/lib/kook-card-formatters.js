@@ -492,26 +492,26 @@ export function buildKookActionMessageForEvent(event) {
     case "auto-stop-warning":
       return buildActionCard({
         title: `⚠️ 自动停止警告：${event.server.name}`,
-        description: "当前没有玩家在线。服务器将按计划自动停止。",
+        description: "当前没有玩家在线；服务器将在预定时间自动关闭。",
         color: "#f97316",
         theme: "warning",
-        controls: "Discord 操作：🔴"
+        controls: "请前往 Discord 使用 🔴 表情取消自动停止"
       });
     case "auto-stopped":
       return buildActionCard({
         title: `🔴 服务器已自动停止：${event.server.name}`,
-        description: "服务器因无人活动已自动停止。",
+        description: "服务器因长时间无人在线已自动停止。",
         color: "#ef4444",
         theme: "danger",
-        controls: "Discord 操作：🟢"
+        controls: "请前往 Discord 使用 🟢 表情重启服务器"
       });
     case "manual-stopped":
       return buildActionCard({
         title: `🔴 服务器已被外部停止：${event.server.name}`,
-        description: "此服务器在机器人外被停止。可在 Discord 重启。",
+        description: "服务器已在机器人外停止。具备权限的成员可前往 Discord 重启。",
         color: "#ef4444",
         theme: "danger",
-        controls: "Discord 操作：🟢"
+        controls: "请前往 Discord 使用 🟢 表情重启服务器"
       });
     case "server-online": {
       const requestedBy = event.startInfo?.startedBy
@@ -529,7 +529,7 @@ export function buildKookActionMessageForEvent(event) {
     case "server-starting-requested":
       return buildActionCard({
         title: `🟡 正在启动服务器：${event.server.name}`,
-        description: `服务器启动请求来自 **${event.requestedBy}**。应很快上线。`,
+        description: `**${event.requestedBy}** 已提交启动请求；服务器即将上线。`,
         color: "#eab308",
         theme: "warning"
       });
@@ -543,14 +543,14 @@ export function buildKookActionMessageForEvent(event) {
     case "server-starting-state":
       return buildActionCard({
         title: `🟡 服务器启动中：${event.server.name}`,
-        description: "服务器正在启动。启动过程中暂不能重启。",
+        description: "服务器正在启动；启动完成前暂时无法再次重启。",
         color: "#eab308",
         theme: "warning"
       });
     case "server-stopping-state":
       return buildActionCard({
         title: `🟠 服务器关闭中：${event.server.name}`,
-        description: "服务器正在关闭。离线后可在 Discord 重启。",
+        description: "服务器正在关闭；完全离线后可前往 Discord 重启。",
         color: "#f97316",
         theme: "warning"
       });
@@ -560,7 +560,7 @@ export function buildKookActionMessageForEvent(event) {
         description: "服务器当前离线。",
         color: "#ef4444",
         theme: "danger",
-        controls: "Discord 操作：🟢"
+        controls: "请前往 Discord 使用 🟢 表情重启服务器"
       });
     default:
       return null;

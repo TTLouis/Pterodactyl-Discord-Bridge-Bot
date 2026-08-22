@@ -41,15 +41,7 @@ function getPlatformName(sourcePlatform) {
   return sourcePlatform === "kook" ? "KOOK" : "Discord";
 }
 
-function getChatCommandTemplate(gameConfig, sourcePlatform) {
-  if (sourcePlatform === "kook" && typeof gameConfig.kookChatCommandTemplate === "string") {
-    return gameConfig.kookChatCommandTemplate;
-  }
-
-  if (sourcePlatform === "discord" && typeof gameConfig.discordChatCommandTemplate === "string") {
-    return gameConfig.discordChatCommandTemplate;
-  }
-
+function getChatCommandTemplate(gameConfig) {
   return gameConfig.chatCommandTemplate;
 }
 
@@ -61,16 +53,12 @@ function renderTemplate(template, values) {
 }
 
 export function hasChatCommandTemplate(gameConfig) {
-  return Boolean(
-    gameConfig?.chatCommandTemplate
-    || gameConfig?.discordChatCommandTemplate
-    || gameConfig?.kookChatCommandTemplate
-  );
+  return Boolean(gameConfig?.chatCommandTemplate);
 }
 
 export function buildGameChatCommand(server, message) {
   const sourcePlatform = message.sourcePlatform === "kook" ? "kook" : "discord";
-  const template = getChatCommandTemplate(server.game, sourcePlatform);
+  const template = getChatCommandTemplate(server.game);
   if (!template) {
     return null;
   }
@@ -94,9 +82,20 @@ export function buildGameChatCommand(server, message) {
     PLATFORM_CHAT_COLORS[sourcePlatform]
   );
   const authorColor = sanitizeColor(message.authorColor, platformColor);
-  return renderTemplate(template, {
-    authorName: `[color=${authorColor}]${sanitizeAuthorName(message.authorName) || platformName}[/color]`,
+  const authorName = sanitizeAuthorName(message.authorName) || platformName;
+  const coloredAuthorName = `[color=${authorColor}]${authorName}[/color]`;
+  const rendered = renderTemplate(template, {
+    authorName: coloredAuthorName,
     content,
     platformName: `[color=${platformColor}]${platformName}[/color]`
   });
+
+  // The shipped Factorio templates use <{author}>. Move the name's color tag
+  // around the brackets too, so they do not fall back to Factorio's default
+  // chat color. Custom templates without those brackets retain their exact
+  // formatting.
+  return rendered.replaceAll(
+    `<${coloredAuthorName}>`,
+    `[color=${authorColor}]<${authorName}>[/color]`
+  );
 }

@@ -1233,7 +1233,7 @@ test("Factorio relays stay queued until the running console session is ready", a
   readyHandler();
   await new Promise((resolve) => setTimeout(resolve, 0));
 
-  assert.deepEqual(commands, ["DISCORD<[color=#5865F2]Louis[/color]>: queued"]);
+  assert.deepEqual(commands, ["DISCORD[color=#5865F2]<Louis>[/color]: queued"]);
   assert.equal(queues.has("factory-id"), false);
   await service.stop();
 });

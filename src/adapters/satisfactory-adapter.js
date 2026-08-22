@@ -32,16 +32,8 @@ export class SatisfactoryAdapter {
     return false;
   }
 
-  supportsDiscordRelay() {
-    return Boolean(
-      this.serverConfig.game.chatCommandTemplate
-      || this.serverConfig.game.discordChatCommandTemplate
-      || this.serverConfig.game.kookChatCommandTemplate
-    );
-  }
-
   supportsChatRelay() {
-    return this.supportsDiscordRelay();
+    return Boolean(this.serverConfig.game.chatCommandTemplate);
   }
 
   onConfigReloaded() {
@@ -82,10 +74,6 @@ export class SatisfactoryAdapter {
     }
 
     return this.#buildSnapshot(resources);
-  }
-
-  async handleDiscordMessage(message) {
-    return this.handleChatCommand(message.command);
   }
 
   async handleChatMessage(message) {
