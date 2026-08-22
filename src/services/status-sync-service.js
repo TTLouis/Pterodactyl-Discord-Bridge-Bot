@@ -128,8 +128,10 @@ export class StatusSyncService {
     this.relayOverflowNotified = new Set();
     this.inMemoryRelayQueues = new Map();
     this.initialSnapshotLogged = false;
+    this.livePanelInitialized = false;
+    this.lastArchivePanelKey = null;
     this.adapters = new Map(
-      config.servers.map((server) => [
+      config.servers.filter((server) => !server.archived).map((server) => [
         server.pterodactylServerId,
         this.#createAdapter(server)
       ])
@@ -192,6 +194,35 @@ export class StatusSyncService {
   }
 
   onConfigReloaded() {
+    const activeServerIds = new Set(
+      this.config.servers.filter((server) => !server.archived).map((server) => server.pterodactylServerId)
+    );
+
+    for (const [serverId, adapter] of this.adapters.entries()) {
+      if (activeServerIds.has(serverId)) {
+        continue;
+      }
+
+      adapter.stop?.();
+      this.consoleUnsubscribers.get(serverId)?.();
+      this.consoleUnsubscribers.delete(serverId);
+      this.adapters.delete(serverId);
+      this.serverPlayerCounts.delete(serverId);
+      this.serverOnlineStates.delete(serverId);
+      this.serverPowerStates.delete(serverId);
+      this.lastSnapshotKeys.delete(serverId);
+    }
+
+    for (const server of this.config.servers) {
+      if (server.archived || this.adapters.has(server.pterodactylServerId)) {
+        continue;
+      }
+
+      const adapter = this.#createAdapter(server);
+      this.adapters.set(server.pterodactylServerId, adapter);
+      adapter.start?.();
+    }
+
     for (const [serverId, adapter] of this.adapters.entries()) {
       const server = this.config.servers.find((entry) => entry.pterodactylServerId === serverId);
       adapter.onConfigReloaded?.(server);
@@ -224,13 +255,19 @@ export class StatusSyncService {
 
   async #runSync({ force = false, reason = null } = {}) {
     const startedAt = Date.now();
-    let anyChanged = force || this.lastSnapshotKeys.size === 0;
-    let snapshotChanged = this.lastSnapshotKeys.size === 0;
+    let anyChanged = force || !this.livePanelInitialized;
+    let snapshotChanged = !this.livePanelInitialized;
     const failedServers = [];
+
+    const activeServers = this.config.servers.filter((server) => !server.archived);
+    const archivedServers = this.config.servers.filter((server) => server.archived);
+    const archivePanelKey = JSON.stringify(archivedServers.map((server) => [server.name, server.archiveNote]));
+    const archivePanelChanged = archivePanelKey !== this.lastArchivePanelKey;
+    this.lastArchivePanelKey = archivePanelKey;
 
     // Poll servers concurrently. With per-request timeouts in place, a slow
     // panel response should delay only its own server, not every other panel.
-    const results = await Promise.all(this.config.servers.map(async (server) => {
+    const results = await Promise.all(activeServers.map(async (server) => {
       const adapter = this.adapters.get(server.pterodactylServerId);
 
       try {
@@ -292,11 +329,17 @@ export class StatusSyncService {
       });
     }
 
-    if (snapshots.length === 0 || !anyChanged) {
+    if (!anyChanged && !archivePanelChanged) {
       return;
     }
 
-    await this.eventBus.emit(CoreEvents.STATUS_PANEL_UPDATED, { snapshots });
+    await this.eventBus.emit(CoreEvents.STATUS_PANEL_UPDATED, {
+      snapshots,
+      archivedServers,
+      livePanelChanged: anyChanged,
+      archivePanelChanged
+    });
+    this.livePanelInitialized = true;
 
     const refreshReason = reason ?? (force ? "scheduled" : snapshotChanged ? "state-change" : "manual");
     if (refreshReason !== "scheduled") {
@@ -735,7 +778,7 @@ export class StatusSyncService {
       return;
     }
 
-    const server = this.config.servers.find((s) => s.discordChannelId === interaction.channelId);
+    const server = this.config.servers.find((s) => !s.archived && s.discordChannelId === interaction.channelId);
     if (!server) {
       await interaction.reply({ content: "This command can only be used in a configured server channel.", flags: MessageFlags.Ephemeral });
       return;
@@ -824,7 +867,7 @@ export class StatusSyncService {
   }
 
   async #handleReaction(reaction) {
-    const server = this.config.servers.find((s) => s.discordChannelId === reaction.channelId);
+    const server = this.config.servers.find((s) => !s.archived && s.discordChannelId === reaction.channelId);
     if (!server) {
       return;
     }
@@ -845,7 +888,7 @@ export class StatusSyncService {
 
   async #handleMessage(message) {
     const sourcePlatform = message.sourcePlatform === "kook" ? "kook" : "discord";
-    const server = this.config.servers.find((entry) => (
+    const server = this.config.servers.find((entry) => !entry.archived && (
       sourcePlatform === "kook"
         ? entry.kookChannelId === message.channelId
         : entry.discordChannelId === message.channelId

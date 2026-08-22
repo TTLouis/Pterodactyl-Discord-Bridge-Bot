@@ -230,6 +230,23 @@ test("publicPort is normalized to a number and defaults to null", () => {
   assert.equal(loadConfigWithServer({}).config.servers[0].publicPort, null);
 });
 
+test("archived servers default to active and preserve an optional archive note", () => {
+  const active = loadConfigWithServer({}).config.servers[0];
+  const archived = loadConfigWithServer({ archived: true, archiveNote: "Season ended" }).config.servers[0];
+
+  assert.equal(active.archived, false);
+  assert.equal(active.archiveNote, null);
+  assert.equal(archived.archived, true);
+  assert.equal(archived.archiveNote, "Season ended");
+});
+
+test("archived must be a boolean", () => {
+  assert.throws(
+    () => loadConfigWithServer({ archived: "true" }),
+    /archived must be a boolean/
+  );
+});
+
 test("an out-of-range publicPort is rejected", () => {
   assert.throws(
     () => loadConfigWithServer({ publicPort: 70000 }),

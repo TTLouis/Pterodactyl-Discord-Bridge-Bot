@@ -48,7 +48,7 @@ function validateHydratedServer(server) {
 }
 
 export async function hydrateServerNetworkConfig({ config, pterodactylClient, logger }) {
-  const servers = config.servers.filter(needsNetworkHydration);
+  const servers = config.servers.filter((server) => !server.archived && needsNetworkHydration(server));
   if (servers.length === 0) {
     return;
   }

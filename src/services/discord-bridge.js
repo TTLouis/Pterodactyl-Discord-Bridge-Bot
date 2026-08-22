@@ -168,21 +168,22 @@ export class DiscordBridge {
     await channel.messages.delete(messageId);
   }
 
-  async upsertStatusPanel(channelId, panel) {
-    return this.#withChannelQueue(channelId, () => this.#upsertStatusPanel(channelId, panel));
+  async upsertStatusPanel(channelId, panel, { panelKey = "live" } = {}) {
+    return this.#withChannelQueue(channelId, () => this.#upsertStatusPanel(channelId, panel, panelKey));
   }
 
-  async #upsertStatusPanel(channelId, panel) {
+  async #upsertStatusPanel(channelId, panel, panelKey) {
     const channel = await this.#getTextChannel(channelId);
-    const knownMessageIds = this.stateStore.getStatusMessageIds(channelId);
+    const knownMessageIds = this.stateStore.getStatusMessageIds(channelId, panelKey);
     const knownMessageId = knownMessageIds[0] ?? null;
     const payload = panel.content === undefined ? { ...panel, content: null } : panel;
+    const migrateLivePanel = panelKey === "live" && this.#needsStatusPanelMigration(channelId, knownMessageIds);
 
-    if (knownMessageId) {
+    if (knownMessageId && !migrateLivePanel) {
       try {
         await channel.messages.edit(knownMessageId, payload);
         await this.#deleteStaleStatusMessages(channel, knownMessageIds.slice(1));
-        this.stateStore.setStatusMessageIds(channelId, [knownMessageId]);
+        this.stateStore.setStatusMessageIds(channelId, [knownMessageId], panelKey);
         return;
       } catch (error) {
         this.logger.warn(`Failed to edit status panel message ${knownMessageId}, sending a new one instead.`, error);
@@ -191,7 +192,24 @@ export class DiscordBridge {
 
     const message = await channel.send(payload);
     await this.#deleteStaleStatusMessages(channel, knownMessageIds);
-    this.stateStore.setStatusMessageIds(channelId, [message.id]);
+    this.stateStore.setStatusMessageIds(channelId, [message.id], panelKey);
+    this.#finishStatusPanelMigration(channelId, panelKey);
+  }
+
+  #needsStatusPanelMigration(channelId, liveMessageIds) {
+    if (typeof this.stateStore.getStatusPanelLayoutVersion !== "function") {
+      return false;
+    }
+
+    return this.stateStore.getStatusPanelLayoutVersion(channelId) !== 2
+      && liveMessageIds.length > 0
+      && this.stateStore.getStatusMessageIds(channelId, "archive").length > 0;
+  }
+
+  #finishStatusPanelMigration(channelId, panelKey) {
+    if (panelKey === "live" && this.stateStore.getStatusMessageIds(channelId, "archive").length > 0) {
+      this.stateStore.setStatusPanelLayoutVersion?.(channelId, 2);
+    }
   }
 
   async #deleteStaleStatusMessages(channel, messageIds) {

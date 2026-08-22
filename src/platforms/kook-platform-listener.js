@@ -2,6 +2,7 @@ import { CoreEvents } from "../core/core-events.js";
 import { buildActionMessageMeta } from "../lib/action-message-state.js";
 import {
   buildKookActionMessageForEvent,
+  buildKookArchivePanel,
   buildKookStatusPanel,
   MAX_STATUS_PANEL_SERVERS
 } from "../lib/kook-card-formatters.js";
@@ -85,19 +86,29 @@ export class KookPlatformListener {
     });
   }
 
-  async #handleStatusPanelUpdated({ snapshots }) {
+  async #handleStatusPanelUpdated({ snapshots, archivedServers = [], livePanelChanged = true, archivePanelChanged = true }) {
     if (!this.config.kook?.statusChannelId) {
       return null;
     }
 
-    this.#warnIfTruncated(snapshots);
+    if (archivePanelChanged) {
+      await this.kookBridge.upsertStatusPanel(
+        this.config.kook.statusChannelId,
+        buildKookArchivePanel(archivedServers),
+        { panelKey: "archive" }
+      );
+    }
 
-    await this.kookBridge.upsertStatusPanel(
-      this.config.kook.statusChannelId,
-      buildKookStatusPanel(snapshots, {
-        displayTimeZone: this.config.kook.displayTimeZone ?? "Asia/Shanghai"
-      })
-    );
+    if (livePanelChanged) {
+      this.#warnIfTruncated(snapshots);
+      await this.kookBridge.upsertStatusPanel(
+        this.config.kook.statusChannelId,
+        buildKookStatusPanel(snapshots, {
+          displayTimeZone: this.config.kook.displayTimeZone ?? "Asia/Shanghai"
+        }),
+        { panelKey: "live" }
+      );
+    }
     return { platform: "kook" };
   }
 

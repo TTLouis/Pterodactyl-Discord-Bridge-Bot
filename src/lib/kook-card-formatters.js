@@ -282,6 +282,29 @@ export function buildKookStatusPanel(snapshots, { displayTimeZone = "UTC", now =
   };
 }
 
+export function buildKookArchivePanel(servers) {
+  const archiveText = servers.length === 0
+    ? "暂无已归档服务器。"
+    : servers.map((server) => {
+      const note = server.archiveNote ? ` — ${server.archiveNote}` : "";
+      return `• **${server.name}**${note}`;
+    }).join("\n");
+
+  return {
+    type: 10,
+    content: JSON.stringify([{
+      type: "card",
+      theme: "secondary",
+      color: "#64748b",
+      size: "lg",
+      modules: [
+        { type: "header", text: plainText("已归档服务器") },
+        { type: "section", text: kmarkdown(truncate(archiveText, MAX_KMARKDOWN_LENGTH)) }
+      ]
+    }])
+  };
+}
+
 function colorToHex(color) {
   if (typeof color === "string" && /^#[0-9a-f]{6}$/i.test(color)) {
     return color;

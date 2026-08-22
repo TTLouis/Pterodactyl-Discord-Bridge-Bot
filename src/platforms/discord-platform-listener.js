@@ -10,6 +10,7 @@ import {
   buildServerStartingEmbed,
   buildServerStartingStateEmbed,
   buildServerStoppingStateEmbed,
+  buildArchivePanel,
   buildStatusPanel,
   MAX_STATUS_PANEL_SERVERS
 } from "../lib/formatters.js";
@@ -141,14 +142,25 @@ export class DiscordPlatformListener {
     });
   }
 
-  async #handleStatusPanelUpdated({ snapshots }) {
-    this.#warnIfTruncated(snapshots);
-    await this.discordBridge.upsertStatusPanel(
-      this.config.discord.statusChannelId,
-      buildStatusPanel(snapshots, {
-        displayTimeZone: this.config.discord.displayTimeZone
-      })
-    );
+  async #handleStatusPanelUpdated({ snapshots, archivedServers = [], livePanelChanged = true, archivePanelChanged = true }) {
+    if (archivePanelChanged) {
+      await this.discordBridge.upsertStatusPanel(
+        this.config.discord.statusChannelId,
+        buildArchivePanel(archivedServers),
+        { panelKey: "archive" }
+      );
+    }
+
+    if (livePanelChanged) {
+      this.#warnIfTruncated(snapshots);
+      await this.discordBridge.upsertStatusPanel(
+        this.config.discord.statusChannelId,
+        buildStatusPanel(snapshots, {
+          displayTimeZone: this.config.discord.displayTimeZone
+        }),
+        { panelKey: "live" }
+      );
+    }
   }
 
   async #handleServerActionMessage(event) {

@@ -5,6 +5,7 @@ import { StatusSyncService } from "../src/services/status-sync-service.js";
 
 function createService({ servers, getServerResources }) {
   const panels = [];
+  const panelEvents = [];
   const service = new StatusSyncService({
     config: {
       discord: { statusChannelId: "status", displayTimeZone: "UTC" },
@@ -14,7 +15,10 @@ function createService({ servers, getServerResources }) {
     discordBridge: { setSlashCommands() {}, onMessage() {}, onInteraction() {}, onReaction() {} },
     eventBus: {
       async emit(name, payload) {
-        if (name === CoreEvents.STATUS_PANEL_UPDATED) panels.push(payload.snapshots);
+        if (name === CoreEvents.STATUS_PANEL_UPDATED) {
+          panels.push(payload.snapshots);
+          panelEvents.push(payload);
+        }
         return [];
       }
     },
@@ -33,7 +37,7 @@ function createService({ servers, getServerResources }) {
     logger: { error() {}, warn() {}, info() {} }
   });
 
-  for (const server of servers) {
+  for (const server of servers.filter((server) => !server.archived)) {
     service.adapters.set(server.pterodactylServerId, {
       supportsConsoleSubscription() { return false; },
       async fetchSnapshot(resources) {
@@ -48,7 +52,7 @@ function createService({ servers, getServerResources }) {
     });
   }
 
-  return { service, panels };
+  return { service, panels, panelEvents };
 }
 
 function makeServer(name) {
@@ -60,6 +64,43 @@ function makeServer(name) {
     autoStop: null
   };
 }
+
+test("archived servers are excluded from polling and published only to the archive panel", async () => {
+  const polled = [];
+  const active = makeServer("active");
+  const archived = { ...makeServer("archived"), archived: true, archiveNote: "Season ended" };
+  const { service, panels, panelEvents } = createService({
+    servers: [active, archived],
+    async getServerResources(serverId) {
+      polled.push(serverId);
+      return { currentState: "offline", cpuPercent: 0, memoryBytes: 0 };
+    }
+  });
+
+  await service.syncOnce({ force: true });
+
+  assert.deepEqual(polled, ["active-id"]);
+  assert.equal(service.adapters.has("archived-id"), false);
+  assert.deepEqual(panels[0].map((item) => item.name), ["active"]);
+  assert.deepEqual(panelEvents[0].archivedServers.map((item) => item.name), ["archived"]);
+});
+
+test("config reload starts and stops adapters when archived state changes", async () => {
+  const server = makeServer("alpha");
+  const { service } = createService({ servers: [server], async getServerResources() { return {}; } });
+  let stopped = 0;
+  service.adapters.set("alpha-id", { stop() { stopped += 1; } });
+
+  server.archived = true;
+  service.onConfigReloaded();
+  assert.equal(stopped, 1);
+  assert.equal(service.adapters.has("alpha-id"), false);
+
+  server.archived = false;
+  service.onConfigReloaded();
+  assert.equal(service.adapters.has("alpha-id"), true);
+  await service.stop();
+});
 
 test("concurrent syncOnce callers coalesce into a single poll", async () => {
   let release = null;

@@ -10,6 +10,7 @@ export function getStatePath() {
 function createDefaultState() {
   return {
     statusMessages: {},
+    statusPanelLayouts: {},
     actionMessages: {},
     serverRuntime: {},
     autoStop: {},
@@ -54,6 +55,7 @@ export class StateStore {
 
     this.state = parsed;
     this.state.statusMessages ??= {};
+    this.state.statusPanelLayouts ??= {};
     this.state.actionMessages ??= {};
     this.state.serverRuntime ??= {};
     this.state.autoStop ??= {};
@@ -134,8 +136,8 @@ export class StateStore {
     fs.renameSync(tempPath, this.filePath);
   }
 
-  getStatusMessageIds(channelId) {
-    const value = this.state.statusMessages[channelId];
+  getStatusMessageIds(channelId, panelKey = "live") {
+    const value = this.state.statusMessages[this.#statusMessageKey(channelId, panelKey)];
 
     if (Array.isArray(value)) {
       return value.filter(Boolean);
@@ -148,9 +150,22 @@ export class StateStore {
     return [];
   }
 
-  setStatusMessageIds(channelId, messageIds) {
-    this.state.statusMessages[channelId] = messageIds;
+  setStatusMessageIds(channelId, messageIds, panelKey = "live") {
+    this.state.statusMessages[this.#statusMessageKey(channelId, panelKey)] = messageIds;
     this.save();
+  }
+
+  getStatusPanelLayoutVersion(channelId) {
+    return Number(this.state.statusPanelLayouts[channelId] ?? 1);
+  }
+
+  setStatusPanelLayoutVersion(channelId, version) {
+    this.state.statusPanelLayouts[channelId] = version;
+    this.save();
+  }
+
+  #statusMessageKey(channelId, panelKey) {
+    return panelKey === "live" ? channelId : `${channelId}:${panelKey}`;
   }
 
   getActionMessageId(channelId) {

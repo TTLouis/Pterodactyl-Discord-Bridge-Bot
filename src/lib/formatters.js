@@ -14,6 +14,7 @@ const MAX_FIELD_VALUE_LENGTH = 1024;
 const MAX_DESCRIPTION_LENGTH = 4096;
 const PLAYER_NAMES_MAX_LENGTH = 700;
 const DESCRIPTION_MAX_LENGTH = 850;
+const ARCHIVE_DESCRIPTION_MAX_LENGTH = 4096;
 const STATUS_META = {
   Online: { emoji: "🟢", label: "Online" },
   Starting: { emoji: "🟡", label: "Starting" },
@@ -242,6 +243,23 @@ export function buildStatusPanel(snapshots, { displayTimeZone } = {}) {
   return {
     content: `Last update: ${localTimestamp} (${relativeTimestamp})`,
     embeds: snapshots.slice(0, MAX_STATUS_PANEL_SERVERS).map((snapshot) => buildServerEmbed(snapshot, footerText))
+  };
+}
+
+export function buildArchivePanel(servers) {
+  const lines = servers.length === 0
+    ? ["No archived servers."]
+    : servers.map((server) => {
+      const name = String(server.name ?? "Unnamed server").replace(/`/g, "'");
+      const note = server.archiveNote ? ` — ${String(server.archiveNote)}` : "";
+      return `• **${name}**${note}`;
+    });
+
+  return {
+    embeds: [new EmbedBuilder()
+      .setColor(0x64748b)
+      .setTitle("Archived Servers")
+      .setDescription(truncate(lines.join("\n"), ARCHIVE_DESCRIPTION_MAX_LENGTH))]
   };
 }
 

@@ -51,8 +51,8 @@ test("Discord platform listener renders status, action, chat, and notices", asyn
     eventBus,
     config: createConfig(),
     discordBridge: {
-      async upsertStatusPanel(channelId, panel) {
-        calls.push({ method: "upsertStatusPanel", channelId, panel });
+      async upsertStatusPanel(channelId, panel, options) {
+        calls.push({ method: "upsertStatusPanel", channelId, panel, options });
       },
       async replaceActionMessage(channelId, payload, options) {
         calls.push({ method: "replaceActionMessage", channelId, payload, options });
@@ -69,7 +69,7 @@ test("Discord platform listener renders status, action, chat, and notices", asyn
   });
   listener.start();
 
-  await eventBus.emit(CoreEvents.STATUS_PANEL_UPDATED, { snapshots: [snapshot] });
+  await eventBus.emit(CoreEvents.STATUS_PANEL_UPDATED, { snapshots: [snapshot], archivedServers: [] });
   await eventBus.emit(CoreEvents.SERVER_ACTION_MESSAGE, { kind: "auto-stop-warning", server, stopAt: new Date() });
   await eventBus.emit(CoreEvents.SERVER_ACTION_MESSAGE, { kind: "server-offline", server, currentState: "offline" });
   await eventBus.emit(CoreEvents.GAME_CHAT_RELAY, { server, authorName: "Player", content: "hello" });
@@ -88,27 +88,32 @@ test("Discord platform listener renders status, action, chat, and notices", asyn
 
   assert.equal(calls[0].method, "upsertStatusPanel");
   assert.equal(calls[0].channelId, "discord-status");
-  assert.match(calls[0].panel.embeds[0].toJSON().fields[1].value, /Offline/);
-  assert.deepEqual(calls[1].options.reactions, [CANCEL_AUTO_STOP_REACTION]);
-  assert.equal(calls[1].options.preferEdit, true);
-  assert.deepEqual(calls[1].options.meta, {
+  assert.equal(calls[0].panel.embeds[0].toJSON().title, "Archived Servers");
+  assert.deepEqual(calls[0].panel.embeds[0].toJSON().description, "No archived servers.");
+  assert.deepEqual(calls[0].options, { panelKey: "archive" });
+  assert.equal(calls[1].method, "upsertStatusPanel");
+  assert.deepEqual(calls[1].options, { panelKey: "live" });
+  assert.match(calls[1].panel.embeds[0].toJSON().fields[1].value, /Offline/);
+  assert.deepEqual(calls[2].options.reactions, [CANCEL_AUTO_STOP_REACTION]);
+  assert.equal(calls[2].options.preferEdit, true);
+  assert.deepEqual(calls[2].options.meta, {
     serverId: "factory-id",
     serverName: "Factory",
     kind: "auto-stop-warning",
     state: null
   });
-  assert.deepEqual(calls[2].options.reactions, [RESTART_SERVER_REACTION]);
-  assert.deepEqual(calls[2].options.meta, {
+  assert.deepEqual(calls[3].options.reactions, [RESTART_SERVER_REACTION]);
+  assert.deepEqual(calls[3].options.meta, {
     serverId: "factory-id",
     serverName: "Factory",
     kind: "server-offline",
     state: "offline"
   });
-  assert.deepEqual(calls[3], { method: "sendMessage", channelId: "discord-server", content: "**Player**: hello" });
-  assert.deepEqual(calls[4], { method: "sendMessage", channelId: "discord-server", content: "[KOOK] **Kai**: from kook" });
-  assert.deepEqual(calls[5], { method: "sendMessage", channelId: "discord-server", content: "2 players joined **Factory**. (2/8)" });
-  assert.deepEqual(calls[6], { method: "deleteMessage", channelId: "discord-server", messageId: "old-message" });
-  assert.equal(calls.length, 7);
+  assert.deepEqual(calls[4], { method: "sendMessage", channelId: "discord-server", content: "**Player**: hello" });
+  assert.deepEqual(calls[5], { method: "sendMessage", channelId: "discord-server", content: "[KOOK] **Kai**: from kook" });
+  assert.deepEqual(calls[6], { method: "sendMessage", channelId: "discord-server", content: "2 players joined **Factory**. (2/8)" });
+  assert.deepEqual(calls[7], { method: "deleteMessage", channelId: "discord-server", messageId: "old-message" });
+  assert.equal(calls.length, 8);
 });
 
 test("KOOK platform listener renders status, action, chat, and notices", async () => {
@@ -119,8 +124,8 @@ test("KOOK platform listener renders status, action, chat, and notices", async (
     config: createConfig(),
     logger: { warn() {} },
     kookBridge: {
-      async upsertStatusPanel(channelId, panel) {
-        calls.push({ method: "upsertStatusPanel", channelId, panel });
+      async upsertStatusPanel(channelId, panel, options) {
+        calls.push({ method: "upsertStatusPanel", channelId, panel, options });
       },
       async replaceActionMessage(channelId, payload, options) {
         calls.push({ method: "replaceActionMessage", channelId, payload, options });
@@ -132,7 +137,7 @@ test("KOOK platform listener renders status, action, chat, and notices", async (
   });
   listener.start();
 
-  await eventBus.emit(CoreEvents.STATUS_PANEL_UPDATED, { snapshots: [snapshot] });
+  await eventBus.emit(CoreEvents.STATUS_PANEL_UPDATED, { snapshots: [snapshot], archivedServers: [] });
   await eventBus.emit(CoreEvents.SERVER_ACTION_MESSAGE, { kind: "server-offline", server, currentState: "offline" });
   await eventBus.emit(CoreEvents.GAME_CHAT_RELAY, { server, authorName: "Player", content: "hello" });
   await eventBus.emit(CoreEvents.GROUP_CHAT_RELAY, { server, sourcePlatform: "discord", authorName: "Louis", content: "from discord" });
@@ -149,21 +154,24 @@ test("KOOK platform listener renders status, action, chat, and notices", async (
 
   assert.equal(calls[0].method, "upsertStatusPanel");
   assert.equal(calls[0].channelId, "kook-status");
-  assert.match(calls[0].panel.content, /服务器时间/);
-  assert.equal(calls[1].method, "replaceActionMessage");
-  assert.equal(calls[1].channelId, "kook-server");
-  assert.match(calls[1].payload.content, /服务器离线/);
-  assert.equal(calls[1].options.preferEdit, true);
-  assert.deepEqual(calls[1].options.meta, {
+  assert.match(calls[0].panel.content, /已归档服务器/);
+  assert.deepEqual(calls[0].options, { panelKey: "archive" });
+  assert.match(calls[1].panel.content, /服务器时间/);
+  assert.deepEqual(calls[1].options, { panelKey: "live" });
+  assert.equal(calls[2].method, "replaceActionMessage");
+  assert.equal(calls[2].channelId, "kook-server");
+  assert.match(calls[2].payload.content, /服务器离线/);
+  assert.equal(calls[2].options.preferEdit, true);
+  assert.deepEqual(calls[2].options.meta, {
     serverId: "factory-id",
     serverName: "Factory",
     kind: "server-offline",
     state: "offline"
   });
-  assert.deepEqual(calls[2], { method: "sendMessage", channelId: "kook-server", content: "**Player**: hello" });
-  assert.deepEqual(calls[3], { method: "sendMessage", channelId: "kook-server", content: "[Discord] **Louis**: from discord" });
-  assert.deepEqual(calls[4], { method: "sendMessage", channelId: "kook-server", content: "2 名玩家加入 **Factory**。(2/8)" });
-  assert.equal(calls.length, 5);
+  assert.deepEqual(calls[3], { method: "sendMessage", channelId: "kook-server", content: "**Player**: hello" });
+  assert.deepEqual(calls[4], { method: "sendMessage", channelId: "kook-server", content: "[Discord] **Louis**: from discord" });
+  assert.deepEqual(calls[5], { method: "sendMessage", channelId: "kook-server", content: "2 名玩家加入 **Factory**。(2/8)" });
+  assert.equal(calls.length, 6);
 });
 
 test("KOOK action cards identify panel-originated starts", () => {
@@ -174,6 +182,32 @@ test("KOOK action cards identify panel-originated starts", () => {
   });
 
   assert.match(card.content, /Pterodactyl 面板/);
+});
+
+test("archive-only panel updates do not edit the live Discord status message", async () => {
+  const eventBus = new CoreEventBus();
+  const calls = [];
+  const listener = new DiscordPlatformListener({
+    eventBus,
+    config: createConfig(),
+    discordBridge: {
+      async upsertStatusPanel(channelId, panel, options) {
+        calls.push({ channelId, panel, options });
+      }
+    }
+  });
+  listener.start();
+  await eventBus.emit(CoreEvents.STATUS_PANEL_UPDATED, {
+    snapshots: [],
+    archivedServers: [{ name: "Factory Season 1", archiveNote: "World preserved" }],
+    livePanelChanged: false,
+    archivePanelChanged: true
+  });
+  listener.stop();
+
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].options, { panelKey: "archive" });
+  assert.match(calls[0].panel.embeds[0].toJSON().description, /Factory Season 1.*World preserved/);
 });
 
 test("relay queue expiry notices are sent only to the Discord log channel", async () => {

@@ -94,6 +94,17 @@ test("live reload rejects structural server changes", () => {
   assert.equal(current.servers[0].discordChannelId, "server-channel");
 });
 
+test("live reload accepts archived-state changes and archive notes", () => {
+  const current = createConfig();
+  const archived = createConfig();
+  archived.servers[0].archived = true;
+  assert.doesNotThrow(() => validateReloadCompatibility(current, archived));
+
+  const noted = createConfig();
+  noted.servers[0].archiveNote = "Season ended";
+  assert.doesNotThrow(() => validateReloadCompatibility(current, noted));
+});
+
 test("live reload rejects KOOK structural changes", () => {
   const current = createConfig();
   const next = createConfig();
