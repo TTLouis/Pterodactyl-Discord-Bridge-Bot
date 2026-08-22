@@ -25,6 +25,8 @@
     {
       "name": "Factorio Main",
       "pterodactylServerId": "a1b2c3d4",
+      "archived": false,
+      "archiveNote": null,
       "discordChannelId": "FACTORIO_DISCORD_CHANNEL_ID",
       "kookChannelId": "FACTORIO_KOOK_CHANNEL_ID",
       "publicAddress": "play.example.com",

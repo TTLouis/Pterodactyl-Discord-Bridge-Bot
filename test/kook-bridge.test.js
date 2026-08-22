@@ -6,6 +6,7 @@ import { KookBridge } from "../src/services/kook-bridge.js";
 function createMemoryStateStore() {
   const state = {
     statusMessages: {},
+    statusPanelLayouts: {},
     actionMessages: {}
   };
 
@@ -14,11 +15,17 @@ function createMemoryStateStore() {
     load() {
       return state;
     },
-    getStatusMessageIds(channelId) {
-      return state.statusMessages[channelId] ?? [];
+    getStatusMessageIds(channelId, panelKey = "live") {
+      return state.statusMessages[panelKey === "live" ? channelId : `${channelId}:${panelKey}`] ?? [];
     },
-    setStatusMessageIds(channelId, messageIds) {
-      state.statusMessages[channelId] = messageIds;
+    setStatusMessageIds(channelId, messageIds, panelKey = "live") {
+      state.statusMessages[panelKey === "live" ? channelId : `${channelId}:${panelKey}`] = messageIds;
+    },
+    getStatusPanelLayoutVersion(channelId) {
+      return state.statusPanelLayouts[channelId] ?? 1;
+    },
+    setStatusPanelLayoutVersion(channelId, version) {
+      state.statusPanelLayouts[channelId] = version;
     },
     getActionMessageId(channelId) {
       const value = state.actionMessages[channelId];
@@ -259,6 +266,33 @@ test("KOOK status panels update known messages and create when the known message
     ]);
     assert.equal(requests[1].payload.target_id, "status-channel");
     assert.deepEqual(stateStore.getStatusMessageIds("status-channel"), ["created-1"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("KOOK migrates a legacy live panel below the archive panel once", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (url, options) => {
+    const endpoint = new URL(url).pathname.replace("/api/v3", "");
+    requests.push({ endpoint, payload: JSON.parse(options.body) });
+    return makeJsonResponse(endpoint === "/message/create" ? { msg_id: "new-live" } : {});
+  };
+
+  try {
+    const stateStore = createMemoryStateStore();
+    stateStore.setStatusMessageIds("status", ["old-live"]);
+    stateStore.setStatusMessageIds("status", ["archive"], "archive");
+    const bridge = new KookBridge({
+      token: "token", guildId: "guild", stateStore, apiBaseUrl: "https://example.test/api/v3", logger: { info() {}, warn() {} }
+    });
+
+    await bridge.upsertStatusPanel("status", { type: 10, content: "[{}]" });
+
+    assert.deepEqual(requests.map((request) => request.endpoint), ["/message/create", "/message/delete"]);
+    assert.deepEqual(stateStore.getStatusMessageIds("status"), ["new-live"]);
+    assert.equal(stateStore.getStatusPanelLayoutVersion("status"), 2);
   } finally {
     globalThis.fetch = originalFetch;
   }

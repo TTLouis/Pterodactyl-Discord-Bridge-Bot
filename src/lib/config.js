@@ -50,6 +50,18 @@ function normalizeOptionalString(value) {
   return normalized || null;
 }
 
+function normalizeArchived(server) {
+  if (server.archived === undefined) {
+    return false;
+  }
+
+  if (typeof server.archived !== "boolean") {
+    throw new Error(`Server "${server.name}" archived must be a boolean. Received: ${JSON.stringify(server.archived)}`);
+  }
+
+  return server.archived;
+}
+
 function normalizePositiveNumber(value, fallback) {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? number : fallback;
@@ -205,6 +217,8 @@ function normalizeServer(server) {
     discordChannelId: server.discordChannelId,
     kookChannelId: normalizeKookConfigId(server.kookChannelId),
     pterodactylServerId: server.pterodactylServerId,
+    archived: normalizeArchived(server),
+    archiveNote: normalizeOptionalString(server.archiveNote),
     game: gameType === "satisfactory"
       ? normalizeSatisfactoryGame(server)
       : gameType === "minecraft"

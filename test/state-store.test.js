@@ -136,3 +136,15 @@ test("a readable state file is preserved as-is", () => {
     assert.equal(fs.readdirSync(directory).some((name) => name.includes(".corrupt-")), false);
   });
 });
+
+test("archive status message IDs are independent from the live panel", () => {
+  withTempStore(({ makeStore }) => {
+    const store = makeStore();
+    store.load();
+    store.setStatusMessageIds("status", ["live-message"]);
+    store.setStatusMessageIds("status", ["archive-message"], "archive");
+
+    assert.deepEqual(store.getStatusMessageIds("status"), ["live-message"]);
+    assert.deepEqual(store.getStatusMessageIds("status", "archive"), ["archive-message"]);
+  });
+});

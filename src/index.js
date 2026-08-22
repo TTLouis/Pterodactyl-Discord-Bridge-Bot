@@ -88,7 +88,7 @@ async function main() {
     stateStore,
     logger,
     isWatchedChannel: (channelId) => runtime.config.servers.some(
-      (server) => server.discordChannelId === channelId
+      (server) => !server.archived && server.discordChannelId === channelId
     )
   });
   kookBridge = isKookEnabled()

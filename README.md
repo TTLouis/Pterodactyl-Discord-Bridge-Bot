@@ -128,6 +128,8 @@ Discord still owns slash command and reaction inputs. KOOK mirrors core output e
         "New players are welcome."
       ],
       "pterodactylServerId": "a1b2c3d4",
+      "archived": false,
+      "archiveNote": null,
       "discordChannelId": "FACTORIO_DISCORD_CHANNEL_ID",
       "kookChannelId": "FACTORIO_KOOK_CHANNEL_ID",
       "publicAddress": "play.example.com",
@@ -189,6 +191,7 @@ Discord still owns slash command and reaction inputs. KOOK mirrors core output e
 Key notes:
 
 - `pterodactylServerId` is the client server identifier used by `/api/client/servers/{id}`
+- Set `archived: true` to keep a complete retired-server record in the compact archive panel. Archived servers are not polled and cannot receive relays or bot actions; `archiveNote` is optional and shown beside the server name. Both settings reload without a bot restart.
 - `publicPort` is optional. When omitted, the bot reads the server's default Pterodactyl allocation from `/api/client/servers/{id}/network/allocations`
 - The Pterodactyl Client API key must be allowed to read allocations when `publicPort` is omitted
 - `publicAddress` is optional if your Pterodactyl allocation has a useful alias/IP, but setting it is recommended when you want Discord/KOOK to show a friendly DNS name
@@ -208,7 +211,7 @@ Key notes:
 - Use `/restart-bot` in the configured Discord log channel to gracefully exit the bot so Docker/systemd can restart it
 - Server additions/removals, IDs, channel mappings, non-Satisfactory game settings, Discord/KOOK channel IDs, and Pterodactyl connection changes require a bot restart
 - Invalid JSON or an invalid live change is logged and the bot continues using the previous configuration
-- The Discord status panel shows at most 10 servers and the KOOK panel at most 4, both limited by the platforms. Servers beyond the limit are omitted and reported once in the log
+- Discord and KOOK each maintain an archive panel above the live status panel. The archive panel remains as a small placeholder when empty; both messages are edited in place. The Discord live panel shows at most 10 active servers and the KOOK live panel at most 4, both limited by the platforms. Servers beyond the limit are omitted and reported once in the log
 - Console and gateway reconnects back off exponentially with jitter, capped at 60 seconds, and reset once a connection authenticates
 - `pterodactyl.apiRequestTimeoutSeconds` defaults to `10` and bounds every panel REST call, so an unresponsive panel cannot stall status updates for every server. Changing it requires a bot restart
 - `game.playerListRefreshIntervalSeconds` sets the backup player-list refresh for Factorio and Minecraft and defaults to `900`. It is a safety net behind the live join/leave console events, so long intervals are fine

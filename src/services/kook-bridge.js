@@ -250,23 +250,24 @@ export class KookBridge {
     await this.#post("/message/delete", { msg_id: messageId });
   }
 
-  async upsertStatusPanel(channelId, panel) {
-    return this.#withChannelQueue(channelId, () => this.#upsertStatusPanel(channelId, panel));
+  async upsertStatusPanel(channelId, panel, { panelKey = "live" } = {}) {
+    return this.#withChannelQueue(channelId, () => this.#upsertStatusPanel(channelId, panel, panelKey));
   }
 
-  async #upsertStatusPanel(channelId, panel) {
-    const knownMessageIds = this.stateStore.getStatusMessageIds(channelId);
+  async #upsertStatusPanel(channelId, panel, panelKey) {
+    const knownMessageIds = this.stateStore.getStatusMessageIds(channelId, panelKey);
     const knownMessageId = knownMessageIds[0] ?? null;
     const payload = this.#normalizeMessagePayload(panel);
+    const migrateLivePanel = panelKey === "live" && this.#needsStatusPanelMigration(channelId, knownMessageIds);
 
-    if (knownMessageId) {
+    if (knownMessageId && !migrateLivePanel) {
       try {
         await this.#post("/message/update", {
           ...payload,
           msg_id: knownMessageId
         });
         await this.#deleteStaleStatusMessages(channelId, knownMessageIds.slice(1));
-        this.stateStore.setStatusMessageIds(channelId, [knownMessageId]);
+        this.stateStore.setStatusMessageIds(channelId, [knownMessageId], panelKey);
         return;
       } catch (error) {
         this.logger.warn(`Failed to edit KOOK status panel message ${knownMessageId}, sending a new one instead.`, error);
@@ -275,7 +276,24 @@ export class KookBridge {
 
     const message = await this.sendMessage(channelId, payload);
     await this.#deleteStaleStatusMessages(channelId, knownMessageIds);
-    this.stateStore.setStatusMessageIds(channelId, [message.id]);
+    this.stateStore.setStatusMessageIds(channelId, [message.id], panelKey);
+    this.#finishStatusPanelMigration(channelId, panelKey);
+  }
+
+  #needsStatusPanelMigration(channelId, liveMessageIds) {
+    if (typeof this.stateStore.getStatusPanelLayoutVersion !== "function") {
+      return false;
+    }
+
+    return this.stateStore.getStatusPanelLayoutVersion(channelId) !== 2
+      && liveMessageIds.length > 0
+      && this.stateStore.getStatusMessageIds(channelId, "archive").length > 0;
+  }
+
+  #finishStatusPanelMigration(channelId, panelKey) {
+    if (panelKey === "live" && this.stateStore.getStatusMessageIds(channelId, "archive").length > 0) {
+      this.stateStore.setStatusPanelLayoutVersion?.(channelId, 2);
+    }
   }
 
   async #connectGateway() {
