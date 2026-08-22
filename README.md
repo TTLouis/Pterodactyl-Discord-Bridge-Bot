@@ -114,14 +114,14 @@ Discord still owns slash command and reaction inputs. KOOK mirrors core output e
   "servers": [
     {
       "name": "Factorio Main",
-      "asciiTitleLines": [
+      "asciiTitle": [
         "______         _             _         ",
         "|  ___|_ _  ___| |_ ___  _ __(_) ___    ",
         "| |_ / _` |/ __| __/ _ \\| '__| |/ _ \\ ",
         "|  _| (_| | (__| || (_) | |  | | (_) |",
         "|_|  \\__,_|\\___|\\__\\___/|_|  |_|\\___/ "
       ],
-      "descriptionLines": [
+      "description": [
         "**Main public factory server**",
         "Vanilla settings with no required mods.",
         "",
@@ -136,7 +136,6 @@ Discord still owns slash command and reaction inputs. KOOK mirrors core output e
       "game": {
         "type": "factorio",
         "chatCommandTemplate": "/shout {platform}<{author}>: {content}",
-        "kookChatCommandTemplate": "/shout KOOK<{author}>: {content}",
         "playerListRefreshIntervalSeconds": 900
       },
       "autoStop": {
@@ -147,7 +146,7 @@ Discord still owns slash command and reaction inputs. KOOK mirrors core output e
     },
     {
       "name": "Minecraft Main",
-      "descriptionLines": [
+      "description": [
         "**Main survival world**",
         "Join from Java Edition using the address above."
       ],
@@ -159,14 +158,13 @@ Discord still owns slash command and reaction inputs. KOOK mirrors core output e
       "maxPlayers": 20,
       "game": {
         "type": "minecraft",
-        "chatCommandTemplate": "/say [{platform}] {author}: {content}",
-        "kookChatCommandTemplate": "/say [KOOK] {author}: {content}"
+        "chatCommandTemplate": "/say [{platform}] {author}: {content}"
       }
     },
     {
       "name": "Satisfactory Main",
-      "asciiTitle": "Satisfactory\\nMain",
-      "descriptionLines": [
+      "asciiTitle": ["Satisfactory", "Main"],
+      "description": [
         "**Main factory world**",
         "Use the current experimental game version."
       ],
@@ -198,13 +196,13 @@ Key notes:
 - `discord.logChannelId` is optional — mirrors logger output into a Discord channel, including startup configuration, server snapshots, status refreshes, console bridge subscriptions, and power-state transitions
 - Set `KOOK_ENABLED=true` with `KOOK_TOKEN` to mirror status panels, server-channel action messages, and chat relay to KOOK; `kook.displayTimeZone` defaults to `Asia/Shanghai`
 - `kookChannelId` is optional per server. Servers without it remain Discord-only on KOOK mirrors and inbound KOOK chat relay
-- `game.chatCommandTemplate` supports `{author}`, `{content}`, and `{platform}`. Use `discordChatCommandTemplate` or `kookChatCommandTemplate` when a platform needs a different in-game label
+- `game.chatCommandTemplate` supports `{author}`, `{content}`, and `{platform}`. The core resolves `{platform}` to `Discord` or `KOOK` before relaying into the game
 - Satisfactory API tokens are application tokens generated from the server console with `server.GenerateAPIToken`
 - Satisfactory often uses self-signed TLS; `game.allowInsecureTls` defaults to `true`
 - `game.apiRequestTimeoutSeconds` defaults to `10` so an unavailable Satisfactory API cannot stall all status updates
-- `asciiTitleLines` (array) or `asciiTitle` (single string with `\n`) both work for the ASCII title block
-- `descriptionLines` preserves manual line breaks, blank lines, Unicode, and Discord Markdown; the older `description` string remains supported
-- `pterodactyl.pollIntervalSeconds` controls empty-server refreshes; `activePlayerPollIntervalSeconds` defaults to `15` seconds while any server has players. Values in `servers.json` take precedence over legacy interval environment variables and reload without a restart
+- `asciiTitle` is an array of lines for the ASCII title block
+- `description` is an array of lines. It preserves manual line breaks, blank lines, Unicode, and Discord Markdown
+- `pterodactyl.pollIntervalSeconds` controls empty-server refreshes; `activePlayerPollIntervalSeconds` defaults to `15` seconds while any server has players. Both live only in `servers.json` and reload without a restart
 - Saving a valid `servers.json` automatically refreshes display settings such as descriptions, names, addresses, ports, player limits, timezone, and auto-stop values
 - Saving Satisfactory API settings such as `game.apiToken`, `game.apiUrl`, `game.allowInsecureTls`, or `game.apiRequestTimeoutSeconds` reloads that server's Satisfactory API state without a bot restart
 - Use `/restart-bot` in the configured Discord log channel to gracefully exit the bot so Docker/systemd can restart it

@@ -279,8 +279,7 @@ test("Factorio chat relay executes formatted commands", async () => {
       kookChannelId: "kook-channel",
       pterodactylServerId: "factorio-id",
       game: {
-        chatCommandTemplate: "/shout {platform}<{author}>: {content}",
-        kookChatCommandTemplate: "/shout KOOK<{author}>: {content}"
+        chatCommandTemplate: "/shout {platform}<{author}>: {content}"
       }
     },
     pterodactylClient: {
@@ -302,6 +301,10 @@ test("Factorio chat relay executes formatted commands", async () => {
   );
   assert.equal(
     adapter.parseConsoleChatLine("2026-07-02 10:52:00 [CHAT] [color=#00A1D6]KOOK[/color]<[color=#00A1D6]Kai[/color]>: hello"),
+    null
+  );
+  assert.equal(
+    adapter.parseConsoleChatLine("2026-07-02 10:52:00 [CHAT] [color=#00A1D6]KOOK[/color][color=#00A1D6]<Kai>[/color]: hello"),
     null
   );
 });
@@ -340,6 +343,23 @@ test("Factorio discards a player list that raced a live join or leave", async ()
   await pending;
 
   assert.deepEqual(adapter.onlinePlayers, ["Louis"], "the live event should win over the stale list");
+});
+
+test("Factorio keeps a join event received before its initial player-list response", async () => {
+  const listResponse = deferred();
+  const adapter = new FactorioAdapter({
+    serverConfig: { name: "Factory", pterodactylServerId: "factory-id", game: { type: "factorio" } },
+    pterodactylClient: { async runCommand() { return listResponse.promise; } }
+  });
+
+  const snapshotPromise = adapter.fetchSnapshot(runningResources);
+  const joinLine = "2026-08-20 12:00:00 [JOIN] Ada joined the game";
+  assert.equal(adapter.applyPlayerEvent(joinLine), true);
+  listResponse.resolve(["Players (0):"]);
+
+  const snapshot = await snapshotPromise;
+  assert.equal(snapshot.playerCount, 1);
+  assert.deepEqual(snapshot.onlinePlayers, ["Ada"]);
 });
 
 test("Minecraft does not relay bridged messages back into chat", () => {

@@ -24,19 +24,6 @@
   "servers": [
     {
       "name": "Factorio Main",
-      "asciiTitleLines": [
-        "______         _             _         ",
-        "|  ___|_ _  ___| |_ ___  _ __(_) ___    ",
-        "| |_ / _` |/ __| __/ _ \\| '__| |/ _ \\ ",
-        "|  _| (_| | (__| || (_) | |  | | (_) |",
-        "|_|  \\__,_|\\___|\\__\\___/|_|  |_|\\___/ "
-      ],
-      "descriptionLines": [
-        "**Main public factory server**",
-        "Vanilla settings with no required mods.",
-        "",
-        "New players are welcome."
-      ],
       "pterodactylServerId": "a1b2c3d4",
       "discordChannelId": "FACTORIO_DISCORD_CHANNEL_ID",
       "kookChannelId": "FACTORIO_KOOK_CHANNEL_ID",
@@ -46,22 +33,29 @@
       "game": {
         "type": "factorio",
         "chatCommandTemplate": "/shout {platform}<{author}>: {content}",
-        "kookChatCommandTemplate": "/shout KOOK<{author}>: {content}",
         "playerListRefreshIntervalSeconds": 900
       },
       "autoStop": {
         "enabled": true,
         "emptyTimeoutHours": 24,
         "warningMinutesBefore": 60
-      }
+      },
+      "asciiTitle": [
+        "______         _             _         ",
+        "|  ___|_ _  ___| |_ ___  _ __(_) ___    ",
+        "| |_ / _` |/ __| __/ _ \\| '__| |/ _ \\ ",
+        "|  _| (_| | (__| || (_) | |  | | (_) |",
+        "|_|  \\__,_|\\___|\\__\\___/|_|  |_|\\___/ "
+      ],
+      "description": [
+        "**Main public factory server**",
+        "Vanilla settings with no required mods.",
+        "",
+        "New players are welcome."
+      ]
     },
     {
       "name": "Minecraft Main",
-      "asciiTitleLines": [],
-      "descriptionLines": [
-        "**Main survival world**",
-        "Join from Java Edition using the address above."
-      ],
       "pterodactylServerId": "m1n2o3p4",
       "discordChannelId": "MINECRAFT_DISCORD_CHANNEL_ID",
       "kookChannelId": "MINECRAFT_KOOK_CHANNEL_ID",
@@ -70,17 +64,16 @@
       "maxPlayers": 20,
       "game": {
         "type": "minecraft",
-        "chatCommandTemplate": "/say [{platform}] {author}: {content}",
-        "kookChatCommandTemplate": "/say [KOOK] {author}: {content}"
-      }
+        "chatCommandTemplate": "/say [{platform}] {author}: {content}"
+      },
+      "asciiTitle": [],
+      "description": [
+        "**Main survival world**",
+        "Join from Java Edition using the address above."
+      ]
     },
     {
       "name": "Satisfactory Main",
-      "asciiTitleLines": [],
-      "descriptionLines": [
-        "**Main factory world**",
-        "Use the current experimental game version."
-      ],
       "pterodactylServerId": "e5f6g7h8",
       "discordChannelId": "SATISFACTORY_DISCORD_CHANNEL_ID",
       "kookChannelId": "SATISFACTORY_KOOK_CHANNEL_ID",
@@ -93,7 +86,12 @@
         "allowInsecureTls": true,
         "apiRequestTimeoutSeconds": 10,
         "chatCommandTemplate": null
-      }
+      },
+      "asciiTitle": [],
+      "description": [
+        "**Main factory world**",
+        "Use the current experimental game version."
+      ]
     }
   ]
 }
