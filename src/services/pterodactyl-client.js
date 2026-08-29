@@ -6,6 +6,25 @@ const DEFAULT_API_REQUEST_TIMEOUT_MS = 10_000;
 const SUBSCRIPTION_AUTH_TIMEOUT_MS = 10_000;
 const BACKLOG_READY_TIMEOUT_MS = 1_000;
 
+function isConsoleDiagnosticsEnabled(value = process.env.PTERODACTYL_CONSOLE_DIAGNOSTICS) {
+  return /^(?:1|true|yes|on)$/i.test(String(value ?? ""));
+}
+
+function describeWebsocketUrl(rawUrl) {
+  try {
+    const url = new URL(rawUrl);
+    // Deliberately exclude query parameters: some installations put credentials
+    // in the URL and diagnostics must never write those to the log.
+    return `${url.protocol}//${url.host}${url.pathname}`;
+  } catch {
+    return "(unparseable URL)";
+  }
+}
+
+function closeReason(reason) {
+  return String(reason ?? "").replace(/[\r\n\t]+/g, " ").slice(0, 200) || "(none)";
+}
+
 export class PterodactylClient {
   constructor({
     baseUrl,
@@ -16,6 +35,7 @@ export class PterodactylClient {
     apiRequestTimeoutMs = DEFAULT_API_REQUEST_TIMEOUT_MS,
     subscriptionAuthTimeoutMs = SUBSCRIPTION_AUTH_TIMEOUT_MS,
     backlogReadyTimeoutMs = BACKLOG_READY_TIMEOUT_MS,
+    consoleDiagnostics = isConsoleDiagnosticsEnabled(),
     webSocketFactory = (url, options) => new WebSocket(url, options)
   }) {
     this.baseUrl = baseUrl.replace(/\/+$/, "");
@@ -26,6 +46,7 @@ export class PterodactylClient {
     this.apiRequestTimeoutMs = apiRequestTimeoutMs;
     this.subscriptionAuthTimeoutMs = subscriptionAuthTimeoutMs;
     this.backlogReadyTimeoutMs = backlogReadyTimeoutMs;
+    this.consoleDiagnostics = consoleDiagnostics;
     this.webSocketFactory = webSocketFactory;
     this.commandQueues = new Map();
     this.consoleSessions = new Map();
@@ -160,6 +181,12 @@ export class PterodactylClient {
   async getServerWebsocket(serverId) {
     const cached = this.websocketCredentialCache.get(serverId);
     if (cached && Date.now() < cached.expiresAt) {
+      this.#diagnoseConsole("credentials reused", {
+        serverId,
+        credentialAgeMs: Date.now() - cached.fetchedAt,
+        credentialTtlRemainingMs: cached.expiresAt - Date.now(),
+        endpoint: describeWebsocketUrl(cached.credentials.socket)
+      });
       return cached.credentials;
     }
 
@@ -173,10 +200,21 @@ export class PterodactylClient {
     // Pterodactyl tokens are valid for ~10 minutes; cache for 8 to stay clear of expiry
     this.websocketCredentialCache.set(serverId, {
       credentials,
+      fetchedAt: Date.now(),
       expiresAt: Date.now() + 8 * 60 * 1000
+    });
+    this.#diagnoseConsole("credentials fetched", {
+      serverId,
+      endpoint: describeWebsocketUrl(credentials.socket),
+      credentialCacheTtlMs: 8 * 60 * 1000
     });
 
     return credentials;
+  }
+
+  #diagnoseConsole(event, details) {
+    if (!this.consoleDiagnostics) return;
+    logger.info(`Pterodactyl console diagnostic: ${event}`, details);
   }
 
   subscribeToConsole(serverId, {
@@ -202,6 +240,7 @@ export class PterodactylClient {
     let readySocket = null;
     let activeCommand = null;
     let state = "connecting";
+    let connectionNumber = 0;
 
     const setState = (nextState) => {
       state = nextState;
@@ -228,14 +267,15 @@ export class PterodactylClient {
       }
     };
 
-    const scheduleReconnect = () => {
+    const scheduleReconnect = (details = {}) => {
       if (stopped || reconnectHandle) return;
       const delayMs = nextReconnectDelayMs(reconnectDelayMs, reconnectAttempts);
       reconnectAttempts += 1;
       logger.info("Scheduling Pterodactyl console reconnect", {
         serverId,
         attempt: reconnectAttempts,
-        delayMs
+        delayMs,
+        ...details
       });
       reconnectHandle = setTimeout(() => {
         reconnectHandle = null;
@@ -308,11 +348,20 @@ export class PterodactylClient {
     };
 
     const connect = async () => {
+      const connectionId = ++connectionNumber;
+      const attemptStartedAt = Date.now();
+      let connectionAuthenticatedAt = null;
       try {
         const { socket, token, origin } = await this.getServerWebsocket(serverId);
         if (stopped) return;
-
-        const nextSocket = this.webSocketFactory(this.#rewriteWingsSocketUrl(socket), {
+        const websocketUrl = this.#rewriteWingsSocketUrl(socket);
+        this.#diagnoseConsole("connection attempt", {
+          serverId,
+          connectionId,
+          reconnectAttempt: reconnectAttempts,
+          endpoint: describeWebsocketUrl(websocketUrl)
+        });
+        const nextSocket = this.webSocketFactory(websocketUrl, {
           headers: { Origin: origin }
         });
         ws = nextSocket;
@@ -324,16 +373,21 @@ export class PterodactylClient {
           setState("disconnected");
           onError?.(error);
           closeSocket();
-          scheduleReconnect();
+          scheduleReconnect({ connectionId, trigger: "auth-timeout" });
         }, this.subscriptionAuthTimeoutMs);
 
         nextSocket.on("open", () => {
+          this.#diagnoseConsole("socket opened", {
+            serverId,
+            connectionId,
+            connectDurationMs: Date.now() - attemptStartedAt
+          });
           try {
             nextSocket.send(JSON.stringify({ event: "auth", args: [token] }));
           } catch (error) {
             onError?.(error);
             closeSocket();
-            scheduleReconnect();
+            scheduleReconnect({ connectionId, trigger: "auth-send-failed" });
           }
         });
 
@@ -355,7 +409,7 @@ export class PterodactylClient {
             this.#invalidateWebsocketCredentials(serverId);
             onError?.(new Error(`Pterodactyl websocket auth failed for server ${serverId}`));
             closeSocket();
-            scheduleReconnect();
+            scheduleReconnect({ connectionId, trigger: "auth-error" });
             return;
           }
 
@@ -364,6 +418,7 @@ export class PterodactylClient {
             reconnectAttempts = 0;
             authenticatedSocket = nextSocket;
             consoleConnectedAt = Date.now();
+            connectionAuthenticatedAt = consoleConnectedAt;
             const isReconnect = hasConnectedSuccessfully;
             currentConnectionIsReconnect = isReconnect;
             hasConnectedSuccessfully = true;
@@ -384,17 +439,26 @@ export class PterodactylClient {
               notifyReady();
             }
             logger.info("Pterodactyl console websocket authenticated", { serverId, isReconnect, state });
+            this.#diagnoseConsole("authentication succeeded", {
+              serverId,
+              connectionId,
+              isReconnect,
+              handshakeDurationMs: Date.now() - attemptStartedAt,
+              initialState: state
+            });
             onConnected?.({ isReconnect });
             return;
           }
 
           if (payload.event === "ping") {
+            this.#diagnoseConsole("panel heartbeat received", { serverId, connectionId });
             nextSocket.send(JSON.stringify({ event: "pong", args: [] }));
             return;
           }
 
           if (payload.event === "status") {
             const newState = Array.isArray(payload.args) ? payload.args[0] : null;
+            this.#diagnoseConsole("power state received", { serverId, connectionId, state: newState });
             if (newState) onStatusChange?.(newState);
             return;
           }
@@ -421,25 +485,50 @@ export class PterodactylClient {
             authenticatedSocket = null;
             setState("disconnected");
           }
+          this.#diagnoseConsole("socket error", {
+            serverId,
+            connectionId,
+            state,
+            message: error?.message ?? String(error)
+          });
           onError?.(error);
         });
 
         nextSocket.on("close", (code, reason) => {
           clearAuthTimeout();
           clearBacklogTimeout();
+          const stateBeforeClose = state;
+          const wasAuthenticated = authenticatedSocket === nextSocket;
           if (authenticatedSocket === nextSocket) authenticatedSocket = null;
           awaitingInitialLogs = false;
           setState(stopped ? "stopped" : "disconnected");
+          this.#diagnoseConsole("socket closed", {
+            serverId,
+            connectionId,
+            code,
+            reason: closeReason(reason),
+            wasAuthenticated,
+            stateBeforeClose,
+            connectionDurationMs: Date.now() - attemptStartedAt,
+            authenticatedDurationMs: connectionAuthenticatedAt === null ? null : Date.now() - connectionAuthenticatedAt,
+            stopped
+          });
           rejectActiveCommand(new Error(`Pterodactyl websocket closed before command completed: ${code} ${reason.toString()}`));
           if (ws === nextSocket) ws = null;
           if (stopped || code === 1000) return;
           onError?.(new Error(`Pterodactyl websocket closed unexpectedly: ${code} ${reason.toString()}`));
-          scheduleReconnect();
+          scheduleReconnect({ connectionId, trigger: `close-${code}` });
         });
       } catch (error) {
         setState("disconnected");
+        this.#diagnoseConsole("connection attempt failed", {
+          serverId,
+          connectionId,
+          durationMs: Date.now() - attemptStartedAt,
+          message: error?.message ?? String(error)
+        });
         onError?.(error);
-        scheduleReconnect();
+        scheduleReconnect({ connectionId, trigger: "connection-error" });
       }
     };
 
