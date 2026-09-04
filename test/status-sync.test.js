@@ -198,16 +198,16 @@ test("the heartbeat is written after every completed poll loop", async () => {
 });
 
 test("the heartbeat still fires when every server fails", async () => {
-  const beats = [];
+  const summaries = [];
   const { service } = createService({
     servers: [makeServer("alpha"), makeServer("beta")],
     async getServerResources() { throw new Error("panel unreachable"); }
   });
-  service.onSyncCompleted = () => beats.push(Date.now());
+  service.onSyncCompleted = (summary) => summaries.push(summary);
 
   await service.syncOnce({ force: true });
 
-  // The loop completing is the liveness signal; a restart would not fix an
-  // unreachable panel, so panel failures must not mark the bot unhealthy.
-  assert.equal(beats.length, 1);
+  assert.equal(summaries.length, 1);
+  assert.equal(summaries[0].degraded, true);
+  assert.deepEqual(summaries[0].failedServers, ["alpha", "beta"]);
 });

@@ -8,6 +8,7 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "validate-config": "node scripts/validate-config.js",
+    "health-status": "node src/health-status.js",
     "kook:smoke": "node scripts/kook-api-smoke-test.js",
     "kook:gateway": "node scripts/kook-api-smoke-test.js --gateway",
     "kook:status-test": "node scripts/kook-status-message-test.js",

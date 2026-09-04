@@ -17,6 +17,7 @@ services:
       STATE_PATH: /data/runtime-state.json
       KOOK_STATE_PATH: /data/kook-runtime-state.json
       HEARTBEAT_PATH: /data/heartbeat
+      SYNC_HEALTH_PATH: /data/sync-health.json
 
     volumes:
       - ./servers.json:/config/servers.json:ro

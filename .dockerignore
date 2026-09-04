@@ -8,6 +8,7 @@ node_modules
 servers.json
 *runtime-state.json
 heartbeat
+sync-health.json
 
 # Development-only material that never runs inside the image.
 test
