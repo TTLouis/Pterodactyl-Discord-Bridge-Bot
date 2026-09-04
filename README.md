@@ -18,6 +18,13 @@ Current Satisfactory limitations:
 
 ## Setup
 
+### Prerequisites
+
+- Node.js 20 or later, or Docker Compose
+- A Discord application invited with the `bot` and `applications.commands` scopes
+- Discord Gateway intents enabled for **Guilds**, **Guild Messages**, **Guild Message Reactions**, and **Message Content**
+- A Pterodactyl Client API key. It also needs allocation-read access when the bot should discover a server's public port automatically.
+
 Clone the repository, then copy the config templates and fill them in:
 
 ```bash
@@ -26,13 +33,17 @@ cp .env.example .env
 cp servers.example.json servers.json
 ```
 
-Put your Discord bot token in `.env`, then edit `servers.json` with your guild, channel, and Pterodactyl details. Every option is described under [Config Reference](#config-reference).
+Put your Discord bot token in `.env`, then edit `servers.json` with your guild, channel, and Pterodactyl details. Every option is described under [Config Reference](#config-reference). Validate the configuration before starting:
+
+```bash
+npm run validate-config
+```
 
 ```bash
 npm start
 ```
 
-The bot validates `servers.json` at startup and names the offending field if anything is missing or out of range, so a bad edit fails immediately rather than misbehaving later.
+On first run, confirm the bot is online in Discord, the status panel appears in the configured status channel, and the startup log has no Pterodactyl connection errors. The bot validates `servers.json` at startup and names the offending field if anything is missing or out of range, so a bad edit fails immediately rather than misbehaving later.
 
 ## Docker Compose
 
@@ -46,6 +57,7 @@ cp servers.example.json servers.json
 2. Build and start:
 
 ```bash
+docker compose run --rm discord-bot npm run validate-config
 docker compose up --build -d
 ```
 
@@ -77,7 +89,7 @@ Copy these files to the target host, then run `docker compose up -d --build`:
 - `package.json`, `package-lock.json`, `src/`
 - `.env`, `servers.json`
 
-The interactive setup wizard and the `bootstrap` scripts live on the `onboarding-wizard` branch; they had drifted out of sync with the configuration schema and could emit a `servers.json` that would not load.
+The template-based setup above is the supported onboarding path. Run `npm run validate-config` on the target host before starting the bot.
 
 ## Hosting
 

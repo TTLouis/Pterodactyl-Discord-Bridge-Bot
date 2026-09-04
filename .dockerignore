@@ -11,7 +11,8 @@ heartbeat
 
 # Development-only material that never runs inside the image.
 test
-scripts
+scripts/*
+!scripts/validate-config.js
 *.md
 
 # Editor and assistant state.

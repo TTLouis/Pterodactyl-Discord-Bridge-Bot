@@ -295,13 +295,42 @@ function validateConfig(config) {
 
     throw new Error(`Unsupported server type: ${server.game?.type}. Supported types are factorio, minecraft, and satisfactory.`);
   }
+
+  validateUniqueServerMappings(config.servers);
+}
+
+function validateUniqueServerMappings(servers) {
+  const seenServerIds = new Map();
+  const seenDiscordChannels = new Map();
+  const seenKookChannels = new Map();
+
+  for (const server of servers) {
+    assertUniqueServerMapping(seenServerIds, server.pterodactylServerId, server, "Pterodactyl server ID");
+    if (server.archived) continue;
+
+    assertUniqueServerMapping(seenDiscordChannels, server.discordChannelId, server, "Discord channel ID");
+    if (server.kookChannelId) {
+      assertUniqueServerMapping(seenKookChannels, server.kookChannelId, server, "KOOK channel ID");
+    }
+  }
+}
+
+function assertUniqueServerMapping(seen, value, server, label) {
+  const previousServer = seen.get(value);
+  if (previousServer) {
+    throw new Error(
+      `Duplicate ${label} ${JSON.stringify(value)} for servers "${previousServer.name}" and "${server.name}".`
+    );
+  }
+
+  seen.set(value, server);
 }
 
 export function getConfigPath() {
   return path.resolve(process.cwd(), process.env.CONFIG_PATH ?? "./servers.json");
 }
 
-export function loadConfig() {
+export function loadConfig({ requireRuntimeTokens = true } = {}) {
   const configPath = getConfigPath();
   if (!fs.existsSync(configPath)) {
     throw new Error(`Config file not found at ${configPath}`);
@@ -335,8 +364,8 @@ export function loadConfig() {
   validateConfig(config);
 
   return {
-    discordToken: assertRequiredEnv("DISCORD_TOKEN"),
-    kookToken: isKookEnabled() ? assertRequiredEnv("KOOK_TOKEN") : process.env.KOOK_TOKEN ?? null,
+    discordToken: requireRuntimeTokens ? assertRequiredEnv("DISCORD_TOKEN") : null,
+    kookToken: requireRuntimeTokens && isKookEnabled() ? assertRequiredEnv("KOOK_TOKEN") : process.env.KOOK_TOKEN ?? null,
     config
   };
 }
