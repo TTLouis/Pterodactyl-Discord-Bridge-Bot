@@ -37,7 +37,18 @@ jobs:
       - name: Deploy Discord bot
         run: |
           cd /opt/docker/discord-bot
+          previous_commit=$(git rev-parse HEAD)
           git fetch --prune origin main
           git reset --hard origin/main
           docker compose up -d --build --remove-orphans
-          docker image prune -f
+          for attempt in $(seq 1 36); do
+            if docker compose exec -T discord-bot node src/healthcheck.js; then
+              docker image prune -f
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Deployment did not become healthy; restoring ${previous_commit}."
+          git reset --hard "$previous_commit"
+          docker compose up -d --build --remove-orphans
+          exit 1

@@ -67,6 +67,12 @@ docker compose up --build -d
 docker compose logs -f
 ```
 
+Inspect the latest poll outcome (including failed servers) without exposing credentials:
+
+```bash
+docker compose exec discord-bot node src/health-status.js
+```
+
 Runtime state (Discord message IDs, auto-stop state) is persisted in the `bot-data` Docker volume.
 
 To stop without losing state:
@@ -94,6 +100,10 @@ The template-based setup above is the supported onboarding path. Run `npm run va
 ## Hosting
 
 The bot runs outside of Pterodactyl — on a separate VM or host — and talks to the panel through the client API and WebSocket. One bot process can manage several Pterodactyl servers.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
 
 ## Runtime Architecture
 
@@ -232,6 +242,6 @@ Key notes:
 - A failed auto-stop is reported in the log channel and retried after five minutes; the bot never announces a stop it could not perform
 - `autoStop.emptyTimeoutHours` defaults to `24`; `warningMinutesBefore` defaults to `60`. Both must be positive, and `warningMinutesBefore` must be smaller than the idle window in minutes; an invalid value is reported and the previous configuration is kept
 - Server action messages use 🔴 to cancel a pending auto-stop and 🟢 to restart a stopped server
-- Override `HEARTBEAT_PATH` to move the liveness file that `src/healthcheck.js` reads. The Compose healthcheck reports whether the poll loop is still completing passes; Docker does not restart unhealthy containers on its own, so pair it with an external watchdog if you want automatic recovery
+- Override `HEARTBEAT_PATH` to move the liveness file that `src/healthcheck.js` reads. The Compose healthcheck reports whether the poll loop is still completing passes; Docker does not restart unhealthy containers on its own, so pair it with an external watchdog if you want automatic recovery. `SYNC_HEALTH_PATH` stores the most recent poll summary, including whether every configured server failed.
 - Override `CONFIG_PATH` and `STATE_PATH` env vars if you want config or Discord runtime state at custom paths
 - Override `KOOK_STATE_PATH` if you want KOOK runtime state at a custom path; KOOK message IDs are kept separate from Discord message IDs

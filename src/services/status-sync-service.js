@@ -1,11 +1,10 @@
-import { MessageFlags } from "discord.js";
 import { FactorioAdapter } from "../adapters/factorio-adapter.js";
 import { MinecraftAdapter } from "../adapters/minecraft-adapter.js";
 import { SatisfactoryAdapter } from "../adapters/satisfactory-adapter.js";
 import { CoreEvents } from "../core/core-events.js";
 import { buildGameChatCommand, truncateRelayContent } from "../lib/chat-relay-formatters.js";
 import { MAX_RELAY_QUEUE_LENGTH } from "../lib/relay-limits.js";
-import { CANCEL_AUTO_STOP_REACTION, RESTART_SERVER_REACTION } from "./auto-stop-service.js";
+import { DiscordInputController } from "./discord-input-controller.js";
 
 const DEBOUNCE_MS = 500;
 const CONSOLE_RELAY_WARMUP_MS = 5000;
@@ -69,13 +68,6 @@ function shouldApplyCachedPowerState(cachedState, resourceState) {
   return true;
 }
 
-const SLASH_COMMANDS = [
-  { name: "start-server", description: "Start a stopped game server" },
-  { name: "cancel-stop", description: "Cancel a pending auto-stop" },
-  { name: "refresh-status", description: "Force refresh all game server status panels" },
-  { name: "restart-bot", description: "Restart the bot process" }
-];
-
 function mergeSyncOptions(current, next) {
   if (!current) {
     return { force: Boolean(next.force), reason: next.reason ?? null };
@@ -109,9 +101,7 @@ export class StatusSyncService {
     this.autoStopService = autoStopService;
     this.stateStore = stateStore;
     this.logger = logger;
-    this.onRestartRequested = onRestartRequested;
     this.onSyncCompleted = onSyncCompleted;
-    this.restartDelayMs = restartDelayMs;
     this.intervalHandle = null;
     this.debounceHandle = null;
     this.activeSync = null;
@@ -130,6 +120,15 @@ export class StatusSyncService {
     this.initialSnapshotLogged = false;
     this.livePanelInitialized = false;
     this.lastArchivePanelKey = null;
+    this.discordInputController = new DiscordInputController({
+      config,
+      discordBridge,
+      autoStopService,
+      syncService: this,
+      logger,
+      onRestartRequested,
+      restartDelayMs
+    });
     this.adapters = new Map(
       config.servers.filter((server) => !server.archived).map((server) => [
         server.pterodactylServerId,
@@ -140,7 +139,7 @@ export class StatusSyncService {
 
   async start() {
     this.started = true;
-    this.discordBridge.setSlashCommands(SLASH_COMMANDS);
+    this.discordInputController.start();
 
     this.discordBridge.onMessage(async (message) => {
       await this.#handleMessage({ sourcePlatform: "discord", ...message });
@@ -148,14 +147,6 @@ export class StatusSyncService {
 
     this.kookBridge?.onMessage(async (message) => {
       await this.#handleMessage({ sourcePlatform: "kook", ...message });
-    });
-
-    this.discordBridge.onInteraction(async (interaction) => {
-      await this.#handleInteraction(interaction);
-    });
-
-    this.discordBridge.onReaction(async (reaction) => {
-      await this.#handleReaction(reaction);
     });
 
     for (const adapter of this.adapters.values()) {
@@ -311,7 +302,19 @@ export class StatusSyncService {
     const snapshots = results.filter((snapshot) => snapshot !== null);
     // The loop finished, which is the liveness signal a healthcheck needs.
     // Per-server failures do not change that the bot is running and polling.
-    this.onSyncCompleted?.();
+    const syncSummary = {
+      completedAt: new Date().toISOString(),
+      durationMs: Date.now() - startedAt,
+      configuredServerCount: activeServers.length,
+      successfulServerCount: snapshots.length,
+      failedServers,
+      degraded: activeServers.length > 0 && snapshots.length === 0
+    };
+    this.onSyncCompleted?.(syncSummary);
+
+    if (failedServers.length > 0) {
+      this.logger.warn("Server sync completed with failures", syncSummary);
+    }
 
     const hadActivePlayers = this.hasActivePlayers;
     this.hasActivePlayers = Array.from(this.serverPlayerCounts.values()).some((count) => count > 0);
@@ -322,7 +325,7 @@ export class StatusSyncService {
     if (snapshots.length > 0 && !this.initialSnapshotLogged) {
       this.initialSnapshotLogged = true;
       this.logger.info("Initial server snapshot", {
-        durationMs: Date.now() - startedAt,
+          durationMs: syncSummary.durationMs,
         activePlayersPresent: this.hasActivePlayers,
         failedServers,
         servers: snapshots.map(summarizeSnapshot)
@@ -345,7 +348,7 @@ export class StatusSyncService {
     if (refreshReason !== "scheduled") {
       this.logger.info("Status panels refreshed", {
         reason: refreshReason,
-        durationMs: Date.now() - startedAt,
+        durationMs: syncSummary.durationMs,
         activePlayersPresent: this.hasActivePlayers,
         failedServers,
         servers: snapshots.map(summarizeSnapshot)
@@ -764,125 +767,6 @@ export class StatusSyncService {
       });
     } catch (error) {
       this.logger.warn(`Failed publishing Satisfactory player-count event for ${server.name}`, error);
-    }
-  }
-
-  async #handleInteraction(interaction) {
-    if (interaction.commandName === "refresh-status") {
-      await this.#handleRefreshStatusCommand(interaction);
-      return;
-    }
-
-    if (interaction.commandName === "restart-bot") {
-      await this.#handleRestartBotCommand(interaction);
-      return;
-    }
-
-    const server = this.config.servers.find((s) => !s.archived && s.discordChannelId === interaction.channelId);
-    if (!server) {
-      await interaction.reply({ content: "This command can only be used in a configured server channel.", flags: MessageFlags.Ephemeral });
-      return;
-    }
-
-    try {
-      if (interaction.commandName === "start-server") {
-        const startRequested = await this.autoStopService.handleStartCommand(server, interaction);
-        if (startRequested) {
-          await this.syncOnce({ force: true });
-        }
-      } else if (interaction.commandName === "cancel-stop") {
-        await this.autoStopService.handleCancelStopCommand(server, interaction);
-      }
-    } catch (error) {
-      this.logger.error(`Failed handling /${interaction.commandName} for ${server.name}`, error);
-      try {
-        const replyMethod = interaction.replied || interaction.deferred ? "followUp" : "reply";
-        await interaction[replyMethod]({ content: "Something went wrong. Try again later.", flags: MessageFlags.Ephemeral });
-      } catch {}
-    }
-  }
-
-  async #handleRefreshStatusCommand(interaction) {
-    const logChannelId = this.config.discord.logChannelId;
-    if (!logChannelId) {
-      await interaction.reply({ content: "No Discord log channel is configured for this bot.", flags: MessageFlags.Ephemeral });
-      return;
-    }
-
-    if (interaction.channelId !== logChannelId) {
-      await interaction.reply({ content: "This command can only be used in the configured log channel.", flags: MessageFlags.Ephemeral });
-      return;
-    }
-
-    const requestedBy = interaction.member?.displayName ?? interaction.user?.username ?? "Unknown";
-    this.logger.info("Manual status refresh requested", {
-      requestedBy,
-      channelId: interaction.channelId
-    });
-
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    await this.syncOnce({ force: true, reason: "manual" });
-    await interaction.editReply({ content: "Status refresh completed for all configured game servers." });
-  }
-
-  async #handleRestartBotCommand(interaction) {
-    const logChannelId = this.config.discord.logChannelId;
-    if (!logChannelId) {
-      await interaction.reply({ content: "No Discord log channel is configured for this bot.", flags: MessageFlags.Ephemeral });
-      return;
-    }
-
-    if (interaction.channelId !== logChannelId) {
-      await interaction.reply({ content: "This command can only be used in the configured log channel.", flags: MessageFlags.Ephemeral });
-      return;
-    }
-
-    if (!this.onRestartRequested) {
-      await interaction.reply({ content: "Bot restart is not available in this runtime.", flags: MessageFlags.Ephemeral });
-      return;
-    }
-
-    const requestedBy = interaction.member?.displayName ?? interaction.user?.username ?? "Unknown";
-    this.logger.info("Bot restart requested", {
-      requestedBy,
-      channelId: interaction.channelId
-    });
-
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    await interaction.editReply({ content: "Restarting bot process. It should come back online shortly." });
-
-    const request = () => {
-      void this.onRestartRequested({
-        requestedBy,
-        channelId: interaction.channelId
-      });
-    };
-
-    if (this.restartDelayMs <= 0) {
-      request();
-      return;
-    }
-
-    setTimeout(request, this.restartDelayMs);
-  }
-
-  async #handleReaction(reaction) {
-    const server = this.config.servers.find((s) => !s.archived && s.discordChannelId === reaction.channelId);
-    if (!server) {
-      return;
-    }
-
-    try {
-      if (reaction.emoji === RESTART_SERVER_REACTION) {
-        const startRequested = await this.autoStopService.handleStartReaction(server, reaction);
-        if (startRequested) {
-          await this.syncOnce({ force: true });
-        }
-      } else if (reaction.emoji === CANCEL_AUTO_STOP_REACTION) {
-        await this.autoStopService.handleCancelStopReaction(server, reaction);
-      }
-    } catch (error) {
-      this.logger.error(`Failed handling ${reaction.emoji} reaction for ${server.name}`, error);
     }
   }
 

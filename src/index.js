@@ -4,6 +4,7 @@ import { getConfigPath, loadConfig } from "./lib/config.js";
 import { isKookEnabled } from "./lib/kook-config.js";
 import { logger } from "./lib/logger.js";
 import { getHeartbeatPath, writeHeartbeat } from "./lib/heartbeat.js";
+import { getSyncHealthPath, writeSyncHealth } from "./lib/sync-health.js";
 import { getStatePath, StateStore } from "./lib/state-store.js";
 import { AutoStopService } from "./services/auto-stop-service.js";
 import { applyReloadedConfig, ConfigReloadService } from "./services/config-reload-service.js";
@@ -132,8 +133,9 @@ async function main() {
       logger.info("Restarting bot after Discord command", { requestedBy });
       void shutdown("BOT_RESTART_REQUESTED");
     },
-    onSyncCompleted() {
+    onSyncCompleted(summary) {
       writeHeartbeat(getHeartbeatPath(), logger);
+      writeSyncHealth(summary, getSyncHealthPath(), logger);
     }
   });
 
