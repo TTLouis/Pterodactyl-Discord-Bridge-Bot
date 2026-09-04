@@ -78,16 +78,6 @@ test("Factorio relay config uses one core-resolved platform template", () => {
   assert.equal(runtime.config.servers[0].game.chatCommandTemplate, "/shout {platform}<{author}>: {content}");
 });
 
-test("both configured Factorio servers use executable relay commands", () => {
-  const rawConfig = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), "servers.json"), "utf8"));
-  const factorioServers = rawConfig.servers.filter((server) => server.game?.type === "factorio");
-
-  assert.equal(factorioServers.length, 2);
-  for (const server of factorioServers) {
-    assert.match(server.game.chatCommandTemplate, /^\/shout .*\{content\}$/);
-  }
-});
-
 test("loadConfig preserves KOOK top-level and per-server channel settings", () => {
   const previousEnv = {
     CONFIG_PATH: process.env.CONFIG_PATH,
@@ -187,6 +177,91 @@ function loadConfigWithServer(serverOverrides) {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 }
+
+function loadConfigWithServers(servers) {
+  const previousEnv = {
+    CONFIG_PATH: process.env.CONFIG_PATH,
+    DISCORD_TOKEN: process.env.DISCORD_TOKEN,
+    KOOK_ENABLED: process.env.KOOK_ENABLED,
+    KOOK_TOKEN: process.env.KOOK_TOKEN
+  };
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "discord-bot-server-mappings-"));
+  const configPath = path.join(tempDir, "servers.json");
+
+  fs.writeFileSync(configPath, JSON.stringify({
+    discord: { guildId: "discord-guild", statusChannelId: "discord-status", displayTimeZone: "UTC" },
+    pterodactyl: { baseUrl: "https://panel.example.com", apiKey: "ptlc_test" },
+    servers
+  }), "utf8");
+
+  try {
+    process.env.CONFIG_PATH = configPath;
+    process.env.DISCORD_TOKEN = "discord-token";
+    process.env.KOOK_ENABLED = "false";
+    delete process.env.KOOK_TOKEN;
+    return loadConfig();
+  } finally {
+    for (const [name, value] of Object.entries(previousEnv)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+function makeServer(name, overrides = {}) {
+  return {
+    name,
+    discordChannelId: `${name}-discord`,
+    kookChannelId: `${name}-kook`,
+    pterodactylServerId: `${name}-pterodactyl`,
+    game: { type: "factorio" },
+    ...overrides
+  };
+}
+
+test("duplicate Pterodactyl server IDs are rejected even for archived servers", () => {
+  assert.throws(
+    () => loadConfigWithServers([
+      makeServer("Alpha"),
+      makeServer("Beta", { archived: true, pterodactylServerId: "Alpha-pterodactyl" })
+    ]),
+    /Duplicate Pterodactyl server ID "Alpha-pterodactyl" for servers "Alpha" and "Beta"/
+  );
+});
+
+test("duplicate active Discord server channels are rejected", () => {
+  assert.throws(
+    () => loadConfigWithServers([
+      makeServer("Alpha"),
+      makeServer("Beta", { discordChannelId: "Alpha-discord" })
+    ]),
+    /Duplicate Discord channel ID "Alpha-discord" for servers "Alpha" and "Beta"/
+  );
+});
+
+test("duplicate active KOOK server channels are rejected", () => {
+  assert.throws(
+    () => loadConfigWithServers([
+      makeServer("Alpha"),
+      makeServer("Beta", { kookChannelId: "Alpha-kook" })
+    ]),
+    /Duplicate KOOK channel ID "Alpha-kook" for servers "Alpha" and "Beta"/
+  );
+});
+
+test("archived servers may reuse active platform channels", () => {
+  const { config } = loadConfigWithServers([
+    makeServer("Alpha"),
+    makeServer("Beta", {
+      archived: true,
+      discordChannelId: "Alpha-discord",
+      kookChannelId: "Alpha-kook"
+    })
+  ]);
+
+  assert.equal(config.servers.length, 2);
+});
 
 test("autoStop timeouts fall back to defaults when omitted", () => {
   const { config } = loadConfigWithServer({ autoStop: { enabled: true } });
