@@ -113,7 +113,7 @@ test("forced sync passes a live-player refresh request to adapters", async () =>
   assert.deepEqual(snapshotOptions, { forcePlayerRefresh: true });
 });
 
-test("scheduled forced sync does not repeatedly request live player lists", async () => {
+test("scheduled forced sync refreshes live player lists at the configured cadence", async () => {
   const server = makeServer("factorio");
   const { service } = createService({
     servers: [server],
@@ -138,7 +138,7 @@ test("scheduled forced sync does not repeatedly request live player lists", asyn
 
   await service.syncOnce({ force: true });
 
-  assert.deepEqual(snapshotOptions, { forcePlayerRefresh: false });
+  assert.deepEqual(snapshotOptions, { forcePlayerRefresh: true });
 });
 
 test("config reload starts and stops adapters when archived state changes", async () => {

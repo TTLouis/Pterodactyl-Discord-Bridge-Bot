@@ -269,11 +269,10 @@ export class StatusSyncService {
         if (resources.currentState === "running") {
           void this.#flushQueuedRelays(server, adapter);
         }
-        // The periodic active-player schedule also uses `force` to repaint the
-        // panel. Only an explicitly requested manual refresh should issue a
-        // new game-console player-list command; otherwise active servers would
-        // receive one command every active-player poll interval.
-        const rawSnapshot = await adapter.fetchSnapshot(resources, { forcePlayerRefresh: reason === "manual" });
+        // A forced sync is used for both manual refreshes and the configured
+        // active/idle polling cadence. Refresh game-derived state alongside
+        // the panel so player lists cannot remain stale between polls.
+        const rawSnapshot = await adapter.fetchSnapshot(resources, { forcePlayerRefresh: force });
         const snapshot = this.#hydrateAutoStopStatus(server, this.#hydrateCachedSnapshot(server, rawSnapshot));
         const previousPlayerCount = this.serverPlayerCounts.get(server.pterodactylServerId);
         const previouslyOnline = this.serverOnlineStates.get(server.pterodactylServerId);
