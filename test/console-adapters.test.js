@@ -244,6 +244,27 @@ test("Factorio snapshots remain available while the console session is connectin
   assert.deepEqual(snapshot.onlinePlayers, []);
 });
 
+test("Factorio forced snapshots query the player list even when it is cached", async () => {
+  let playerListCalls = 0;
+  const adapter = createFactorioAdapter(async (_serverId, command) => {
+    if (command === "/players o") {
+      playerListCalls += 1;
+      return playerListCalls === 1
+        ? ["Players (1):", "Alice (online)"]
+        : ["Players (0):"];
+    }
+    if (command === "/time") return [];
+    throw new Error(`Unexpected command: ${command}`);
+  });
+
+  await adapter.fetchSnapshot(runningResources);
+  const snapshot = await adapter.fetchSnapshot(runningResources, { forcePlayerRefresh: true });
+
+  assert.equal(playerListCalls, 2);
+  assert.equal(snapshot.playerCount, 0);
+  assert.deepEqual(snapshot.onlinePlayers, []);
+});
+
 test("Factorio chat parser forwards player chat and ignores Discord relay echoes", () => {
   const adapter = createFactorioAdapter(async () => []);
 

@@ -113,7 +113,7 @@ export class MinecraftAdapter {
     }
   }
 
-  async fetchSnapshot(resources) {
+  async fetchSnapshot(resources, { forcePlayerRefresh = false } = {}) {
     if (resources.currentState !== "running") {
       this.onlinePlayers = null;
       this.onlinePlayerCount = null;
@@ -142,7 +142,7 @@ export class MinecraftAdapter {
 
     if (this.playerListRefreshPromise) {
       await this.playerListRefreshPromise;
-    } else if (this.onlinePlayers === null) {
+    } else if (this.onlinePlayers === null || forcePlayerRefresh) {
       await this.refreshOnlinePlayers();
     }
 

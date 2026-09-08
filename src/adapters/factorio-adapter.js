@@ -138,7 +138,7 @@ export class FactorioAdapter {
     }
   }
 
-  async fetchSnapshot(resources) {
+  async fetchSnapshot(resources, { forcePlayerRefresh = false } = {}) {
     if (resources.currentState !== "running") {
       this.onlinePlayers = null;
       this.playerEventRevision += 1;
@@ -167,7 +167,7 @@ export class FactorioAdapter {
     try {
       if (this.playerListRefreshPromise) {
         await this.playerListRefreshPromise;
-      } else if (this.onlinePlayers === null) {
+      } else if (this.onlinePlayers === null || forcePlayerRefresh) {
         await this.refreshOnlinePlayers();
       }
     } catch (error) {
