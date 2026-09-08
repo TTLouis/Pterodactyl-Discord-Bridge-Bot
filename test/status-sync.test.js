@@ -85,6 +85,34 @@ test("archived servers are excluded from polling and published only to the archi
   assert.deepEqual(panelEvents[0].archivedServers.map((item) => item.name), ["archived"]);
 });
 
+test("forced sync passes a live-player refresh request to adapters", async () => {
+  const server = makeServer("factorio");
+  const { service } = createService({
+    servers: [server],
+    async getServerResources() {
+      return { currentState: "running", cpuPercent: 0, memoryBytes: 0 };
+    }
+  });
+  let snapshotOptions = null;
+  service.adapters.set(server.pterodactylServerId, {
+    supportsConsoleSubscription() { return false; },
+    async fetchSnapshot(resources, options) {
+      snapshotOptions = options;
+      return {
+        name: server.name,
+        currentState: resources.currentState,
+        simplifiedStatus: "Online",
+        playerCount: 0,
+        onlinePlayers: []
+      };
+    }
+  });
+
+  await service.syncOnce({ force: true, reason: "manual" });
+
+  assert.deepEqual(snapshotOptions, { forcePlayerRefresh: true });
+});
+
 test("config reload starts and stops adapters when archived state changes", async () => {
   const server = makeServer("alpha");
   const { service } = createService({ servers: [server], async getServerResources() { return {}; } });

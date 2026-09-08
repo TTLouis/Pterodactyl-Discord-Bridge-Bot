@@ -269,7 +269,9 @@ export class StatusSyncService {
         if (resources.currentState === "running") {
           void this.#flushQueuedRelays(server, adapter);
         }
-        const rawSnapshot = await adapter.fetchSnapshot(resources);
+        // A forced sync is user-initiated (for example /refresh-status), so it
+        // must refresh game-derived state too—not merely repaint a cached panel.
+        const rawSnapshot = await adapter.fetchSnapshot(resources, { forcePlayerRefresh: force });
         const snapshot = this.#hydrateAutoStopStatus(server, this.#hydrateCachedSnapshot(server, rawSnapshot));
         const previousPlayerCount = this.serverPlayerCounts.get(server.pterodactylServerId);
         const previouslyOnline = this.serverOnlineStates.get(server.pterodactylServerId);
