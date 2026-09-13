@@ -37,6 +37,14 @@ function stripEchoedCommand(command, lines) {
 }
 
 const PLAYER_ENTRY_PATTERN = /^(.+?)\s+\(online\)$/i;
+// Some Pterodactyl Factorio eggs wrap each console line before it reaches the
+// websocket, for example: `[2026-09-13T14:35:46.215Z] [AIR] Factorio] Alice`.
+// The wrapper is not part of a player's Factorio name.
+const FACTORIO_CONSOLE_WRAPPER_PATTERN = /^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\]\s+\[[^\]]+\]\s+(?:\[?Factorio\]?\s*)?/i;
+
+function unwrapFactorioConsoleValue(value) {
+  return String(value ?? "").replace(FACTORIO_CONSOLE_WRAPPER_PATTERN, "").trim();
+}
 
 function parsePlayerList(lines) {
   const normalizedLines = stripEchoedCommand(
@@ -50,12 +58,24 @@ function parsePlayerList(lines) {
     return null;
   }
 
-  const players = normalizedLines
-    .slice(headerIndex + 1)
-    .map((line) => line.match(PLAYER_ENTRY_PATTERN)?.[1] ?? null)
-    .filter(Boolean);
+  const expectedCount = Number(normalizedLines[headerIndex].match(/Players\s*\((\d+)\):/i)?.[1]);
+  const players = [];
 
-  return { playerCount: players.length, players };
+  for (const line of normalizedLines.slice(headerIndex + 1)) {
+    const playerName = line.match(PLAYER_ENTRY_PATTERN)?.[1];
+    if (playerName) {
+      players.push(unwrapFactorioConsoleValue(playerName));
+    }
+    if (players.length === expectedCount) break;
+  }
+
+  // A truncated command response should not replace a known list with a
+  // partial one. It will be retried by the normal refresh path.
+  if (players.length !== expectedCount || players.some((name) => !name)) {
+    return null;
+  }
+
+  return { playerCount: expectedCount, players };
 }
 
 function stripFactorioColorTags(value) {
