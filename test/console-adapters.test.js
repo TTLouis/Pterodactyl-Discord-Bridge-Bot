@@ -265,6 +265,25 @@ test("Factorio forced snapshots query the player list even when it is cached", a
   assert.deepEqual(snapshot.onlinePlayers, []);
 });
 
+test("Factorio strips Pterodactyl egg prefixes from player names", async () => {
+  const adapter = createFactorioAdapter(async (_serverId, command) => {
+    if (command === "/players o") {
+      return [
+        "[2026-09-13T14:35:46.215Z] [AIR] Factorio] Players (1):",
+        "[2026-09-13T14:35:46.215Z] [AIR] Factorio] TTLouis (online)",
+        "Unrelated Player (online)"
+      ];
+    }
+    if (command === "/time") return [];
+    throw new Error(`Unexpected command: ${command}`);
+  });
+
+  const snapshot = await adapter.fetchSnapshot(runningResources);
+
+  assert.equal(snapshot.playerCount, 1);
+  assert.deepEqual(snapshot.onlinePlayers, ["TTLouis"]);
+});
+
 test("Factorio chat parser forwards player chat and ignores Discord relay echoes", () => {
   const adapter = createFactorioAdapter(async () => []);
 
