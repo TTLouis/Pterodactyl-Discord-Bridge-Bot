@@ -329,7 +329,13 @@ test("server allocations are normalized from the client API", async () => {
 test("panel requests time out with a clear error instead of hanging forever", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (url, options) => new Promise((_resolve, reject) => {
-    options.signal.addEventListener("abort", () => reject(options.signal.reason));
+    // AbortSignal.timeout() uses an unref'd timer in Node. Keep the mocked
+    // request alive so the test process cannot exit before the abort fires.
+    const keepAlive = setTimeout(() => {}, 1000);
+    options.signal.addEventListener("abort", () => {
+      clearTimeout(keepAlive);
+      reject(options.signal.reason);
+    }, { once: true });
   });
 
   try {
