@@ -4,7 +4,7 @@ on:
   pull_request:
   push:
     branches:
-      - main
+      - testing
 
 permissions:
   contents: read
@@ -29,7 +29,7 @@ jobs:
 
   deploy:
     needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/testing'
     runs-on: [self-hosted, Linux, X64, DiscordBot]
     timeout-minutes: 15
 
@@ -38,8 +38,8 @@ jobs:
         run: |
           cd /opt/docker/discord-bot
           previous_commit=$(git rev-parse HEAD)
-          git fetch --prune origin main
-          git reset --hard origin/main
+          git fetch --prune origin testing
+          git reset --hard origin/testing
           docker compose up -d --build --remove-orphans
           for attempt in $(seq 1 36); do
             if docker compose exec -T discord-bot node src/healthcheck.js; then
