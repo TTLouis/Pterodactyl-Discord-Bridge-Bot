@@ -1,4 +1,13 @@
-import { Client, Events, GatewayIntentBits, Partials, REST, Routes } from "discord.js";
+import {
+  ChannelType,
+  Client,
+  Events,
+  GatewayIntentBits,
+  Partials,
+  PermissionFlagsBits,
+  REST,
+  Routes
+} from "discord.js";
 import { runHandlers } from "../lib/run-handlers.js";
 import {
   getActionMessageEntry,
@@ -43,6 +52,9 @@ export class DiscordBridge {
 
   setSlashCommands(commands) {
     this.slashCommands = commands;
+    if (this.client.isReady?.()) {
+      void this.#registerSlashCommands();
+    }
   }
 
   async start() {
@@ -54,10 +66,15 @@ export class DiscordBridge {
     });
 
     this.client.on(Events.InteractionCreate, async (interaction) => {
-      if (!interaction.isChatInputCommand() || interaction.guildId !== this.guildId) return;
+      if (interaction.guildId !== this.guildId) return;
+      if (!interaction.isChatInputCommand() && !interaction.isStringSelectMenu()) return;
+
+      const label = interaction.isChatInputCommand()
+        ? `Discord interaction /${interaction.commandName}`
+        : `Discord component ${interaction.customId}`;
       await runHandlers(this.interactionHandlers, interaction, {
         logger: this.logger,
-        label: `Discord interaction /${interaction.commandName}`
+        label
       });
     });
 
@@ -90,6 +107,77 @@ export class DiscordBridge {
 
   async stop() {
     await this.client.destroy();
+  }
+
+  async createPrivateAdminChannel({ requestedByUserId, name = "bridge-admin" }) {
+    const guild = await this.client.guilds.fetch(this.guildId);
+    const existing = guild.channels.cache.find(
+      (channel) => channel.type === ChannelType.GuildText && channel.name === name
+    );
+    if (existing) return existing;
+
+    return guild.channels.create({
+      name,
+      type: ChannelType.GuildText,
+      topic: "Private administration channel for Pterodactyl Platform Bridge.",
+      permissionOverwrites: [
+        {
+          id: guild.roles.everyone.id,
+          deny: [PermissionFlagsBits.ViewChannel]
+        },
+        {
+          id: requestedByUserId,
+          allow: [
+            PermissionFlagsBits.ViewChannel,
+            PermissionFlagsBits.SendMessages,
+            PermissionFlagsBits.ReadMessageHistory
+          ]
+        },
+        {
+          id: this.client.user.id,
+          allow: [
+            PermissionFlagsBits.ViewChannel,
+            PermissionFlagsBits.SendMessages,
+            PermissionFlagsBits.ReadMessageHistory,
+            PermissionFlagsBits.ManageMessages
+          ]
+        }
+      ]
+    });
+  }
+
+  async createStatusChannel({ name = "bridge-status" } = {}) {
+    const guild = await this.client.guilds.fetch(this.guildId);
+    const existing = guild.channels.cache.find(
+      (channel) => channel.type === ChannelType.GuildText && channel.name === name
+    );
+    if (existing) return existing;
+
+    return guild.channels.create({
+      name,
+      type: ChannelType.GuildText,
+      topic: "Live Pterodactyl Platform Bridge server status."
+    });
+  }
+
+  async createServerChannel(serverName) {
+    const guild = await this.client.guilds.fetch(this.guildId);
+    const slug = String(serverName ?? "game-server")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 90) || "game-server";
+    let name = slug;
+    let suffix = 2;
+    while (guild.channels.cache.some((channel) => channel.type === ChannelType.GuildText && channel.name === name)) {
+      name = `${slug.slice(0, 86)}-${suffix++}`;
+    }
+
+    return guild.channels.create({
+      name,
+      type: ChannelType.GuildText,
+      topic: `Pterodactyl Platform Bridge: ${serverName}`
+    });
   }
 
   async sendMessage(channelId, content) {
