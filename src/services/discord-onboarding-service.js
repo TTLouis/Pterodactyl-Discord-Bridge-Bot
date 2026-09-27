@@ -618,7 +618,10 @@ export class DiscordOnboardingService {
         return;
       }
 
-      const serverChannel = await this.discordBridge.createServerChannel(remote.name);
+      const categories = await this.#ensureServerCategories();
+      const serverChannel = await this.discordBridge.createServerChannel(remote.name, {
+        parentId: categories.activeCategoryId
+      });
       this.configStore.addServer({
         name: remote.name,
         pterodactylServerId: remote.identifier,
@@ -703,7 +706,10 @@ export class DiscordOnboardingService {
         return;
       }
 
-      const serverChannel = await this.discordBridge.createServerChannel(remote.name);
+      const categories = await this.#ensureServerCategories();
+      const serverChannel = await this.discordBridge.createServerChannel(remote.name, {
+        parentId: categories.activeCategoryId
+      });
       const game = { type: "satisfactory", apiToken };
       if (apiUrl) game.apiUrl = apiUrl;
       this.configStore.addServer({
