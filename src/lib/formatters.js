@@ -32,12 +32,18 @@ function formatAddress(snapshot) {
 }
 
 function formatPlayers(snapshot) {
+  if (typeof snapshot.playerCount !== "number" || !Number.isFinite(snapshot.playerCount)) {
+    return "Unavailable";
+  }
   const maxPlayers = snapshot.maxPlayers ?? "?";
   return `${snapshot.playerCount}/${maxPlayers}`;
 }
 
 function formatPlayerCountLabel(snapshot) {
-  const playerCount = Number(snapshot.playerCount ?? 0);
+  if (typeof snapshot.playerCount !== "number" || !Number.isFinite(snapshot.playerCount)) {
+    return "👤 Unavailable";
+  }
+  const playerCount = snapshot.playerCount;
   const maxPlayers = typeof snapshot.maxPlayers === "number" ? snapshot.maxPlayers : null;
 
   if (playerCount <= 0) {
@@ -105,8 +111,13 @@ function formatDuration(uptimeMs) {
 }
 
 function buildServerInfoField(snapshot) {
-  const durationLabel = snapshot.gameDurationCached ? "Last Known Time" : "Time";
-  const durationLines = [`**${durationLabel}:** ${formatDuration(snapshot.gameDurationMs)}`];
+  const isGeneric = snapshot.genericPterodactyl === true;
+  const durationHeading = isGeneric ? "Pterodactyl Uptime" : "Total Game Duration";
+  const durationLabel = isGeneric
+    ? "Uptime"
+    : snapshot.gameDurationCached ? "Last Known Time" : "Time";
+  const durationValue = isGeneric ? snapshot.uptimeMs : snapshot.gameDurationMs;
+  const durationLines = [`**${durationLabel}:** ${formatDuration(durationValue)}`];
 
   if (snapshot.satisfactoryState) {
     const { techTier, activeSchematic, gamePhase } = snapshot.satisfactoryState;
