@@ -151,9 +151,8 @@ test("archive status message IDs are independent from the live panel", () => {
 
 
 test("clearManagedServerState removes persisted runtime, auto-stop, and relay data", () => {
-  const { directory, filePath } = createTempStatePath();
-  try {
-    const store = new StateStore(filePath, { saveDebounceMs: 1 });
+  withTempStore(({ makeStore }) => {
+    const store = makeStore();
     store.load();
     store.setServerRuntimeState("removed-id", { lastPowerState: "running" });
     store.setAutoStopState("removed-id", { lastNonEmptyAt: 123 });
@@ -165,7 +164,5 @@ test("clearManagedServerState removes persisted runtime, auto-stop, and relay da
     assert.deepEqual(store.getServerRuntimeState("removed-id"), {});
     assert.deepEqual(store.getAutoStopState("removed-id"), {});
     assert.deepEqual(store.getRelayQueue("removed-id"), []);
-  } finally {
-    fs.rmSync(directory, { recursive: true, force: true });
-  }
+  });
 });
