@@ -159,16 +159,25 @@ export class DiscordBridge {
     });
   }
 
-  async createStatusChannel({ name = "bridge-status" } = {}) {
+  async createStatusChannel({ name = "bridge-status", parentId = null } = {}) {
     const guild = await this.client.guilds.fetch(this.guildId);
     const existing = guild.channels.cache.find(
       (channel) => channel.type === ChannelType.GuildText && channel.name === name
     );
-    if (existing) return existing;
+    if (existing) {
+      if (parentId && existing.parentId !== parentId) {
+        await existing.setParent(parentId, {
+          lockPermissions: true,
+          reason: "Pterodactyl Platform Bridge active status category"
+        });
+      }
+      return existing;
+    }
 
     return guild.channels.create({
       name,
       type: ChannelType.GuildText,
+      parent: parentId ?? undefined,
       topic: "Live Pterodactyl Platform Bridge server status."
     });
   }
