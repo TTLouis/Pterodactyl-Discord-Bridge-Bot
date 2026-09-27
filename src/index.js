@@ -152,6 +152,8 @@ async function main() {
       guildId: runtime.config.discord.guildId,
       statusChannelId: runtime.config.discord.statusChannelId,
       logChannelId,
+      adminChannelId: runtime.config.discord.adminChannelId ?? null,
+      gameChatRelayEnabled: Boolean(runtime.config.features?.gameChatRelayEnabled),
       kookEnabled: Boolean(kookBridge),
       kookGuildId: runtime.config.kook?.guildId ?? null,
       kookStatusChannelId: runtime.config.kook?.statusChannelId ?? null,
@@ -165,7 +167,7 @@ async function main() {
         kookChannelId: server.kookChannelId,
         pterodactylServerId: server.pterodactylServerId,
         autoStopEnabled: Boolean(server.autoStop?.enabled),
-        discordRelayEnabled: Boolean(server.game.chatCommandTemplate)
+        discordRelayEnabled: Boolean(runtime.config.features?.gameChatRelayEnabled && server.game.chatCommandTemplate)
       }))
     });
   }
