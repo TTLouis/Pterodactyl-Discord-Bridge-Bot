@@ -170,7 +170,18 @@ export class DiscordOnboardingService {
       return;
     }
 
-    const discovered = await this.pterodactylClient.listServers();
+    let discovered;
+    try {
+      discovered = await this.pterodactylClient.listServers();
+    } catch (error) {
+      this.logger.error("Pterodactyl onboarding discovery refresh failed", error);
+      await interaction.update({
+        content: `Could not refresh the Pterodactyl server list: ${error.message}`,
+        components: []
+      });
+      return;
+    }
+
     const server = discovered.find((entry) => entry.identifier === serverId);
     if (!server) {
       await interaction.update({
@@ -198,7 +209,7 @@ export class DiscordOnboardingService {
 
     const row = new ActionRowBuilder().addComponents(gameSelector);
     await interaction.update({
-      content: `Importing **${server.name}** (`${server.identifier}`). Choose its game type. Satisfactory onboarding will be added separately because it also needs a game API token.`,
+      content: `Importing **${server.name}** (${server.identifier}). Choose its game type. Satisfactory onboarding will be added separately because it also needs a game API token.`,
       components: [row]
     });
   }
