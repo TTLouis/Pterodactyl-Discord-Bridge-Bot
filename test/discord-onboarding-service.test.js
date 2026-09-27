@@ -139,3 +139,198 @@ test("game selection persists and activates a discovered server", async () => {
   assert.equal(reloadCalls, 1);
   assert.match(calls.at(-1).payload.content, /Imported \*\*Factory\*\*/);
 });
+
+
+test("/bridge servers shows managed and discoverable servers", async () => {
+  const config = {
+    discord: { adminChannelId: "admin", statusChannelId: "status" },
+    pterodactyl: { baseUrl: "https://panel.example.test", apiKey: "hidden-key" },
+    features: { gameChatRelayEnabled: false },
+    servers: [{
+      name: "Factory",
+      pterodactylServerId: "factory-id",
+      discordChannelId: "factory-channel",
+      archived: false,
+      game: { type: "factorio" },
+      autoStop: null
+    }]
+  };
+  const service = new DiscordOnboardingService({
+    config,
+    discordBridge: {},
+    pterodactylClient: {
+      async listServers() {
+        return [
+          { identifier: "factory-id", name: "Factory" },
+          { identifier: "minecraft-id", name: "Minecraft" }
+        ];
+      }
+    },
+    configStore: {},
+    logger: { info() {}, warn() {}, error() {} }
+  });
+  const { interaction, calls } = ownerInteraction({
+    channelId: "admin",
+    options: { getSubcommand() { return "servers"; } }
+  });
+
+  await service.handleInteraction(interaction);
+
+  const reply = calls.find((call) => call.method === "editReply")?.payload.content;
+  assert.match(reply, /Managed servers \(1\)/);
+  assert.match(reply, /Factory/);
+  assert.match(reply, /Available to import \(1\)/);
+  assert.match(reply, /Minecraft/);
+});
+
+test("/bridge connection hides the API key", async () => {
+  const config = {
+    discord: { adminChannelId: "admin", statusChannelId: "status" },
+    pterodactyl: { baseUrl: "https://panel.example.test", apiKey: "super-secret-api-key" },
+    features: { gameChatRelayEnabled: false },
+    servers: []
+  };
+  const service = new DiscordOnboardingService({
+    config,
+    discordBridge: {},
+    pterodactylClient: { async listServers() { return [{ identifier: "one", name: "One" }]; } },
+    configStore: {},
+    logger: { info() {}, warn() {}, error() {} }
+  });
+  const { interaction, calls } = ownerInteraction({
+    channelId: "admin",
+    options: { getSubcommand() { return "connection"; } }
+  });
+
+  await service.handleInteraction(interaction);
+
+  const reply = calls.find((call) => call.method === "editReply")?.payload.content;
+  assert.match(reply, /connection: healthy/);
+  assert.match(reply, /panel\.example\.test/);
+  assert.doesNotMatch(reply, /super-secret-api-key/);
+});
+
+test("/bridge configure persists safe live settings", async () => {
+  const config = {
+    discord: { adminChannelId: "admin", statusChannelId: "status" },
+    pterodactyl: { baseUrl: "https://panel.example.test", apiKey: "hidden" },
+    features: { gameChatRelayEnabled: false },
+    servers: [{
+      name: "Factory",
+      pterodactylServerId: "factory-id",
+      discordChannelId: "factory-channel",
+      archived: false,
+      game: { type: "factorio" },
+      autoStop: null
+    }]
+  };
+  const updates = [];
+  const service = new DiscordOnboardingService({
+    config,
+    discordBridge: {},
+    pterodactylClient: {},
+    configStore: {
+      updateServer(serverId, next) {
+        updates.push({ serverId, next });
+        Object.assign(config.servers[0], next);
+      }
+    },
+    logger: { info() {}, warn() {}, error() {} },
+    async onConfigChanged() { return true; }
+  });
+  const options = {
+    getSubcommand() { return "configure"; },
+    getString(name) {
+      if (name === "server") return "factory-id";
+      if (name === "name") return "Factory Prime";
+      return null;
+    },
+    getBoolean(name) {
+      if (name === "archived") return false;
+      if (name === "auto-stop") return true;
+      return null;
+    },
+    getNumber(name) {
+      if (name === "empty-hours") return 8;
+      if (name === "warning-minutes") return 30;
+      return null;
+    }
+  };
+  const { interaction, calls } = ownerInteraction({ channelId: "admin", options });
+
+  await service.handleInteraction(interaction);
+
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0].serverId, "factory-id");
+  assert.deepEqual(updates[0].next, {
+    name: "Factory Prime",
+    archived: false,
+    autoStop: { enabled: true, emptyTimeoutHours: 8, warningMinutesBefore: 30 }
+  });
+  assert.match(calls.at(-1).payload.content, /Updated \*\*Factory Prime\*\*/);
+});
+
+test("/bridge configure rejects an auto-stop warning longer than the timeout", async () => {
+  const config = {
+    discord: { adminChannelId: "admin", statusChannelId: "status" },
+    servers: [{
+      name: "Factory",
+      pterodactylServerId: "factory-id",
+      discordChannelId: "factory-channel",
+      game: { type: "factorio" },
+      autoStop: null
+    }]
+  };
+  let writes = 0;
+  const service = new DiscordOnboardingService({
+    config,
+    discordBridge: {},
+    pterodactylClient: {},
+    configStore: { updateServer() { writes += 1; } },
+    logger: { info() {}, warn() {}, error() {} }
+  });
+  const options = {
+    getSubcommand() { return "configure"; },
+    getString(name) { return name === "server" ? "factory-id" : null; },
+    getBoolean(name) { return name === "auto-stop" ? true : null; },
+    getNumber(name) {
+      if (name === "empty-hours") return 1;
+      if (name === "warning-minutes") return 60;
+      return null;
+    }
+  };
+  const { interaction, calls } = ownerInteraction({ channelId: "admin", options });
+
+  await service.handleInteraction(interaction);
+
+  assert.equal(writes, 0);
+  assert.match(calls.at(-1).payload.content, /warning time must be shorter/);
+});
+
+test("managed-server autocomplete returns matching identifiers", async () => {
+  const config = {
+    discord: { adminChannelId: "admin" },
+    servers: [
+      { name: "Factorio Factory", pterodactylServerId: "factorio-id" },
+      { name: "Minecraft", pterodactylServerId: "mc-id" }
+    ]
+  };
+  const responses = [];
+  const service = new DiscordOnboardingService({
+    config,
+    discordBridge: {},
+    pterodactylClient: {},
+    configStore: {},
+    logger: { info() {}, warn() {}, error() {} }
+  });
+  await service.handleInteraction({
+    guild: { ownerId: "owner" },
+    user: { id: "owner" },
+    commandName: "bridge",
+    isAutocomplete() { return true; },
+    options: { getFocused() { return { name: "server", value: "fact" }; } },
+    async respond(value) { responses.push(value); }
+  });
+
+  assert.deepEqual(responses[0], [{ name: "Factorio Factory · factorio-id", value: "factorio-id" }]);
+});
