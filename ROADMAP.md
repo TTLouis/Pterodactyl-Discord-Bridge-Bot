@@ -13,6 +13,8 @@ It intentionally does **not** cover donation strategy or maintainer funding deci
 - Build and publish one canonical versioned artifact, then reuse it across supported deployment platforms.
 - Preserve a useful generic Pterodactyl experience for unsupported games rather than failing completely.
 - Keep existing `servers.json` installs migratable while moving day-to-day administration away from hand-edited files.
+- Keep Discord administration in a dedicated private admin channel; logging is a separate output surface.
+- Keep game ↔ Discord/KOOK chat relay shelved and disabled by default until message-loss reliability is addressed.
 
 ## Phase 1 — Discord-native provisioning
 
@@ -132,12 +134,16 @@ These features should build on the control-plane/reconciler architecture rather 
 
 The next implementation work should remain deliberately narrow:
 
-1. Persistent configuration model.
-2. Secure Discord setup claim and administration channel.
-3. Pterodactyl connection validation and server discovery.
-4. Import one server.
-5. Dynamic runtime creation for that server.
-6. Restart persistence.
-7. Regression coverage for authorization, secret handling, duplicate setup, failed validation, and recovery.
+1. Native Pterodactyl Egg and bootstrap environment path.
+2. Dedicated Discord administration channel, separate from logs.
+3. Persistent configuration model that supersedes hand-edited `servers.json`.
+4. Secure Discord setup claim in the administration channel.
+5. Pterodactyl connection validation and server discovery.
+6. Import one server.
+7. Dynamic runtime creation for that server.
+8. Restart persistence.
+9. Regression coverage for authorization, secret handling, duplicate setup, failed validation, and recovery.
+
+The Egg may collect the initial Discord and Pterodactyl bootstrap values needed to start the application. The longer-term control plane should persist normal operational configuration from Discord and reduce Egg variables to deployment/bootstrap concerns.
 
 Do not start broad marketplace/deployment publication until this first Discord-native onboarding slice is reliable enough that hosted users are not forced back into manual `servers.json` maintenance.
