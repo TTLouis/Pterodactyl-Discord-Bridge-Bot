@@ -254,6 +254,13 @@ export class StateStore {
     this.save();
   }
 
+  clearManagedServerState(serverId) {
+    delete this.state.serverRuntime[serverId];
+    delete this.state.autoStop[serverId];
+    delete this.state.relayQueue[serverId];
+    this.save();
+  }
+
   getRelayQueue(serverId) {
     const queue = this.state.relayQueue[serverId];
     return Array.isArray(queue) ? queue : [];
