@@ -8,6 +8,7 @@ import {
 const SERVER_SELECT_ID = "bridge:server";
 const GAME_SELECT_PREFIX = "bridge:game:";
 const MAX_SELECT_OPTIONS = 25;
+const MAX_DISCORD_MESSAGE_LENGTH = 1900;
 
 function isAdministrator(interaction) {
   if (interaction.guild?.ownerId && interaction.user?.id === interaction.guild.ownerId) {
@@ -22,6 +23,28 @@ function gameLabel(type) {
   if (type === "factorio") return "Factorio";
   if (type === "minecraft") return "Minecraft";
   return type;
+}
+
+function formatAutoStop(server) {
+  if (!server.autoStop?.enabled) return "off";
+  const emptyHours = server.autoStop.emptyTimeoutHours ?? 24;
+  const warningMinutes = server.autoStop.warningMinutesBefore ?? 60;
+  return `on (${emptyHours}h empty, ${warningMinutes}m warning)`;
+}
+
+function safePanelHost(baseUrl) {
+  try {
+    return new URL(baseUrl).host;
+  } catch {
+    return "(invalid panel URL)";
+  }
+}
+
+function truncateMessage(value) {
+  const text = String(value ?? "");
+  return text.length <= MAX_DISCORD_MESSAGE_LENGTH
+    ? text
+    : `${text.slice(0, MAX_DISCORD_MESSAGE_LENGTH - 20)}\n… output truncated`;
 }
 
 export class DiscordOnboardingService {
