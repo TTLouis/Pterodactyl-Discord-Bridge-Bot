@@ -99,7 +99,32 @@ export class DiscordOnboardingService {
 
   async #handleCommand(interaction) {
     const subcommand = interaction.options.getSubcommand(false);
+
     if (subcommand !== "setup") {
+      if (!(await this.#requireAdminChannel(interaction))) return;
+
+      if (subcommand === "add") {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        if (!(await this.#ensureStatusChannel(interaction))) return;
+        await this.#showDiscovery(interaction);
+        return;
+      }
+
+      if (subcommand === "servers") {
+        await this.#handleServersCommand(interaction);
+        return;
+      }
+
+      if (subcommand === "connection") {
+        await this.#handleConnectionCommand(interaction);
+        return;
+      }
+
+      if (subcommand === "configure") {
+        await this.#handleConfigureCommand(interaction);
+        return;
+      }
+
       await this.#replyEphemeral(interaction, "Unknown bridge administration command.");
       return;
     }
