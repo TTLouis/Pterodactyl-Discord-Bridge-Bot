@@ -52,22 +52,22 @@
     },
     {
       "name": "Discord Admin Channel ID",
-      "description": "Private channel for bridge administration commands. Keep this separate from the log channel.",
+      "description": "Optional existing private admin channel. Leave blank and /bridge setup will create one.",
       "env_variable": "DISCORD_ADMIN_CHANNEL_ID",
       "default_value": "",
       "user_viewable": true,
       "user_editable": true,
-      "rules": "required|string|max:32",
+      "rules": "nullable|string|max:32",
       "field_type": "text"
     },
     {
       "name": "Discord Status Channel ID",
-      "description": "Channel where the global status panel is published.",
+      "description": "Optional existing status channel. Leave blank and /bridge setup will create one.",
       "env_variable": "DISCORD_STATUS_CHANNEL_ID",
       "default_value": "",
       "user_viewable": true,
       "user_editable": true,
-      "rules": "required|string|max:32",
+      "rules": "nullable|string|max:32",
       "field_type": "text"
     },
     {
