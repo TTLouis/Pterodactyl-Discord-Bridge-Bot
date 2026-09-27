@@ -95,6 +95,26 @@
         "**Main factory world**",
         "Use the current experimental game version."
       ]
+    },
+    {
+      "name": "Generic Pterodactyl Server",
+      "pterodactylServerId": "g9h0i1j2",
+      "discordChannelId": "GENERIC_DISCORD_CHANNEL_ID",
+      "kookChannelId": "GENERIC_KOOK_CHANNEL_ID",
+      "publicAddress": "",
+      "publicPort": null,
+      "maxPlayers": null,
+      "game": {
+        "type": "generic"
+      },
+      "autoStop": {
+        "enabled": false
+      },
+      "asciiTitle": [],
+      "description": [
+        "**Unsupported/custom game server**",
+        "Uses generic Pterodactyl power and resource monitoring without game-specific player detection."
+      ]
     }
   ],
   "features": {
