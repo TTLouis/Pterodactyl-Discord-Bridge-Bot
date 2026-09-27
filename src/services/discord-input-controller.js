@@ -59,13 +59,13 @@ export class DiscordInputController {
   }
 
   async #handleRefreshStatusCommand(interaction) {
-    const logChannelId = this.config.discord.logChannelId;
-    if (!logChannelId) {
-      await interaction.reply({ content: "No Discord log channel is configured for this bot.", flags: MessageFlags.Ephemeral });
+    const adminChannelId = this.config.discord.adminChannelId;
+    if (!adminChannelId) {
+      await interaction.reply({ content: "No Discord admin channel is configured for this bot.", flags: MessageFlags.Ephemeral });
       return;
     }
-    if (interaction.channelId !== logChannelId) {
-      await interaction.reply({ content: "This command can only be used in the configured log channel.", flags: MessageFlags.Ephemeral });
+    if (interaction.channelId !== adminChannelId) {
+      await interaction.reply({ content: "This command can only be used in the configured admin channel.", flags: MessageFlags.Ephemeral });
       return;
     }
 
@@ -77,13 +77,13 @@ export class DiscordInputController {
   }
 
   async #handleRestartBotCommand(interaction) {
-    const logChannelId = this.config.discord.logChannelId;
-    if (!logChannelId) {
-      await interaction.reply({ content: "No Discord log channel is configured for this bot.", flags: MessageFlags.Ephemeral });
+    const adminChannelId = this.config.discord.adminChannelId;
+    if (!adminChannelId) {
+      await interaction.reply({ content: "No Discord admin channel is configured for this bot.", flags: MessageFlags.Ephemeral });
       return;
     }
-    if (interaction.channelId !== logChannelId) {
-      await interaction.reply({ content: "This command can only be used in the configured log channel.", flags: MessageFlags.Ephemeral });
+    if (interaction.channelId !== adminChannelId) {
+      await interaction.reply({ content: "This command can only be used in the configured admin channel.", flags: MessageFlags.Ephemeral });
       return;
     }
     if (!this.onRestartRequested) {
