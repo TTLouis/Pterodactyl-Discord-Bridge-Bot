@@ -37,14 +37,17 @@ Invite the Discord application with the `bot` and `applications.commands` scopes
 
 ## Current preview boundary
 
-The Egg bootstraps the process and `/bridge setup` creates the administration/status channels, validates the Client API connection, discovers accessible servers, and imports Factorio, Minecraft, or Satisfactory servers without hand-editing `servers.json`. Satisfactory uses a private Discord modal for its game API token; the token is persisted but is not echoed into Discord or logs.
+The Egg bootstraps the process and `/bridge setup` creates the administration/status channels, validates the Client API connection, discovers accessible servers, and imports Factorio, Minecraft, Satisfactory, or generic Pterodactyl servers without hand-editing `servers.json`. Satisfactory uses a private Discord modal for its game API token; the token is persisted but is not echoed into Discord or logs. Generic mode provides power state, CPU, RAM, uptime, allocation/address, and normal power controls without pretending that game-specific player data is available.
 
 After initial setup, use:
 
 - `/bridge servers` — list managed servers and Pterodactyl servers still available to import.
 - `/bridge add` — discover and import another server.
 - `/bridge connection` — verify Client API connectivity without displaying credentials.
-- `/bridge configure` — change safe live settings such as display name, archive state, and inactivity auto-stop.
+- `/bridge configure` — change safe live settings such as display name, archive state, and inactivity auto-stop. Auto-stop is unavailable in generic mode because Pterodactyl does not expose a reliable generic player count.
+- `/bridge rebind` — bind a managed server to an existing text channel, or omit the channel to create a replacement automatically.
+- `/bridge remove` — stop managing a server without deleting it from Pterodactyl. The Discord channel can be archived (default), kept, or explicitly deleted.
+- `/bridge repair` — recreate missing bridge categories/status/server channels and repair channel placement/bindings. It can be run by a Discord administrator even if the configured admin channel was deleted.
 - `/bridge backup` — create a restricted backup under the bridge data directory; backups may contain credentials and should not be shared publicly.
 
 Game ↔ Discord/KOOK chat relay remains experimental and disabled by default while message-loss reliability work is shelved.
