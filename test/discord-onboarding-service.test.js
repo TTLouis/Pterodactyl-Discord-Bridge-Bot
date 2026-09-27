@@ -506,3 +506,61 @@ test("/bridge configure moves archived servers into the hidden archive category"
   }]);
   assert.match(calls.at(-1).payload.content, /hidden archive category/);
 });
+
+
+test("/bridge configure restores archived servers to the active category", async () => {
+  const config = {
+    discord: {
+      adminChannelId: "admin",
+      statusChannelId: "status",
+      activeServerCategoryId: "active-category",
+      archiveServerCategoryId: "archive-category"
+    },
+    servers: [{
+      name: "Factory",
+      pterodactylServerId: "factory-id",
+      discordChannelId: "factory-channel",
+      archived: true,
+      game: { type: "factorio" },
+      autoStop: null
+    }]
+  };
+  const placements = [];
+  const service = new DiscordOnboardingService({
+    config,
+    discordBridge: {
+      async setServerChannelArchived(channelId, archived, categories) {
+        placements.push({ channelId, archived, categories });
+      }
+    },
+    pterodactylClient: {},
+    configStore: {
+      updateServer(serverId, updates) {
+        assert.equal(serverId, "factory-id");
+        Object.assign(config.servers[0], updates);
+      }
+    },
+    logger: { info() {}, warn() {}, error() {} },
+    async onConfigChanged() { return true; }
+  });
+  const options = {
+    getSubcommand() { return "configure"; },
+    getString(name) { return name === "server" ? "factory-id" : null; },
+    getBoolean(name) { return name === "archived" ? false : null; },
+    getNumber() { return null; }
+  };
+  const { interaction, calls } = ownerInteraction({ channelId: "admin", options });
+
+  await service.handleInteraction(interaction);
+
+  assert.equal(config.servers[0].archived, false);
+  assert.deepEqual(placements, [{
+    channelId: "factory-channel",
+    archived: false,
+    categories: {
+      activeCategoryId: "active-category",
+      archiveCategoryId: "archive-category"
+    }
+  }]);
+  assert.match(calls.at(-1).payload.content, /restored to the active server category/);
+});
