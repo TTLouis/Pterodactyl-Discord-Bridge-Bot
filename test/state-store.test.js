@@ -148,3 +148,24 @@ test("archive status message IDs are independent from the live panel", () => {
     assert.deepEqual(store.getStatusMessageIds("status", "archive"), ["archive-message"]);
   });
 });
+
+
+test("clearManagedServerState removes persisted runtime, auto-stop, and relay data", () => {
+  const { directory, filePath } = createTempStatePath();
+  try {
+    const store = new StateStore(filePath, { saveDebounceMs: 1 });
+    store.load();
+    store.setServerRuntimeState("removed-id", { lastPowerState: "running" });
+    store.setAutoStopState("removed-id", { lastNonEmptyAt: 123 });
+    store.setRelayQueue("removed-id", [{ content: "queued" }]);
+    store.flush();
+
+    store.clearManagedServerState("removed-id");
+
+    assert.deepEqual(store.getServerRuntimeState("removed-id"), {});
+    assert.deepEqual(store.getAutoStopState("removed-id"), {});
+    assert.deepEqual(store.getRelayQueue("removed-id"), []);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
