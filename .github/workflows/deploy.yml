@@ -1,12 +1,9 @@
 name: CI and Deploy
 
 on:
-  pull_request:
   push:
     branches:
       - testing
-      - "feat/**"
-      - "fix/**"
 
 permissions:
   contents: read
