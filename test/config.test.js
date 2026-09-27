@@ -34,6 +34,7 @@ function loadFactorioConfig(game) {
   fs.writeFileSync(configPath, JSON.stringify({
     discord: { guildId: "discord-guild", statusChannelId: "discord-status", displayTimeZone: "UTC" },
     pterodactyl: { baseUrl: "https://panel.example.com", apiKey: "ptlc_test" },
+    features: { gameChatRelayEnabled: true },
     servers: [{
       name: "Factorio",
       discordChannelId: "discord-server",
@@ -342,4 +343,18 @@ test("playerListRefreshIntervalSeconds defaults to 900 and rejects invalid value
     () => loadConfigWithServer({ game: { type: "factorio", playerListRefreshIntervalSeconds: -5 } }),
     /game\.playerListRefreshIntervalSeconds must be a positive number/
   );
+});
+
+test("game chat relay defaults off and can be enabled from the environment", () => {
+  const previous = process.env.GAME_CHAT_RELAY_ENABLED;
+  try {
+    delete process.env.GAME_CHAT_RELAY_ENABLED;
+    assert.equal(loadConfigWithServer({}).config.features.gameChatRelayEnabled, false);
+
+    process.env.GAME_CHAT_RELAY_ENABLED = "true";
+    assert.equal(loadConfigWithServer({}).config.features.gameChatRelayEnabled, true);
+  } finally {
+    if (previous === undefined) delete process.env.GAME_CHAT_RELAY_ENABLED;
+    else process.env.GAME_CHAT_RELAY_ENABLED = previous;
+  }
 });
