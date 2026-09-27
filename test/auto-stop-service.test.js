@@ -616,6 +616,7 @@ function createLogCommandService({ onRestartRequested = null, restartDelayMs = 1
       discord: {
         statusChannelId: "status",
         logChannelId: "logs",
+        adminChannelId: "admin",
         displayTimeZone: "UTC"
       },
       servers: [{
@@ -643,7 +644,7 @@ function createLogCommandService({ onRestartRequested = null, restartDelayMs = 1
   };
 }
 
-test("refresh-status command in the log channel forces a manual status sync", async () => {
+test("refresh-status command in the admin channel forces a manual status sync", async () => {
   const { service, getInteractionHandler } = createLogCommandService();
   const syncCalls = [];
   let deferred = false;
@@ -653,7 +654,7 @@ test("refresh-status command in the log channel forces a manual status sync", as
   await service.start();
   await getInteractionHandler()({
     commandName: "refresh-status",
-    channelId: "logs",
+    channelId: "admin",
     member: { displayName: "Operator" },
     user: { username: "operator" },
     async deferReply(options) {
@@ -670,7 +671,7 @@ test("refresh-status command in the log channel forces a manual status sync", as
   assert.deepEqual(syncCalls, [undefined, { force: true, reason: "manual" }]);
 });
 
-test("refresh-status command outside the log channel is rejected", async () => {
+test("refresh-status command outside the admin channel is rejected", async () => {
   const { service, getInteractionHandler } = createLogCommandService();
   const syncCalls = [];
   let reply = null;
@@ -687,13 +688,13 @@ test("refresh-status command outside the log channel is rejected", async () => {
   await service.stop();
 
   assert.deepEqual(reply, {
-    content: "This command can only be used in the configured log channel.",
+    content: "This command can only be used in the configured admin channel.",
     flags: MessageFlags.Ephemeral
   });
   assert.deepEqual(syncCalls, [undefined]);
 });
 
-test("restart-bot command in the log channel requests a process restart", async () => {
+test("restart-bot command in the admin channel requests a process restart", async () => {
   const restartRequests = [];
   const { service, getInteractionHandler } = createLogCommandService({
     restartDelayMs: 0,
@@ -708,7 +709,7 @@ test("restart-bot command in the log channel requests a process restart", async 
   await service.start();
   await getInteractionHandler()({
     commandName: "restart-bot",
-    channelId: "logs",
+    channelId: "admin",
     member: { displayName: "Operator" },
     user: { username: "operator" },
     async deferReply(options) {
@@ -728,7 +729,7 @@ test("restart-bot command in the log channel requests a process restart", async 
   }]);
 });
 
-test("restart-bot command outside the log channel is rejected", async () => {
+test("restart-bot command outside the admin channel is rejected", async () => {
   const restartRequests = [];
   const { service, getInteractionHandler } = createLogCommandService({
     restartDelayMs: 0,
@@ -750,7 +751,7 @@ test("restart-bot command outside the log channel is rejected", async () => {
   await service.stop();
 
   assert.deepEqual(reply, {
-    content: "This command can only be used in the configured log channel.",
+    content: "This command can only be used in the configured admin channel.",
     flags: MessageFlags.Ephemeral
   });
   assert.deepEqual(restartRequests, []);
