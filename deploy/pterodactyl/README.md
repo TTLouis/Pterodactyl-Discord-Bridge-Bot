@@ -13,6 +13,19 @@ This directory contains the first native Pterodactyl installation path for Ptero
 
 The Egg writes persistent state under `/home/container/data`. The initial configuration is generated automatically when it does not exist.
 
+## Discord application permissions
+
+Invite the Discord application with the `bot` and `applications.commands` scopes. For the current onboarding flow, the bot needs:
+
+- View Channels
+- Send Messages
+- Read Message History
+- Manage Channels
+- Add Reactions
+- Manage Messages
+
+`Manage Channels` is required because `/bridge setup` can create the private administration channel, global status channel, and per-server channels. The `/bridge setup`, `/refresh-status`, and `/restart-bot` administration paths are restricted to the guild owner or Discord administrators.
+
 ## Current preview boundary
 
 The Egg bootstraps the process and `/bridge setup` creates or claims the administration/status channels, validates the Client API connection, discovers accessible servers, and can import Factorio or Minecraft servers without hand-editing `servers.json`. Satisfactory onboarding is still pending because it also requires a game API token.
