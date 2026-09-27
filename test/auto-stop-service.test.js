@@ -541,6 +541,7 @@ test("KOOK channel messages relay to the matching game server", async () => {
   const service = new StatusSyncService({
     config: {
       discord: { statusChannelId: "status", displayTimeZone: "UTC" },
+      features: { gameChatRelayEnabled: true },
       servers: [{
         name: "Test Server",
         discordChannelId: "discord-channel",
