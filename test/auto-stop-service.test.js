@@ -657,7 +657,8 @@ test("refresh-status command in the admin channel forces a manual status sync", 
     commandName: "refresh-status",
     channelId: "admin",
     member: { displayName: "Operator" },
-    user: { username: "operator" },
+    memberPermissions: { has() { return true; } },
+    user: { id: "operator-id", username: "operator" },
     async deferReply(options) {
       deferred = options.flags;
     },
@@ -682,6 +683,8 @@ test("refresh-status command outside the admin channel is rejected", async () =>
   await getInteractionHandler()({
     commandName: "refresh-status",
     channelId: "server-channel",
+    memberPermissions: { has() { return true; } },
+    user: { id: "operator-id" },
     async reply(payload) {
       reply = payload;
     }
@@ -712,7 +715,8 @@ test("restart-bot command in the admin channel requests a process restart", asyn
     commandName: "restart-bot",
     channelId: "admin",
     member: { displayName: "Operator" },
-    user: { username: "operator" },
+    memberPermissions: { has() { return true; } },
+    user: { id: "operator-id", username: "operator" },
     async deferReply(options) {
       deferred = options.flags;
     },
@@ -745,6 +749,8 @@ test("restart-bot command outside the admin channel is rejected", async () => {
   await getInteractionHandler()({
     commandName: "restart-bot",
     channelId: "server-channel",
+    memberPermissions: { has() { return true; } },
+    user: { id: "operator-id" },
     async reply(payload) {
       reply = payload;
     }
