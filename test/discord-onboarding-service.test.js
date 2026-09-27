@@ -33,7 +33,13 @@ test("/bridge setup creates dedicated admin and status channels on first run", a
     config,
     discordBridge: {
       async createPrivateAdminChannel() { return { id: "admin" }; },
-      async createStatusChannel() { return { id: "status" }; },
+      async ensureServerCategories() {
+        return { activeCategoryId: "active-category", archiveCategoryId: "archive-category" };
+      },
+      async createStatusChannel({ parentId }) {
+        assert.equal(parentId, "active-category");
+        return { id: "status" };
+      },
       async sendMessage(channelId, content) { sent.push({ channelId, content }); }
     },
     pterodactylClient: { async listServers() { throw new Error("should not be called yet"); } },
@@ -48,19 +54,29 @@ test("/bridge setup creates dedicated admin and status channels on first run", a
 
   assert.equal(config.discord.adminChannelId, "admin");
   assert.equal(config.discord.statusChannelId, "status");
-  assert.deepEqual(persisted, [{ adminChannelId: "admin", statusChannelId: "status" }]);
+  assert.equal(config.discord.activeServerCategoryId, "active-category");
+  assert.equal(config.discord.archiveServerCategoryId, "archive-category");
+  assert.equal(persisted.at(-1).adminChannelId, "admin");
+  assert.equal(persisted.at(-1).statusChannelId, "status");
+  assert.equal(persisted.at(-1).activeServerCategoryId, "active-category");
+  assert.equal(persisted.at(-1).archiveServerCategoryId, "archive-category");
   assert.equal(sent[0].channelId, "admin");
   assert.match(calls.at(-1).payload.content, /Continue by running/);
 });
 
 test("/bridge setup validates the panel and offers unimported servers", async () => {
   const config = {
-    discord: { adminChannelId: "admin", statusChannelId: "status" },
+    discord: {
+      adminChannelId: "admin",
+      statusChannelId: "status",
+      activeServerCategoryId: "active-category",
+      archiveServerCategoryId: "archive-category"
+    },
     servers: [{ pterodactylServerId: "already" }]
   };
   const service = new DiscordOnboardingService({
     config,
-    discordBridge: {},
+    discordBridge: { async setChannelCategory() {} },
     pterodactylClient: {
       async listServers() {
         return [
@@ -83,7 +99,12 @@ test("/bridge setup validates the panel and offers unimported servers", async ()
 
 test("game selection persists and activates a discovered server", async () => {
   const config = {
-    discord: { adminChannelId: "admin", statusChannelId: "status" },
+    discord: {
+      adminChannelId: "admin",
+      statusChannelId: "status",
+      activeServerCategoryId: "active-category",
+      archiveServerCategoryId: "archive-category"
+    },
     servers: []
   };
   const imported = [];
@@ -91,7 +112,10 @@ test("game selection persists and activates a discovered server", async () => {
   const service = new DiscordOnboardingService({
     config,
     discordBridge: {
-      async createServerChannel() { return { id: "new-channel" }; }
+      async createServerChannel(_name, { parentId }) {
+        assert.equal(parentId, "active-category");
+        return { id: "new-channel" };
+      }
     },
     pterodactylClient: {
       async listServers() {
@@ -338,7 +362,12 @@ test("managed-server autocomplete returns matching identifiers", async () => {
 
 test("Satisfactory modal persists the token without echoing or logging it", async () => {
   const config = {
-    discord: { adminChannelId: "admin", statusChannelId: "status" },
+    discord: {
+      adminChannelId: "admin",
+      statusChannelId: "status",
+      activeServerCategoryId: "active-category",
+      archiveServerCategoryId: "archive-category"
+    },
     servers: []
   };
   const imported = [];
@@ -346,7 +375,12 @@ test("Satisfactory modal persists the token without echoing or logging it", asyn
   const calls = [];
   const service = new DiscordOnboardingService({
     config,
-    discordBridge: { async createServerChannel() { return { id: "sat-channel" }; } },
+    discordBridge: {
+      async createServerChannel(_name, { parentId }) {
+        assert.equal(parentId, "active-category");
+        return { id: "sat-channel" };
+      }
+    },
     pterodactylClient: {
       async listServers() { return [{ identifier: "sat-id", name: "Satisfactory" }]; }
     },
@@ -413,4 +447,62 @@ test("/bridge backup creates a local backup without attaching it to Discord", as
   assert.equal(calls.length, 1);
   assert.match(calls[0].content, /bridge-config-test\.json/);
   assert.equal(calls[0].files, undefined);
+});
+
+
+test("/bridge configure moves archived servers into the hidden archive category", async () => {
+  const config = {
+    discord: {
+      adminChannelId: "admin",
+      statusChannelId: "status",
+      activeServerCategoryId: "active-category",
+      archiveServerCategoryId: "archive-category"
+    },
+    servers: [{
+      name: "Factory",
+      pterodactylServerId: "factory-id",
+      discordChannelId: "factory-channel",
+      archived: false,
+      game: { type: "factorio" },
+      autoStop: null
+    }]
+  };
+  const placements = [];
+  const service = new DiscordOnboardingService({
+    config,
+    discordBridge: {
+      async setServerChannelArchived(channelId, archived, categories) {
+        placements.push({ channelId, archived, categories });
+      }
+    },
+    pterodactylClient: {},
+    configStore: {
+      updateServer(serverId, updates) {
+        assert.equal(serverId, "factory-id");
+        Object.assign(config.servers[0], updates);
+      }
+    },
+    logger: { info() {}, warn() {}, error() {} },
+    async onConfigChanged() { return true; }
+  });
+  const options = {
+    getSubcommand() { return "configure"; },
+    getString(name) { return name === "server" ? "factory-id" : null; },
+    getBoolean(name) { return name === "archived" ? true : null; },
+    getNumber() { return null; }
+  };
+  const { interaction, calls } = ownerInteraction({ channelId: "admin", options });
+
+  await service.handleInteraction(interaction);
+
+  assert.equal(config.servers[0].archived, true);
+  assert.deepEqual(placements, [{
+    channelId: "factory-channel",
+    archived: true,
+    categories: {
+      activeCategoryId: "active-category",
+      archiveCategoryId: "archive-category"
+    }
+  }]);
+  assert.match(calls.at(-1).payload.content, /hidden archive category/);
 });
