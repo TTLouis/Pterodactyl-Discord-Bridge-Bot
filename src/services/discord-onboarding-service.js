@@ -26,6 +26,8 @@ function isAdministrator(interaction) {
 function gameLabel(type) {
   if (type === "factorio") return "Factorio";
   if (type === "minecraft") return "Minecraft";
+  if (type === "satisfactory") return "Satisfactory";
+  if (type === "generic") return "Generic Pterodactyl";
   return type;
 }
 
@@ -638,6 +640,17 @@ export class DiscordOnboardingService {
       updates.archived = archived;
     }
 
+    if (
+      server.game?.type === "generic"
+      && (autoStopEnabled !== null || emptyHours !== null || warningMinutes !== null)
+    ) {
+      await this.#replyEphemeral(
+        interaction,
+        "Auto-stop is unavailable for generic Pterodactyl servers because the generic API does not provide a reliable player count."
+      );
+      return;
+    }
+
     if (autoStopEnabled !== null || emptyHours !== null || warningMinutes !== null) {
       const current = server.autoStop ?? {};
       const nextAutoStop = {
@@ -882,6 +895,12 @@ export class DiscordOnboardingService {
           description: "Status and player counts using the Satisfactory game API.",
           value: "satisfactory"
         }
+,
+        {
+          label: "Generic Pterodactyl",
+          description: "Power, CPU, RAM, uptime and allocation for unsupported games.",
+          value: "generic"
+        }
       ]);
 
     const row = new ActionRowBuilder().addComponents(gameSelector);
@@ -896,7 +915,7 @@ export class DiscordOnboardingService {
 
     const serverId = interaction.customId.slice(GAME_SELECT_PREFIX.length);
     const gameType = interaction.values?.[0];
-    if (!serverId || !["factorio", "minecraft", "satisfactory"].includes(gameType)) {
+    if (!serverId || !["factorio", "minecraft", "satisfactory", "generic"].includes(gameType)) {
       await interaction.update({ content: "Invalid server or game selection.", components: [] });
       return;
     }
