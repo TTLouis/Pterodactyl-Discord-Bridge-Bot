@@ -18,11 +18,11 @@ It intentionally does **not** cover donation strategy or maintainer funding deci
 
 ## Phase 1 — Discord-native provisioning
 
-**Goal:** a new operator can start with only the Discord bootstrap token and complete Pterodactyl setup from Discord.
+**Goal:** a new operator can start from a minimal deployment bootstrap (Discord token + guild ID + Pterodactyl Panel URL + Client API key) and complete server onboarding/administration from Discord without hand-editing the managed-server configuration.
 
 Initial vertical slice:
 
-1. Start the bot with the Discord token as the only required bootstrap secret.
+1. Start the bot without a prebuilt managed-server list, using only the deployment bootstrap values required to connect Discord and Pterodactyl.
 2. Add `/bridge setup`, restricted to the guild owner or Discord administrators.
 3. Create or claim a private bridge administration channel.
 4. Bootstrap the Pterodactyl panel URL and Client API key through the deployment environment/Egg; never echo credentials into Discord. A future connection-replacement flow may move credential rotation into a secure Discord interaction.
