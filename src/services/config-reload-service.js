@@ -30,7 +30,14 @@ function canReloadGameSettings(currentServer, nextServer) {
 }
 
 export function validateReloadCompatibility(currentConfig, nextConfig) {
-  const fixedDiscordKeys = ["guildId", "statusChannelId", "logChannelId", "adminChannelId"];
+  const fixedDiscordKeys = [
+    "guildId",
+    "statusChannelId",
+    "logChannelId",
+    "adminChannelId",
+    "activeServerCategoryId",
+    "archiveServerCategoryId"
+  ];
   for (const key of fixedDiscordKeys) {
     if ((currentConfig.discord[key] ?? null) !== (nextConfig.discord[key] ?? null)) {
       throw new Error(`discord.${key} changed; restart the bot to apply this setting.`);
