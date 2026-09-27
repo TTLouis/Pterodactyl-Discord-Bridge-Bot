@@ -183,30 +183,40 @@ export class DiscordBridge {
   }
 
   async ensureServerCategories({
+    activeCategoryId = null,
+    archiveCategoryId = null,
     activeName = "Game Servers",
     archiveName = "Archived Game Servers"
   } = {}) {
     const guild = await this.client.guilds.fetch(this.guildId);
 
-    let activeCategory = guild.channels.cache.find(
-      (channel) => channel.type === ChannelType.GuildCategory && channel.name === activeName
-    );
-    if (!activeCategory) {
-      activeCategory = await guild.channels.create({
-        name: activeName,
-        type: ChannelType.GuildCategory
-      });
-    }
+    const resolveCategory = async (channelId, name) => {
+      let category = null;
+      if (channelId) {
+        try {
+          category = await guild.channels.fetch(channelId);
+        } catch {}
+        if (category?.type !== ChannelType.GuildCategory) {
+          category = null;
+        }
+      }
 
-    let archiveCategory = guild.channels.cache.find(
-      (channel) => channel.type === ChannelType.GuildCategory && channel.name === archiveName
-    );
-    if (!archiveCategory) {
-      archiveCategory = await guild.channels.create({
-        name: archiveName,
-        type: ChannelType.GuildCategory
-      });
-    }
+      category ??= guild.channels.cache.find(
+        (channel) => channel.type === ChannelType.GuildCategory && channel.name === name
+      ) ?? null;
+
+      if (!category) {
+        category = await guild.channels.create({
+          name,
+          type: ChannelType.GuildCategory
+        });
+      }
+
+      return category;
+    };
+
+    const activeCategory = await resolveCategory(activeCategoryId, activeName);
+    const archiveCategory = await resolveCategory(archiveCategoryId, archiveName);
 
     await archiveCategory.permissionOverwrites.edit(guild.roles.everyone.id, {
       ViewChannel: false
@@ -222,6 +232,26 @@ export class DiscordBridge {
       activeCategoryId: activeCategory.id,
       archiveCategoryId: archiveCategory.id
     };
+  }
+
+  async fetchGuildChannel(channelId) {
+    if (!channelId) return null;
+    try {
+      const channel = await this.client.channels.fetch(channelId);
+      if (!channel || channel.guildId !== this.guildId) {
+        return null;
+      }
+      return channel;
+    } catch {
+      return null;
+    }
+  }
+
+  async deleteChannel(channelId, reason = "Pterodactyl Platform Bridge removed managed server") {
+    const channel = await this.fetchGuildChannel(channelId);
+    if (!channel) return false;
+    await channel.delete(reason);
+    return true;
   }
 
   async setChannelCategory(channelId, categoryId, reason = "Pterodactyl Platform Bridge channel placement") {
