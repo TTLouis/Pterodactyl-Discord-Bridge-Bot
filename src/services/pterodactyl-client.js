@@ -100,6 +100,40 @@ export class PterodactylClient {
     return response.json();
   }
 
+  async listServers() {
+    const servers = [];
+    let page = 1;
+    let totalPages = 1;
+
+    do {
+      const body = await this.#getJson(`/api/client?per_page=100&page=${page}`, "server discovery");
+      const entries = Array.isArray(body.data) ? body.data : [];
+
+      for (const entry of entries) {
+        const attributes = entry?.attributes ?? entry ?? {};
+        const identifier = attributes.identifier ?? null;
+        if (!identifier) continue;
+
+        servers.push({
+          identifier,
+          uuid: attributes.uuid ?? null,
+          name: attributes.name ?? identifier,
+          description: attributes.description ?? null,
+          node: attributes.node ?? null,
+          limits: attributes.limits ?? null,
+          featureLimits: attributes.feature_limits ?? null
+        });
+      }
+
+      const pagination = body.meta?.pagination ?? {};
+      totalPages = Number(pagination.total_pages ?? pagination.totalPages ?? 1);
+      if (!Number.isFinite(totalPages) || totalPages < 1) totalPages = 1;
+      page += 1;
+    } while (page <= totalPages);
+
+    return servers;
+  }
+
   async getServerResources(serverId) {
     const body = await this.#getJson(`/api/client/servers/${serverId}/resources`, "resources");
     return {
