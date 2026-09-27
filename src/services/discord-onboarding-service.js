@@ -1,12 +1,16 @@
 import {
   ActionRowBuilder,
   MessageFlags,
+  ModalBuilder,
   PermissionFlagsBits,
-  StringSelectMenuBuilder
+  StringSelectMenuBuilder,
+  TextInputBuilder,
+  TextInputStyle
 } from "discord.js";
 
 const SERVER_SELECT_ID = "bridge:server";
 const GAME_SELECT_PREFIX = "bridge:game:";
+const SATISFACTORY_MODAL_PREFIX = "bridge:satisfactory:";
 const MAX_SELECT_OPTIONS = 25;
 const MAX_DISCORD_MESSAGE_LENGTH = 1900;
 
