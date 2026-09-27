@@ -207,7 +207,13 @@ export class StatusSyncService {
         this.stateStore?.clearManagedServerState?.(serverId);
         this.inMemoryRelayQueues.delete(serverId);
         this.relayOverflowNotified.delete(serverId);
-        this.recentRelayLines.delete(serverId);
+        this.relayFlushPromises.delete(serverId);
+        const relayLinePrefix = `${serverId}|`;
+        for (const key of this.recentRelayLines.keys()) {
+          if (key.startsWith(relayLinePrefix)) {
+            this.recentRelayLines.delete(key);
+          }
+        }
       }
     }
     this.knownServerIds = configuredServerIds;
