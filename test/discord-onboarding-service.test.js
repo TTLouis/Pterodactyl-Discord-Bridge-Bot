@@ -564,3 +564,199 @@ test("/bridge configure restores archived servers to the active category", async
   }]);
   assert.match(calls.at(-1).payload.content, /restored to the active server category/);
 });
+
+
+test("/bridge remove archives the Discord channel by default and never deletes Pterodactyl", async () => {
+  const server = {
+    name: "Factory",
+    pterodactylServerId: "factory-id",
+    discordChannelId: "factory-channel",
+    archived: false,
+    game: { type: "factorio" }
+  };
+  const config = {
+    discord: {
+      adminChannelId: "admin",
+      activeServerCategoryId: "active-category",
+      archiveServerCategoryId: "archive-category"
+    },
+    servers: [server]
+  };
+  const placements = [];
+  const removed = [];
+  const service = new DiscordOnboardingService({
+    config,
+    discordBridge: {
+      async fetchGuildChannel(channelId) {
+        assert.equal(channelId, "factory-channel");
+        return { id: channelId };
+      },
+      async setServerChannelArchived(channelId, archived, categories) {
+        placements.push({ channelId, archived, categories });
+      }
+    },
+    pterodactylClient: {},
+    configStore: {
+      removeServer(serverId) {
+        assert.equal(serverId, "factory-id");
+        removed.push(serverId);
+        return server;
+      },
+      addServer() {
+        throw new Error("rollback should not run");
+      }
+    },
+    logger: { info() {}, warn() {}, error() {} },
+    async onConfigChanged() { return true; }
+  });
+  const options = {
+    getSubcommand() { return "remove"; },
+    getString(name) {
+      if (name === "server") return "factory-id";
+      if (name === "channel-action") return null;
+      return null;
+    }
+  };
+  const { interaction, calls } = ownerInteraction({ channelId: "admin", options });
+
+  await service.handleInteraction(interaction);
+
+  assert.deepEqual(removed, ["factory-id"]);
+  assert.deepEqual(placements, [{
+    channelId: "factory-channel",
+    archived: true,
+    categories: {
+      activeCategoryId: "active-category",
+      archiveCategoryId: "archive-category"
+    }
+  }]);
+  assert.match(calls.at(-1).payload.content, /Pterodactyl server was not modified or deleted/);
+});
+
+test("/bridge rebind creates a replacement channel when none is supplied", async () => {
+  const config = {
+    discord: {
+      adminChannelId: "admin",
+      activeServerCategoryId: "active-category",
+      archiveServerCategoryId: "archive-category"
+    },
+    servers: [{
+      name: "Factory",
+      pterodactylServerId: "factory-id",
+      discordChannelId: "old-channel",
+      archived: false,
+      game: { type: "factorio" }
+    }]
+  };
+  const rebinds = [];
+  const service = new DiscordOnboardingService({
+    config,
+    discordBridge: {
+      async createServerChannel(name, { parentId }) {
+        assert.equal(name, "Factory");
+        assert.equal(parentId, "active-category");
+        return { id: "replacement-channel" };
+      },
+      async deleteChannel() {
+        throw new Error("rollback should not run");
+      }
+    },
+    pterodactylClient: {},
+    configStore: {
+      updateServerChannel(serverId, channelId) {
+        rebinds.push({ serverId, channelId });
+      }
+    },
+    logger: { info() {}, warn() {}, error() {} },
+    async onConfigChanged() { return true; }
+  });
+  const options = {
+    getSubcommand() { return "rebind"; },
+    getString(name) { return name === "server" ? "factory-id" : null; },
+    getChannel() { return null; }
+  };
+  const { interaction, calls } = ownerInteraction({
+    channelId: "admin",
+    guildId: "guild",
+    options
+  });
+
+  await service.handleInteraction(interaction);
+
+  assert.deepEqual(rebinds, [{
+    serverId: "factory-id",
+    channelId: "replacement-channel"
+  }]);
+  assert.match(calls.at(-1).payload.content, /replacement channel was created automatically/);
+});
+
+test("/bridge repair recreates missing control-plane and server channels", async () => {
+  const config = {
+    discord: {
+      adminChannelId: "missing-admin",
+      statusChannelId: "missing-status",
+      activeServerCategoryId: "missing-active",
+      archiveServerCategoryId: "missing-archive"
+    },
+    servers: [{
+      name: "Factory",
+      pterodactylServerId: "factory-id",
+      discordChannelId: "missing-server-channel",
+      archived: false,
+      game: { type: "factorio" }
+    }]
+  };
+  const channelUpdates = [];
+  const discordUpdates = [];
+  const service = new DiscordOnboardingService({
+    config,
+    discordBridge: {
+      async fetchGuildChannel() { return null; },
+      async createPrivateAdminChannel() { return { id: "new-admin" }; },
+      async ensureServerCategories() {
+        return {
+          activeCategoryId: "new-active",
+          archiveCategoryId: "new-archive"
+        };
+      },
+      async createStatusChannel({ parentId }) {
+        assert.equal(parentId, "new-active");
+        return { id: "new-status" };
+      },
+      async createServerChannel(name, { parentId }) {
+        assert.equal(name, "Factory");
+        assert.equal(parentId, "new-active");
+        return { id: "new-server-channel" };
+      }
+    },
+    pterodactylClient: {},
+    configStore: {
+      updateDiscordChannels(value) {
+        discordUpdates.push(value);
+      },
+      updateServerChannel(serverId, channelId) {
+        channelUpdates.push({ serverId, channelId });
+      }
+    },
+    logger: { info() {}, warn() {}, error() {} },
+    async onConfigChanged() { return true; }
+  });
+  const options = { getSubcommand() { return "repair"; } };
+  const { interaction, calls } = ownerInteraction({
+    channelId: "general",
+    options
+  });
+
+  await service.handleInteraction(interaction);
+
+  assert.equal(config.discord.adminChannelId, "new-admin");
+  assert.equal(config.discord.statusChannelId, "new-status");
+  assert.equal(config.discord.activeServerCategoryId, "new-active");
+  assert.equal(config.discord.archiveServerCategoryId, "new-archive");
+  assert.equal(discordUpdates.at(-1).adminChannelId, "new-admin");
+  assert.deepEqual(channelUpdates, [{
+    serverId: "factory-id",
+    channelId: "new-server-channel"
+  }]);
+  assert.match(calls.at(-1).payload.content, /Bridge repair completed/);
+});
