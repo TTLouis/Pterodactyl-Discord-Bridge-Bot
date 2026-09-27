@@ -134,7 +134,7 @@ function buildServerInfoField(snapshot) {
       `**RAM:** ${formatMemory(snapshot.memoryBytes)}`,
       `**CPU:** ${formatCpu(snapshot.cpuPercent)}`,
       "",
-      "**Total Game Duration**",
+      `**${durationHeading}**`,
       ...durationLines
     ].join("\n")
   };
