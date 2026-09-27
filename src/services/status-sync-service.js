@@ -88,6 +88,7 @@ export class StatusSyncService {
     pterodactylClient,
     autoStopService,
     stateStore,
+    onboardingService = null,
     logger,
     onRestartRequested = null,
     onSyncCompleted = null,
@@ -125,6 +126,7 @@ export class StatusSyncService {
       discordBridge,
       autoStopService,
       syncService: this,
+      onboardingService,
       logger,
       onRestartRequested,
       restartDelayMs
