@@ -30,7 +30,7 @@ function canReloadGameSettings(currentServer, nextServer) {
 }
 
 export function validateReloadCompatibility(currentConfig, nextConfig) {
-  const fixedDiscordKeys = ["guildId", "statusChannelId", "logChannelId"];
+  const fixedDiscordKeys = ["guildId", "statusChannelId", "logChannelId", "adminChannelId"];
   for (const key of fixedDiscordKeys) {
     if ((currentConfig.discord[key] ?? null) !== (nextConfig.discord[key] ?? null)) {
       throw new Error(`discord.${key} changed; restart the bot to apply this setting.`);
@@ -80,6 +80,8 @@ export function applyReloadedConfig(currentConfig, nextConfig) {
   currentConfig.kook ??= {};
   Object.assign(currentConfig.kook, nextConfig.kook ?? {});
   Object.assign(currentConfig.pterodactyl, nextConfig.pterodactyl);
+  currentConfig.features ??= {};
+  Object.assign(currentConfig.features, nextConfig.features ?? {});
   const currentServers = new Map(
     currentConfig.servers.map((server) => [server.pterodactylServerId, server])
   );
