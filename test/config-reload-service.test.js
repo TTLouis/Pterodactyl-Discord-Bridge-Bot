@@ -82,16 +82,17 @@ test("live reload still rejects Pterodactyl connection changes", () => {
   );
 });
 
-test("live reload rejects structural server changes", () => {
+test("live reload applies Discord server channel rebinds", () => {
   const current = createConfig();
+  const originalServer = current.servers[0];
   const next = createConfig();
   next.servers[0].discordChannelId = "different-channel";
 
-  assert.throws(
-    () => validateReloadCompatibility(current, next),
-    /restart the bot/
-  );
-  assert.equal(current.servers[0].discordChannelId, "server-channel");
+  assert.doesNotThrow(() => validateReloadCompatibility(current, next));
+  applyReloadedConfig(current, next);
+
+  assert.equal(current.servers[0], originalServer);
+  assert.equal(current.servers[0].discordChannelId, "different-channel");
 });
 
 test("live reload accepts archived-state changes and archive notes", () => {
@@ -246,18 +247,37 @@ test("live reload accepts newly imported servers", () => {
   assert.equal(current.servers[1].pterodactylServerId, "imported-id");
 });
 
-test("live reload still rejects removing a managed server", () => {
+test("live reload removes managed servers without restarting", () => {
   const current = createConfig();
-  current.servers.push({
+  const removedServer = {
     ...current.servers[0],
     name: "Second",
     discordChannelId: "second-channel",
     pterodactylServerId: "second-id"
-  });
+  };
+  current.servers.push(removedServer);
   const next = createConfig();
 
-  assert.throws(
-    () => validateReloadCompatibility(current, next),
-    /Removing managed servers still requires a bot restart/
-  );
+  assert.doesNotThrow(() => validateReloadCompatibility(current, next));
+  applyReloadedConfig(current, next);
+
+  assert.deepEqual(current.servers.map((server) => server.pterodactylServerId), ["server-id"]);
+});
+
+
+test("live reload applies repaired Discord infrastructure bindings", () => {
+  const current = createConfig();
+  const next = createConfig();
+  next.discord.adminChannelId = "new-admin";
+  next.discord.statusChannelId = "new-status";
+  next.discord.activeServerCategoryId = "active-category";
+  next.discord.archiveServerCategoryId = "archive-category";
+
+  assert.doesNotThrow(() => validateReloadCompatibility(current, next));
+  applyReloadedConfig(current, next);
+
+  assert.equal(current.discord.adminChannelId, "new-admin");
+  assert.equal(current.discord.statusChannelId, "new-status");
+  assert.equal(current.discord.activeServerCategoryId, "active-category");
+  assert.equal(current.discord.archiveServerCategoryId, "archive-category");
 });
