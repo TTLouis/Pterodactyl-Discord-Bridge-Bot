@@ -42,6 +42,11 @@ export class DiscordOnboardingService {
   }
 
   async handleInteraction(interaction) {
+    if (interaction.isAutocomplete?.()) {
+      await this.#handleAutocomplete(interaction);
+      return;
+    }
+
     if (!isAdministrator(interaction)) {
       await this.#replyEphemeral(interaction, "Bridge setup is restricted to the Discord server owner or administrators.");
       return;
@@ -62,6 +67,34 @@ export class DiscordOnboardingService {
     if (interaction.customId.startsWith(GAME_SELECT_PREFIX)) {
       await this.#handleGameSelection(interaction);
     }
+  }
+
+  async #handleAutocomplete(interaction) {
+    if (!isAdministrator(interaction) || interaction.commandName !== "bridge") {
+      await interaction.respond([]);
+      return;
+    }
+
+    const focused = interaction.options.getFocused(true);
+    if (focused.name !== "server") {
+      await interaction.respond([]);
+      return;
+    }
+
+    const query = String(focused.value ?? "").trim().toLowerCase();
+    const matches = this.config.servers
+      .filter((server) => {
+        if (!query) return true;
+        return String(server.name).toLowerCase().includes(query)
+          || String(server.pterodactylServerId).toLowerCase().includes(query);
+      })
+      .slice(0, MAX_SELECT_OPTIONS)
+      .map((server) => ({
+        name: `${server.name} · ${server.pterodactylServerId}`.slice(0, 100),
+        value: server.pterodactylServerId
+      }));
+
+    await interaction.respond(matches);
   }
 
   async #handleCommand(interaction) {
