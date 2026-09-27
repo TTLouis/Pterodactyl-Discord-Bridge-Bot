@@ -73,27 +73,34 @@ export class DiscordOnboardingService {
 
     if (!this.config.discord.adminChannelId) {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-      const adminChannel = await this.discordBridge.createPrivateAdminChannel({
-        requestedByUserId: interaction.user.id
-      });
-      const statusChannel = this.config.discord.statusChannelId
-        ? { id: this.config.discord.statusChannelId }
-        : await this.discordBridge.createStatusChannel();
+      try {
+        const adminChannel = await this.discordBridge.createPrivateAdminChannel({
+          requestedByUserId: interaction.user.id
+        });
+        const statusChannel = this.config.discord.statusChannelId
+          ? { id: this.config.discord.statusChannelId }
+          : await this.discordBridge.createStatusChannel();
 
-      this.config.discord.adminChannelId = adminChannel.id;
-      this.config.discord.statusChannelId = statusChannel.id;
-      this.configStore.updateDiscordChannels({
-        adminChannelId: adminChannel.id,
-        statusChannelId: statusChannel.id
-      });
+        this.config.discord.adminChannelId = adminChannel.id;
+        this.config.discord.statusChannelId = statusChannel.id;
+        this.configStore.updateDiscordChannels({
+          adminChannelId: adminChannel.id,
+          statusChannelId: statusChannel.id
+        });
 
-      await this.discordBridge.sendMessage(
-        adminChannel.id,
-        "Pterodactyl Platform Bridge administration is ready here. Run **/bridge setup** in this channel to validate Pterodactyl and import your first server."
-      );
-      await interaction.editReply({
-        content: `Created private admin channel <#${adminChannel.id}> and status channel <#${statusChannel.id}>. Continue by running **/bridge setup** in the admin channel.`
-      });
+        await this.discordBridge.sendMessage(
+          adminChannel.id,
+          "Pterodactyl Platform Bridge administration is ready here. Run **/bridge setup** in this channel to validate Pterodactyl and import your first server."
+        );
+        await interaction.editReply({
+          content: `Created private admin channel <#${adminChannel.id}> and status channel <#${statusChannel.id}>. Continue by running **/bridge setup** in the admin channel.`
+        });
+      } catch (error) {
+        this.logger.error("Discord onboarding channel creation failed", error);
+        await interaction.editReply({
+          content: `Could not create the onboarding channels: ${error.message}. Make sure the bot has **Manage Channels**, **View Channels**, **Send Messages**, and **Read Message History** permissions.`
+        });
+      }
       return;
     }
 
@@ -105,16 +112,24 @@ export class DiscordOnboardingService {
       return;
     }
 
-    if (!this.config.discord.statusChannelId) {
-      const statusChannel = await this.discordBridge.createStatusChannel();
-      this.config.discord.statusChannelId = statusChannel.id;
-      this.configStore.updateDiscordChannels({
-        adminChannelId: this.config.discord.adminChannelId,
-        statusChannelId: statusChannel.id
-      });
-    }
-
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+    if (!this.config.discord.statusChannelId) {
+      try {
+        const statusChannel = await this.discordBridge.createStatusChannel();
+        this.config.discord.statusChannelId = statusChannel.id;
+        this.configStore.updateDiscordChannels({
+          adminChannelId: this.config.discord.adminChannelId,
+          statusChannelId: statusChannel.id
+        });
+      } catch (error) {
+        this.logger.error("Discord onboarding status channel creation failed", error);
+        await interaction.editReply({
+          content: `Could not create the status channel: ${error.message}. Make sure the bot has **Manage Channels** permission.`
+        });
+        return;
+      }
+    }
 
     let discovered;
     try {
