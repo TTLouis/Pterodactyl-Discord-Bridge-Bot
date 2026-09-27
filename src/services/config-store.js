@@ -55,6 +55,36 @@ export class ConfigStore {
     return config;
   }
 
+  updateServer(serverId, updates) {
+    const config = this.read();
+    config.servers ??= [];
+
+    const server = config.servers.find((entry) => entry.pterodactylServerId === serverId);
+    if (!server) {
+      throw new Error(`Managed server ${serverId} was not found.`);
+    }
+
+    if (updates.name !== undefined) {
+      const name = String(updates.name ?? "").trim();
+      if (!name) throw new Error("Server display name cannot be empty.");
+      server.name = name;
+    }
+
+    if (updates.archived !== undefined) {
+      server.archived = Boolean(updates.archived);
+    }
+
+    if (updates.autoStop !== undefined) {
+      server.autoStop = {
+        ...(server.autoStop ?? {}),
+        ...updates.autoStop
+      };
+    }
+
+    this.#write(config);
+    return server;
+  }
+
   #write(config) {
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
     const temporaryPath = `${this.filePath}.tmp`;
