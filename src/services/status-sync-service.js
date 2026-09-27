@@ -1,4 +1,5 @@
 import { FactorioAdapter } from "../adapters/factorio-adapter.js";
+import { GenericPterodactylAdapter } from "../adapters/generic-pterodactyl-adapter.js";
 import { MinecraftAdapter } from "../adapters/minecraft-adapter.js";
 import { SatisfactoryAdapter } from "../adapters/satisfactory-adapter.js";
 import { CoreEvents } from "../core/core-events.js";
@@ -46,7 +47,9 @@ function summarizeSnapshot(snapshot) {
     name: snapshot.name,
     state: snapshot.currentState,
     status: snapshot.simplifiedStatus,
-    players: `${snapshot.playerCount ?? 0}/${snapshot.maxPlayers ?? "?"}`,
+    players: typeof snapshot.playerCount === "number"
+      ? `${snapshot.playerCount}/${snapshot.maxPlayers ?? "?"}`
+      : "unavailable",
     playerNamesAvailable: snapshot.playerNamesAvailable !== false,
     onlinePlayers: Array.isArray(snapshot.onlinePlayers) ? snapshot.onlinePlayers.slice(0, 10) : null
   };
@@ -402,6 +405,10 @@ export class StatusSyncService {
         return new MinecraftAdapter({
           serverConfig: server,
           pterodactylClient: this.pterodactylClient
+        });
+      case "generic":
+        return new GenericPterodactylAdapter({
+          serverConfig: server
         });
       case "satisfactory":
         return new SatisfactoryAdapter({
