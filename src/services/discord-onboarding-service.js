@@ -257,6 +257,46 @@ export class DiscordOnboardingService {
     });
   }
 
+  async #handleServersCommand(interaction) {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+    let discovered = [];
+    let discoveryError = null;
+    try {
+      discovered = await this.pterodactylClient.listServers();
+    } catch (error) {
+      discoveryError = error;
+      this.logger.warn("Could not refresh discoverable Pterodactyl servers", error);
+    }
+
+    const managedIds = new Set(this.config.servers.map((server) => server.pterodactylServerId));
+    const unmanaged = discovered.filter((server) => !managedIds.has(server.identifier));
+    const managedLines = this.config.servers.length === 0
+      ? ["- none"]
+      : this.config.servers.slice(0, 20).map((server) => {
+          const state = server.archived ? "archived" : "active";
+          return `- **${server.name}** · ${gameLabel(server.game?.type)} · ${state} · auto-stop ${formatAutoStop(server)} · <#${server.discordChannelId}>`;
+        });
+    const unmanagedLines = discoveryError
+      ? [`- discovery unavailable: ${discoveryError.message}`]
+      : unmanaged.length === 0
+        ? ["- none"]
+        : unmanaged.slice(0, 20).map((server) => `- **${server.name}** · \`${server.identifier}\``);
+    const managedSuffix = this.config.servers.length > 20
+      ? `\n- … and ${this.config.servers.length - 20} more managed server(s)`
+      : "";
+    const unmanagedSuffix = unmanaged.length > 20
+      ? `\n- … and ${unmanaged.length - 20} more discoverable server(s)`
+      : "";
+
+    await interaction.editReply({
+      content: truncateMessage(
+        `**Managed servers (${this.config.servers.length})**\n${managedLines.join("\n")}${managedSuffix}\n\n`
+        + `**Available to import (${unmanaged.length})**\n${unmanagedLines.join("\n")}${unmanagedSuffix}`
+      )
+    });
+  }
+
   async #handleServerSelection(interaction) {
     if (!(await this.#requireAdminChannel(interaction))) return;
 
