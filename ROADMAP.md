@@ -143,10 +143,13 @@ Implemented on the current productization branch:
 6. Repeat server import through `/bridge add`, including Satisfactory token collection through a private modal.
 7. Live runtime creation for newly imported servers without restarting the process.
 8. `/bridge servers`, `/bridge connection`, and safe `/bridge configure` settings.
-9. Restricted local configuration backups through `/bridge backup`.
-10. Regression coverage for authorization, secret handling, duplicate imports, failed validation, live additions, and configuration persistence.
+9. Dynamic `/bridge remove` and `/bridge rebind` lifecycle operations without process restarts; removal never deletes the actual Pterodactyl server.
+10. `/bridge repair` self-healing for missing admin/status/categories/server channels and incorrect active/archive placement.
+11. Generic Pterodactyl mode for unsupported games with power/resource/uptime monitoring and no fabricated player count; player-based auto-stop is disabled in this mode.
+12. Restricted local configuration backups through `/bridge backup`.
+13. Regression coverage for authorization, secret handling, duplicate imports/bindings, failed validation, live additions/removals/rebinds, repair, generic mode, and configuration persistence.
 
-Next control-plane work should focus on server removal/rebinding as explicit lifecycle operations, secret separation/rotation, generic unsupported-game support, and clean-install/restart E2E validation before broad publication.
+Next control-plane work should focus on secret separation/credential rotation, role-based Bridge Administrator/Server Operator permissions, mutation audit history, and clean-install/restart E2E validation before broad publication.
 
 The Egg currently collects the initial Discord and Pterodactyl bootstrap values needed to start the application. The longer-term control plane should persist normal operational configuration from Discord and reduce Egg variables to deployment/bootstrap concerns.
 
