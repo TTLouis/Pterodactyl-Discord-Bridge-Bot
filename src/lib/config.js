@@ -257,10 +257,6 @@ function validateConfig(config) {
     throw new Error("Config must include discord.guildId");
   }
 
-  if (!config.discord?.statusChannelId) {
-    throw new Error("Config must include discord.statusChannelId");
-  }
-
   if (!config.pterodactyl?.baseUrl || !config.pterodactyl?.apiKey) {
     throw new Error("Config must include pterodactyl.baseUrl and pterodactyl.apiKey");
   }
@@ -282,6 +278,10 @@ function validateConfig(config) {
 
   if (!Array.isArray(config.servers)) {
     throw new Error("Config servers must be an array");
+  }
+
+  if (config.servers.length > 0 && !config.discord?.statusChannelId) {
+    throw new Error("Config must include discord.statusChannelId once at least one server is managed");
   }
 
   for (const server of config.servers) {
