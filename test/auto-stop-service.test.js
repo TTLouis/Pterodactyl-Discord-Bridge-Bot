@@ -1088,6 +1088,7 @@ test("console relay forwards live chat during websocket warmup", async () => {
   const service = new StatusSyncService({
     config: {
       discord: { statusChannelId: "status", displayTimeZone: "UTC" },
+      features: { gameChatRelayEnabled: true },
       pterodactyl: { pollIntervalSeconds: 60, activePlayerPollIntervalSeconds: 15 },
       servers: [server]
     },
@@ -1195,6 +1196,7 @@ test("Factorio relays stay queued until the running console session is ready", a
   const service = new StatusSyncService({
     config: {
       discord: { statusChannelId: "status", displayTimeZone: "UTC" },
+      features: { gameChatRelayEnabled: true },
       pterodactyl: { pollIntervalSeconds: 60, activePlayerPollIntervalSeconds: 15 },
       servers: [server]
     },
