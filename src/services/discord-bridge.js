@@ -173,7 +173,71 @@ export class DiscordBridge {
     });
   }
 
-  async createServerChannel(serverName) {
+  async ensureServerCategories({
+    activeName = "Game Servers",
+    archiveName = "Archived Game Servers"
+  } = {}) {
+    const guild = await this.client.guilds.fetch(this.guildId);
+
+    let activeCategory = guild.channels.cache.find(
+      (channel) => channel.type === ChannelType.GuildCategory && channel.name === activeName
+    );
+    if (!activeCategory) {
+      activeCategory = await guild.channels.create({
+        name: activeName,
+        type: ChannelType.GuildCategory
+      });
+    }
+
+    let archiveCategory = guild.channels.cache.find(
+      (channel) => channel.type === ChannelType.GuildCategory && channel.name === archiveName
+    );
+    if (!archiveCategory) {
+      archiveCategory = await guild.channels.create({
+        name: archiveName,
+        type: ChannelType.GuildCategory
+      });
+    }
+
+    await archiveCategory.permissionOverwrites.edit(guild.roles.everyone.id, {
+      ViewChannel: false
+    });
+    await archiveCategory.permissionOverwrites.edit(this.client.user.id, {
+      ViewChannel: true,
+      ManageChannels: true,
+      SendMessages: true,
+      ReadMessageHistory: true
+    });
+
+    return {
+      activeCategoryId: activeCategory.id,
+      archiveCategoryId: archiveCategory.id
+    };
+  }
+
+  async setServerChannelArchived(channelId, archived, {
+    activeCategoryId,
+    archiveCategoryId
+  }) {
+    const channel = await this.#getTextChannel(channelId);
+    const targetCategoryId = archived ? archiveCategoryId : activeCategoryId;
+    if (!targetCategoryId) {
+      throw new Error("Discord server categories are not configured.");
+    }
+
+    if (channel.parentId !== targetCategoryId) {
+      await channel.setParent(targetCategoryId, {
+        lockPermissions: true,
+        reason: archived
+          ? "Pterodactyl Platform Bridge archived server"
+          : "Pterodactyl Platform Bridge restored server"
+      });
+    }
+
+    return channel;
+  }
+
+  async createServerChannel(serverName, { parentId = null } = {}) {
     const guild = await this.client.guilds.fetch(this.guildId);
     const slug = String(serverName ?? "game-server")
       .toLowerCase()
@@ -189,6 +253,7 @@ export class DiscordBridge {
     return guild.channels.create({
       name,
       type: ChannelType.GuildText,
+      parent: parentId ?? undefined,
       topic: `Pterodactyl Platform Bridge: ${serverName}`
     });
   }
