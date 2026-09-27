@@ -55,6 +55,24 @@ export class ConfigStore {
     return config;
   }
 
+  createBackup(now = new Date()) {
+    const config = this.read();
+    const backupDirectory = path.join(path.dirname(this.filePath), "backups");
+    fs.mkdirSync(backupDirectory, { recursive: true });
+    const timestamp = now.toISOString().replace(/[:.]/g, "-");
+    const backupPath = path.join(backupDirectory, `bridge-config-${timestamp}.json`);
+    fs.writeFileSync(backupPath, `${JSON.stringify(config, null, 2)}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+      flag: "wx"
+    });
+    this.logger?.info("Created bridge configuration backup", {
+      backupPath,
+      containsSecrets: true
+    });
+    return backupPath;
+  }
+
   updateServer(serverId, updates) {
     const config = this.read();
     config.servers ??= [];
