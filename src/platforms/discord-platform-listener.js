@@ -143,9 +143,14 @@ export class DiscordPlatformListener {
   }
 
   async #handleStatusPanelUpdated({ snapshots, archivedServers = [], livePanelChanged = true, archivePanelChanged = true }) {
+    const statusChannelId = this.config.discord.statusChannelId;
+    if (!statusChannelId) {
+      return;
+    }
+
     if (archivePanelChanged) {
       await this.discordBridge.upsertStatusPanel(
-        this.config.discord.statusChannelId,
+        statusChannelId,
         buildArchivePanel(archivedServers),
         { panelKey: "archive" }
       );
@@ -154,7 +159,7 @@ export class DiscordPlatformListener {
     if (livePanelChanged) {
       this.#warnIfTruncated(snapshots);
       await this.discordBridge.upsertStatusPanel(
-        this.config.discord.statusChannelId,
+        statusChannelId,
         buildStatusPanel(snapshots, {
           displayTimeZone: this.config.discord.displayTimeZone
         }),
