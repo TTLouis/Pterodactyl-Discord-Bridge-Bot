@@ -280,8 +280,8 @@ function validateConfig(config) {
     throw new Error(`PTERODACTYL_WINGS_WS_SCHEME must be "ws" or "wss" if set. Received: ${scheme}`);
   }
 
-  if (!Array.isArray(config.servers) || config.servers.length === 0) {
-    throw new Error("Config must include at least one server");
+  if (!Array.isArray(config.servers)) {
+    throw new Error("Config servers must be an array");
   }
 
   for (const server of config.servers) {
@@ -355,6 +355,15 @@ export function loadConfig({ requireRuntimeTokens = true } = {}) {
   const config = {
     discord: {
       ...rawConfig.discord,
+      guildId:
+        normalizeOptionalString(process.env.DISCORD_GUILD_ID)
+        ?? normalizeOptionalString(rawConfig.discord?.guildId),
+      statusChannelId:
+        normalizeOptionalString(process.env.DISCORD_STATUS_CHANNEL_ID)
+        ?? normalizeOptionalString(rawConfig.discord?.statusChannelId),
+      logChannelId:
+        normalizeOptionalString(process.env.DISCORD_LOG_CHANNEL_ID)
+        ?? normalizeOptionalString(rawConfig.discord?.logChannelId),
       adminChannelId:
         normalizeOptionalString(process.env.DISCORD_ADMIN_CHANNEL_ID)
         ?? normalizeOptionalString(rawConfig.discord?.adminChannelId),
@@ -389,7 +398,7 @@ export function loadConfig({ requireRuntimeTokens = true } = {}) {
         false
       )
     },
-    servers: rawConfig.servers.map(normalizeServer)
+    servers: (rawConfig.servers ?? []).map(normalizeServer)
   };
 
   validateConfig(config);
