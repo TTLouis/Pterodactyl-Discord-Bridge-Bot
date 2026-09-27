@@ -297,6 +297,36 @@ export class DiscordOnboardingService {
     });
   }
 
+  async #handleConnectionCommand(interaction) {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+    try {
+      const discovered = await this.pterodactylClient.listServers();
+      const managedAccessible = this.config.servers.filter((server) =>
+        discovered.some((remote) => remote.identifier === server.pterodactylServerId)
+      ).length;
+
+      await interaction.editReply({
+        content:
+          `**Pterodactyl connection: healthy**\n`
+          + `Panel: \`${safePanelHost(this.config.pterodactyl.baseUrl)}\`\n`
+          + "Authentication: Client API key configured (value hidden)\n"
+          + `Accessible servers: ${discovered.length}\n`
+          + `Managed servers still accessible: ${managedAccessible}/${this.config.servers.length}\n`
+          + `Game chat relay: ${this.config.features?.gameChatRelayEnabled ? "enabled (experimental)" : "disabled"}`
+      });
+    } catch (error) {
+      this.logger.error("Pterodactyl connection diagnostics failed", error);
+      await interaction.editReply({
+        content:
+          `**Pterodactyl connection: failed**\n`
+          + `Panel: \`${safePanelHost(this.config.pterodactyl.baseUrl)}\`\n`
+          + "Authentication credential: configured (value hidden)\n"
+          + `Error: ${error.message}`
+      });
+    }
+  }
+
   async #handleServerSelection(interaction) {
     if (!(await this.#requireAdminChannel(interaction))) return;
 
