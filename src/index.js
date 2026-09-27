@@ -8,7 +8,9 @@ import { getSyncHealthPath, writeSyncHealth } from "./lib/sync-health.js";
 import { getStatePath, StateStore } from "./lib/state-store.js";
 import { AutoStopService } from "./services/auto-stop-service.js";
 import { applyReloadedConfig, ConfigReloadService } from "./services/config-reload-service.js";
+import { ConfigStore } from "./services/config-store.js";
 import { DiscordBridge } from "./services/discord-bridge.js";
+import { DiscordOnboardingService } from "./services/discord-onboarding-service.js";
 import { KookBridge } from "./services/kook-bridge.js";
 import { PterodactylClient } from "./services/pterodactyl-client.js";
 import { hydrateServerNetworkConfig } from "./services/server-network-config.js";
@@ -22,6 +24,7 @@ async function main() {
   stateStore.load();
   const eventBus = new CoreEventBus();
   const pterodactylClient = new PterodactylClient(runtime.config.pterodactyl);
+  const configStore = new ConfigStore(getConfigPath(), { logger });
 
   // Declared up front so shutdown() is safe to call at any point during startup,
   // including from the process-level error handlers registered below.
@@ -113,6 +116,18 @@ async function main() {
       logger
     })
     : null;
+  const onboardingService = new DiscordOnboardingService({
+    config: runtime.config,
+    discordBridge,
+    pterodactylClient,
+    configStore,
+    logger,
+    onConfigChanged: async () => {
+      if (!configReloadService) return false;
+      return configReloadService.reloadNow();
+    }
+  });
+
   const autoStopService = new AutoStopService({
     config: runtime.config,
     pterodactylClient,
@@ -128,6 +143,7 @@ async function main() {
     pterodactylClient,
     autoStopService,
     stateStore,
+    onboardingService,
     logger,
     onRestartRequested({ requestedBy }) {
       logger.info("Restarting bot after Discord command", { requestedBy });
