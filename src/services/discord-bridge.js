@@ -255,7 +255,7 @@ export class DiscordBridge {
   }
 
   async setChannelCategory(channelId, categoryId, reason = "Pterodactyl Platform Bridge channel placement") {
-    if (!categoryId) {
+    if (categoryId === undefined) {
       throw new Error("Discord category is not configured.");
     }
 
