@@ -134,6 +134,11 @@ export class DiscordOnboardingService {
   async #handleCommand(interaction) {
     const subcommand = interaction.options.getSubcommand(false);
 
+    if (subcommand === "repair") {
+      await this.#handleRepairCommand(interaction);
+      return;
+    }
+
     if (subcommand !== "setup") {
       if (!(await this.#requireAdminChannel(interaction))) return;
 
@@ -151,6 +156,16 @@ export class DiscordOnboardingService {
 
       if (subcommand === "connection") {
         await this.#handleConnectionCommand(interaction);
+        return;
+      }
+
+      if (subcommand === "remove") {
+        await this.#handleRemoveCommand(interaction);
+        return;
+      }
+
+      if (subcommand === "rebind") {
+        await this.#handleRebindCommand(interaction);
         return;
       }
 
