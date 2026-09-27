@@ -1,6 +1,7 @@
 import "dotenv/config";
 import fs from "node:fs";
 import { FactorioAdapter } from "../src/adapters/factorio-adapter.js";
+import { GenericPterodactylAdapter } from "../src/adapters/generic-pterodactyl-adapter.js";
 import { MinecraftAdapter } from "../src/adapters/minecraft-adapter.js";
 import { SatisfactoryAdapter } from "../src/adapters/satisfactory-adapter.js";
 import { getConfigPath, loadConfig } from "../src/lib/config.js";
@@ -49,6 +50,8 @@ function createAdapter(server, pterodactylClient) {
       return new MinecraftAdapter({ serverConfig: server, pterodactylClient });
     case "satisfactory":
       return new SatisfactoryAdapter({ serverConfig: server, logger });
+    case "generic":
+      return new GenericPterodactylAdapter({ serverConfig: server });
     default:
       throw new Error(`Unsupported server type: ${server.game.type}`);
   }
@@ -64,7 +67,10 @@ async function fetchLiveSnapshots(config, pterodactylClient) {
       const resources = await pterodactylClient.getServerResources(server.pterodactylServerId);
       const snapshot = await adapter.fetchSnapshot(resources);
       snapshots.push(snapshot);
-      console.log(`Snapshot OK: ${server.name} (${snapshot.simplifiedStatus}, ${snapshot.playerCount ?? 0}/${snapshot.maxPlayers ?? "?"})`);
+      const players = typeof snapshot.playerCount === "number"
+        ? `${snapshot.playerCount}/${snapshot.maxPlayers ?? "?"}`
+        : "players unavailable";
+      console.log(`Snapshot OK: ${server.name} (${snapshot.simplifiedStatus}, ${players})`);
     } catch (error) {
       failures.push({ server: server.name, message: error.message });
       console.log(`Snapshot failed: ${server.name}: ${error.message}`);
