@@ -111,13 +111,17 @@ export class DiscordBridge {
 
   async createPrivateAdminChannel({ requestedByUserId, name = "bridge-admin" }) {
     const guild = await this.client.guilds.fetch(this.guildId);
-    const existing = guild.channels.cache.find(
-      (channel) => channel.type === ChannelType.GuildText && channel.name === name
-    );
-    if (existing) return existing;
+    const baseName = name;
+    let channelName = baseName;
+    let suffix = 2;
+    while (guild.channels.cache.some(
+      (channel) => channel.type === ChannelType.GuildText && channel.name === channelName
+    )) {
+      channelName = `${baseName.slice(0, 90)}-${suffix++}`;
+    }
 
     return guild.channels.create({
-      name,
+      name: channelName,
       type: ChannelType.GuildText,
       topic: "Private administration channel for Pterodactyl Platform Bridge.",
       permissionOverwrites: [
