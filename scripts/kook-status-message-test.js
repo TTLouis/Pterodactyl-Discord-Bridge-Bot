@@ -59,8 +59,13 @@ function buildSampleSnapshots(servers) {
   const statuses = ["Online", "Starting", "Offline", "Stopping"];
   return servers.map((server, index) => {
     const status = statuses[index % statuses.length];
-    const maxPlayers = server.maxPlayers ?? (server.game?.type === "satisfactory" ? 16 : 20);
-    const playerCount = status === "Online" ? Math.max(1, Math.min(3, maxPlayers)) : 0;
+    const isGeneric = server.game?.type === "generic";
+    const maxPlayers = isGeneric
+      ? null
+      : server.maxPlayers ?? (server.game?.type === "satisfactory" ? 16 : 20);
+    const playerCount = isGeneric
+      ? null
+      : status === "Online" ? Math.max(1, Math.min(3, maxPlayers)) : 0;
 
     return {
       name: server.name,
@@ -72,13 +77,17 @@ function buildSampleSnapshots(servers) {
       currentState: status.toLowerCase(),
       simplifiedStatus: status,
       playerCount,
-      playerNamesAvailable: server.game?.type !== "satisfactory",
-      onlinePlayers: status === "Online" && server.game?.type !== "satisfactory"
-        ? ["Ada", "Grace", "Linus"].slice(0, playerCount)
-        : [],
+      playerNamesAvailable: !isGeneric && server.game?.type !== "satisfactory",
+      onlinePlayers: isGeneric
+        ? null
+        : status === "Online" && server.game?.type !== "satisfactory"
+          ? ["Ada", "Grace", "Linus"].slice(0, playerCount)
+          : [],
       memoryBytes: (1024 + index * 384) * 1024 * 1024,
       cpuPercent: Number((8.5 + index * 5.25).toFixed(2)),
-      gameDurationMs: (index + 1) * 3 * 3600 * 1000 + 42 * 60 * 1000,
+      uptimeMs: (index + 1) * 3600 * 1000,
+      gameDurationMs: isGeneric ? null : (index + 1) * 3 * 3600 * 1000 + 42 * 60 * 1000,
+      genericPterodactyl: isGeneric,
       satisfactoryState: server.game?.type === "satisfactory"
         ? {
             techTier: 5,
