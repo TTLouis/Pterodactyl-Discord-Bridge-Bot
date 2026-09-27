@@ -115,3 +115,60 @@ test("ConfigStore creates local restricted backups", () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+
+test("ConfigStore removes managed servers without changing unrelated settings", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-config-remove-"));
+  const configPath = path.join(tempDir, "config.json"));
+
+  try {
+    fs.writeFileSync(configPath, JSON.stringify({
+      discord: { guildId: "guild" },
+      pterodactyl: { baseUrl: "https://panel.example.test" },
+      servers: [
+        { name: "One", pterodactylServerId: "one", discordChannelId: "one-channel" },
+        { name: "Two", pterodactylServerId: "two", discordChannelId: "two-channel" }
+      ]
+    }), "utf8");
+
+    const store = new ConfigStore(configPath);
+    const removed = store.removeServer("one");
+    assert.equal(removed.name, "One");
+
+    const persisted = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    assert.deepEqual(persisted.servers.map((server) => server.pterodactylServerId), ["two"]);
+    assert.equal(persisted.discord.guildId, "guild");
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("ConfigStore rebinds Discord channels and rejects duplicate bindings", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-config-rebind-"));
+  const configPath = path.join(tempDir, "config.json");
+
+  try {
+    fs.writeFileSync(configPath, JSON.stringify({
+      discord: {},
+      pterodactyl: {},
+      servers: [
+        { name: "One", pterodactylServerId: "one", discordChannelId: "one-channel" },
+        { name: "Two", pterodactylServerId: "two", discordChannelId: "two-channel" }
+      ]
+    }), "utf8");
+
+    const store = new ConfigStore(configPath);
+    store.updateServerChannel("one", "replacement-channel");
+    let persisted = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    assert.equal(persisted.servers[0].discordChannelId, "replacement-channel");
+
+    assert.throws(
+      () => store.updateServerChannel("one", "two-channel"),
+      /already bound to Two/
+    );
+    persisted = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    assert.equal(persisted.servers[0].discordChannelId, "replacement-channel");
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
