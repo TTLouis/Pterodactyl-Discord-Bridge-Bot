@@ -65,6 +65,7 @@ Planned administration surfaces:
 - Generic monitoring/control mode for unsupported games.
 - Per-server configuration for status, relay, automation, archive state, and display metadata.
 - Automatic Discord category/channel provisioning with an option to bind existing channels.
+- Active/archived Discord channel lifecycle: active status + server channels live under the active category; archiving moves the existing server channel into a hidden archive category and restoring moves it back.
 - Role-based authorization, with at least:
   - Bridge Administrator
   - Server Operator
