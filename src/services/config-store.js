@@ -33,11 +33,18 @@ export class ConfigStore {
     return parsed;
   }
 
-  updateDiscordChannels({ adminChannelId, statusChannelId }) {
+  updateDiscordChannels({
+    adminChannelId,
+    statusChannelId,
+    activeServerCategoryId,
+    archiveServerCategoryId
+  }) {
     const config = this.read();
     config.discord ??= {};
     if (adminChannelId) config.discord.adminChannelId = adminChannelId;
     if (statusChannelId) config.discord.statusChannelId = statusChannelId;
+    if (activeServerCategoryId) config.discord.activeServerCategoryId = activeServerCategoryId;
+    if (archiveServerCategoryId) config.discord.archiveServerCategoryId = archiveServerCategoryId;
     this.#write(config);
     return config;
   }
