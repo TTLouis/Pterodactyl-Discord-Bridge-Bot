@@ -477,12 +477,17 @@ export class DiscordOnboardingService {
           label: "Minecraft",
           description: "Status, players, power controls and Minecraft console integration.",
           value: "minecraft"
+        },
+        {
+          label: "Satisfactory",
+          description: "Status and player counts using the Satisfactory game API.",
+          value: "satisfactory"
         }
       ]);
 
     const row = new ActionRowBuilder().addComponents(gameSelector);
     await interaction.update({
-      content: `Importing **${server.name}** (${server.identifier}). Choose its game type. Satisfactory onboarding will be added separately because it also needs a game API token.`,
+      content: `Importing **${server.name}** (${server.identifier}). Choose its game type.`,
       components: [row]
     });
   }
@@ -492,13 +497,38 @@ export class DiscordOnboardingService {
 
     const serverId = interaction.customId.slice(GAME_SELECT_PREFIX.length);
     const gameType = interaction.values?.[0];
-    if (!serverId || !["factorio", "minecraft"].includes(gameType)) {
+    if (!serverId || !["factorio", "minecraft", "satisfactory"].includes(gameType)) {
       await interaction.update({ content: "Invalid server or game selection.", components: [] });
       return;
     }
 
     if (this.config.servers.some((server) => server.pterodactylServerId === serverId)) {
       await interaction.update({ content: "That Pterodactyl server is already imported.", components: [] });
+      return;
+    }
+
+    if (gameType === "satisfactory") {
+      const tokenInput = new TextInputBuilder()
+        .setCustomId("api-token")
+        .setLabel("Satisfactory API token")
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true)
+        .setMaxLength(512);
+      const urlInput = new TextInputBuilder()
+        .setCustomId("api-url")
+        .setLabel("API URL override (optional)")
+        .setStyle(TextInputStyle.Short)
+        .setRequired(false)
+        .setPlaceholder("https://host:7777/api/v1")
+        .setMaxLength(500);
+      const modal = new ModalBuilder()
+        .setCustomId(`${SATISFACTORY_MODAL_PREFIX}${serverId}`)
+        .setTitle("Connect Satisfactory API")
+        .addComponents(
+          new ActionRowBuilder().addComponents(tokenInput),
+          new ActionRowBuilder().addComponents(urlInput)
+        );
+      await interaction.showModal(modal);
       return;
     }
 
