@@ -3,9 +3,15 @@ import test from "node:test";
 import { CoreEvents } from "../src/core/core-events.js";
 import { StatusSyncService } from "../src/services/status-sync-service.js";
 
-function createService({ servers, getServerResources }) {
+function createService({ servers, getServerResources, stateStore = null }) {
   const panels = [];
   const panelEvents = [];
+  const resolvedStateStore = stateStore ?? {
+    getRelayQueue() { return []; },
+    setRelayQueue() {},
+    getServerRuntimeState() { return {}; },
+    setServerRuntimeState() {}
+  };
   const service = new StatusSyncService({
     config: {
       discord: { statusChannelId: "status", displayTimeZone: "UTC" },
@@ -27,12 +33,7 @@ function createService({ servers, getServerResources }) {
       isConsoleSessionReady() { return false; },
       subscribeToConsole() { return () => {}; }
     },
-    stateStore: {
-      getRelayQueue() { return []; },
-      setRelayQueue() {},
-      getServerRuntimeState() { return {}; },
-      setServerRuntimeState() {}
-    },
+    stateStore: resolvedStateStore,
     autoStopService: { async onRunningSnapshot() {} },
     logger: { error() {}, warn() {}, info() {} }
   });
@@ -266,4 +267,28 @@ test("the heartbeat still fires when every server fails", async () => {
   assert.equal(summaries.length, 1);
   assert.equal(summaries[0].degraded, true);
   assert.deepEqual(summaries[0].failedServers, ["alpha", "beta"]);
+});
+
+
+test("config reload clears persisted runtime state only for removed servers", () => {
+  const removed = makeServer("removed");
+  const cleared = [];
+  const stateStore = {
+    getRelayQueue() { return []; },
+    setRelayQueue() {},
+    getServerRuntimeState() { return {}; },
+    setServerRuntimeState() {},
+    clearManagedServerState(serverId) { cleared.push(serverId); }
+  };
+  const { service } = createService({
+    servers: [removed],
+    async getServerResources() { return { currentState: "offline" }; },
+    stateStore
+  });
+
+  service.config.servers = [];
+  service.onConfigReloaded();
+
+  assert.deepEqual(cleared, ["removed-id"]);
+  assert.equal(service.adapters.has("removed-id"), false);
 });
