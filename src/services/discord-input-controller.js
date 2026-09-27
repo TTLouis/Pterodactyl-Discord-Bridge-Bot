@@ -1,6 +1,15 @@
 import { ApplicationCommandOptionType, MessageFlags, PermissionFlagsBits } from "discord.js";
 import { CANCEL_AUTO_STOP_REACTION, RESTART_SERVER_REACTION } from "./auto-stop-service.js";
 
+function isDiscordAdministrator(interaction) {
+  if (interaction.guild?.ownerId && interaction.user?.id === interaction.guild.ownerId) {
+    return true;
+  }
+
+  const permissions = interaction.memberPermissions ?? interaction.member?.permissions;
+  return Boolean(permissions?.has?.(PermissionFlagsBits.Administrator));
+}
+
 export const DISCORD_SLASH_COMMANDS = [
   { name: "start-server", description: "Start a stopped game server" },
   { name: "cancel-stop", description: "Cancel a pending auto-stop" },
@@ -100,6 +109,11 @@ export class DiscordInputController {
   }
 
   async #handleRefreshStatusCommand(interaction) {
+    if (!isDiscordAdministrator(interaction)) {
+      await interaction.reply({ content: "This command is restricted to Discord administrators.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+
     const adminChannelId = this.config.discord.adminChannelId;
     if (!adminChannelId) {
       await interaction.reply({ content: "No Discord admin channel is configured for this bot.", flags: MessageFlags.Ephemeral });
@@ -118,6 +132,11 @@ export class DiscordInputController {
   }
 
   async #handleRestartBotCommand(interaction) {
+    if (!isDiscordAdministrator(interaction)) {
+      await interaction.reply({ content: "This command is restricted to Discord administrators.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+
     const adminChannelId = this.config.discord.adminChannelId;
     if (!adminChannelId) {
       await interaction.reply({ content: "No Discord admin channel is configured for this bot.", flags: MessageFlags.Ephemeral });
