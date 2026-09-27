@@ -286,9 +286,16 @@ test("config reload clears persisted runtime state only for removed servers", ()
     stateStore
   });
 
+  service.recentRelayLines.set("removed-id|old-line", Date.now());
+  service.recentRelayLines.set("other-id|other-line", Date.now());
+  service.relayFlushPromises.set("removed-id", Promise.resolve());
+
   service.config.servers = [];
   service.onConfigReloaded();
 
   assert.deepEqual(cleared, ["removed-id"]);
   assert.equal(service.adapters.has("removed-id"), false);
+  assert.equal(service.recentRelayLines.has("removed-id|old-line"), false);
+  assert.equal(service.recentRelayLines.has("other-id|other-line"), true);
+  assert.equal(service.relayFlushPromises.has("removed-id"), false);
 });
