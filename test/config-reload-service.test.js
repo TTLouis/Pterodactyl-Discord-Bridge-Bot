@@ -217,3 +217,47 @@ test("failed reloads keep the running configuration", async () => {
   assert.equal(reloadCalls, 0);
   assert.match(errors[0], /continuing with the previous configuration/);
 });
+
+
+test("live reload accepts newly imported servers", () => {
+  const current = createConfig();
+  const originalServer = current.servers[0];
+  const next = createConfig();
+  next.servers.push({
+    name: "Imported",
+    description: "",
+    discordChannelId: "imported-channel",
+    kookChannelId: null,
+    pterodactylServerId: "imported-id",
+    publicAddress: "play.example.com",
+    publicPort: 34197,
+    maxPlayers: null,
+    archived: false,
+    archiveNote: null,
+    game: { type: "factorio", chatCommandTemplate: "/shout {content}", playerListRefreshIntervalSeconds: 900 },
+    autoStop: null
+  });
+
+  assert.doesNotThrow(() => validateReloadCompatibility(current, next));
+  applyReloadedConfig(current, next);
+
+  assert.equal(current.servers.length, 2);
+  assert.equal(current.servers[0], originalServer);
+  assert.equal(current.servers[1].pterodactylServerId, "imported-id");
+});
+
+test("live reload still rejects removing a managed server", () => {
+  const current = createConfig();
+  current.servers.push({
+    ...current.servers[0],
+    name: "Second",
+    discordChannelId: "second-channel",
+    pterodactylServerId: "second-id"
+  });
+  const next = createConfig();
+
+  assert.throws(
+    () => validateReloadCompatibility(current, next),
+    /Removing managed servers still requires a bot restart/
+  );
+});
