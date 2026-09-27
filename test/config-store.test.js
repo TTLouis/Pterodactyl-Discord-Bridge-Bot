@@ -86,3 +86,32 @@ test("ConfigStore updates safe server settings without changing topology", () =>
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+
+test("ConfigStore creates local restricted backups", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-config-backup-"));
+  const configPath = path.join(tempDir, "config.json");
+
+  try {
+    fs.writeFileSync(configPath, JSON.stringify({
+      discord: {},
+      pterodactyl: {},
+      servers: [{
+        name: "Satisfactory",
+        pterodactylServerId: "sat-id",
+        discordChannelId: "sat-channel",
+        game: { type: "satisfactory", apiToken: "secret-token" }
+      }]
+    }), "utf8");
+
+    const store = new ConfigStore(configPath);
+    const backupPath = store.createBackup(new Date("2026-09-27T02:00:00.000Z"));
+    assert.equal(path.basename(backupPath), "bridge-config-2026-09-27T02-00-00-000Z.json");
+    assert.equal(path.dirname(backupPath), path.join(tempDir, "backups"));
+    const backup = JSON.parse(fs.readFileSync(backupPath, "utf8"));
+    assert.equal(backup.servers[0].game.apiToken, "secret-token");
+    assert.equal(fs.statSync(backupPath).mode & 0o777, 0o600);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
