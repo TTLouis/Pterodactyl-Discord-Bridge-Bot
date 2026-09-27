@@ -119,7 +119,7 @@ test("ConfigStore creates local restricted backups", () => {
 
 test("ConfigStore removes managed servers without changing unrelated settings", () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-config-remove-"));
-  const configPath = path.join(tempDir, "config.json"));
+  const configPath = path.join(tempDir, "config.json");
 
   try {
     fs.writeFileSync(configPath, JSON.stringify({
