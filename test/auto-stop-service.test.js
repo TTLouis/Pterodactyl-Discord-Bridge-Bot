@@ -796,6 +796,7 @@ test("status sync tracks whether any configured server has players", async () =>
   const service = new StatusSyncService({
     config: {
       discord: { statusChannelId: "status", displayTimeZone: "UTC" },
+      features: { gameChatRelayEnabled: true },
       pterodactyl: { pollIntervalSeconds: 60, activePlayerPollIntervalSeconds: 15 },
       servers: [server]
     },
@@ -864,6 +865,7 @@ test("status sync caches latest known game duration for offline snapshots", asyn
   const service = new StatusSyncService({
     config: {
       discord: { statusChannelId: "status", displayTimeZone: "UTC" },
+      features: { gameChatRelayEnabled: true },
       pterodactyl: { pollIntervalSeconds: 60, activePlayerPollIntervalSeconds: 15 },
       servers: [server]
     },
