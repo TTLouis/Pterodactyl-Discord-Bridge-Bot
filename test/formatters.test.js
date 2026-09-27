@@ -167,3 +167,25 @@ test("server online embeds identify panel-originated starts", () => {
 
   assert.match(embed.description, /Started from the Pterodactyl panel/);
 });
+
+
+test("generic Pterodactyl status shows unavailable players and process uptime", () => {
+  const snapshot = createSnapshot("");
+  snapshot.playerCount = null;
+  snapshot.maxPlayers = null;
+  snapshot.onlinePlayers = null;
+  snapshot.playerNamesAvailable = false;
+  snapshot.genericPterodactyl = true;
+  snapshot.uptimeMs = 3_720_000;
+  snapshot.gameDurationMs = null;
+
+  const panel = buildStatusPanel([snapshot], { displayTimeZone: "UTC" });
+  const embed = panel.embeds[0].toJSON();
+  const statusField = embed.fields[1].value;
+  const serverInfoField = embed.fields[2].value;
+
+  assert.match(statusField, /👤 Unavailable/);
+  assert.match(statusField, /Unavailable from API/);
+  assert.match(serverInfoField, /**Pterodactyl Uptime**/);
+  assert.match(serverInfoField, /**Uptime:** 1h 2m/);
+});
