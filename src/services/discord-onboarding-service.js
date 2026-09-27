@@ -154,6 +154,11 @@ export class DiscordOnboardingService {
         return;
       }
 
+      if (subcommand === "backup") {
+        await this.#handleBackupCommand(interaction);
+        return;
+      }
+
       if (subcommand === "configure") {
         await this.#handleConfigureCommand(interaction);
         return;
@@ -276,6 +281,24 @@ export class DiscordOnboardingService {
           + "Authentication credential: configured (value hidden)\n"
           + `Error: ${error.message}`
       });
+    }
+  }
+
+  async #handleBackupCommand(interaction) {
+    try {
+      const backupPath = this.configStore.createBackup();
+      const backupName = backupPath.split(/[\\/]/).at(-1);
+      await this.#replyEphemeral(
+        interaction,
+        `Created restricted backup **${backupName}** in the bridge data backup directory. It may contain credentials; do not share it publicly.`
+      );
+      this.logger.info("Discord administration requested configuration backup", {
+        backupName,
+        requestedBy: interaction.user?.id ?? null
+      });
+    } catch (error) {
+      this.logger.error("Configuration backup failed", error);
+      await this.#replyEphemeral(interaction, `Could not create the configuration backup: ${error.message}`);
     }
   }
 
