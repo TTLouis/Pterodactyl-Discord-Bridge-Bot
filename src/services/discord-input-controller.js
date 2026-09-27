@@ -42,6 +42,11 @@ export const DISCORD_SLASH_COMMANDS = [
       },
       {
         type: ApplicationCommandOptionType.Subcommand,
+        name: "backup",
+        description: "Create a restricted server-side configuration backup"
+      },
+      {
+        type: ApplicationCommandOptionType.Subcommand,
         name: "configure",
         description: "Change safe live settings for a managed server",
         options: [
