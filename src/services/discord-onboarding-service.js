@@ -84,6 +84,13 @@ export class DiscordOnboardingService {
       return;
     }
 
+    if (interaction.isModalSubmit?.()) {
+      if (interaction.customId.startsWith(SATISFACTORY_MODAL_PREFIX)) {
+        await this.#handleSatisfactoryModal(interaction);
+      }
+      return;
+    }
+
     if (!interaction.isStringSelectMenu()) return;
 
     if (interaction.customId === SERVER_SELECT_ID) {
