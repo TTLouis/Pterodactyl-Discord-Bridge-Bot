@@ -67,11 +67,17 @@ export class DiscordBridge {
 
     this.client.on(Events.InteractionCreate, async (interaction) => {
       if (interaction.guildId !== this.guildId) return;
-      if (!interaction.isChatInputCommand() && !interaction.isStringSelectMenu()) return;
+      if (
+        !interaction.isChatInputCommand()
+        && !interaction.isStringSelectMenu()
+        && !interaction.isAutocomplete()
+      ) return;
 
-      const label = interaction.isChatInputCommand()
-        ? `Discord interaction /${interaction.commandName}`
-        : `Discord component ${interaction.customId}`;
+      const label = interaction.isAutocomplete()
+        ? `Discord autocomplete /${interaction.commandName}`
+        : interaction.isChatInputCommand()
+          ? `Discord interaction /${interaction.commandName}`
+          : `Discord component ${interaction.customId}`;
       await runHandlers(this.interactionHandlers, interaction, {
         logger: this.logger,
         label
