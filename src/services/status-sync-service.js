@@ -141,13 +141,17 @@ export class StatusSyncService {
     this.started = true;
     this.discordInputController.start();
 
-    this.discordBridge.onMessage(async (message) => {
-      await this.#handleMessage({ sourcePlatform: "discord", ...message });
-    });
+    if (this.config.features?.gameChatRelayEnabled) {
+      this.discordBridge.onMessage(async (message) => {
+        await this.#handleMessage({ sourcePlatform: "discord", ...message });
+      });
 
-    this.kookBridge?.onMessage(async (message) => {
-      await this.#handleMessage({ sourcePlatform: "kook", ...message });
-    });
+      this.kookBridge?.onMessage(async (message) => {
+        await this.#handleMessage({ sourcePlatform: "kook", ...message });
+      });
+    } else {
+      this.logger.info("Game chat relay is disabled");
+    }
 
     for (const adapter of this.adapters.values()) {
       adapter.start?.();
@@ -590,6 +594,10 @@ export class StatusSyncService {
       adapter.refreshOnlinePlayers().catch((error) => {
         this.logger.warn(`Failed refreshing online players for ${server.name}`, error);
       });
+    }
+
+    if (!this.config.features?.gameChatRelayEnabled) {
+      return;
     }
 
     const relayMessage = adapter.parseConsoleChatLine(line);
