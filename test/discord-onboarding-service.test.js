@@ -334,3 +334,83 @@ test("managed-server autocomplete returns matching identifiers", async () => {
 
   assert.deepEqual(responses[0], [{ name: "Factorio Factory · factorio-id", value: "factorio-id" }]);
 });
+
+
+test("Satisfactory modal persists the token without echoing or logging it", async () => {
+  const config = {
+    discord: { adminChannelId: "admin", statusChannelId: "status" },
+    servers: []
+  };
+  const imported = [];
+  const logs = [];
+  const calls = [];
+  const service = new DiscordOnboardingService({
+    config,
+    discordBridge: { async createServerChannel() { return { id: "sat-channel" }; } },
+    pterodactylClient: {
+      async listServers() { return [{ identifier: "sat-id", name: "Satisfactory" }]; }
+    },
+    configStore: { addServer(server) { imported.push(server); } },
+    logger: {
+      info(message, details) { logs.push({ message, details }); },
+      warn() {},
+      error(message, details) { logs.push({ message, details }); }
+    },
+    async onConfigChanged() { return true; }
+  });
+  const interaction = {
+    guild: { ownerId: "owner" },
+    user: { id: "owner" },
+    channelId: "admin",
+    customId: "bridge:satisfactory:sat-id",
+    deferred: false,
+    replied: false,
+    isAutocomplete() { return false; },
+    isChatInputCommand() { return false; },
+    isModalSubmit() { return true; },
+    isStringSelectMenu() { return false; },
+    fields: {
+      getTextInputValue(name) {
+        if (name === "api-token") return "very-secret-token";
+        if (name === "api-url") return "";
+        return "";
+      }
+    },
+    async deferReply(payload) { calls.push({ method: "deferReply", payload }); this.deferred = true; },
+    async editReply(payload) { calls.push({ method: "editReply", payload }); },
+    async reply(payload) { calls.push({ method: "reply", payload }); this.replied = true; },
+    async followUp(payload) { calls.push({ method: "followUp", payload }); }
+  };
+
+  await service.handleInteraction(interaction);
+
+  assert.equal(imported.length, 1);
+  assert.deepEqual(imported[0].game, { type: "satisfactory", apiToken: "very-secret-token" });
+  const visible = JSON.stringify(calls);
+  assert.doesNotMatch(visible, /very-secret-token/);
+  assert.doesNotMatch(JSON.stringify(logs), /very-secret-token/);
+  assert.match(calls.at(-1).payload.content, /stored without being echoed back/);
+});
+
+test("/bridge backup creates a local backup without attaching it to Discord", async () => {
+  const config = { discord: { adminChannelId: "admin" }, servers: [] };
+  const calls = [];
+  const service = new DiscordOnboardingService({
+    config,
+    discordBridge: {},
+    pterodactylClient: {},
+    configStore: { createBackup() { return "/data/backups/bridge-config-test.json"; } },
+    logger: { info() {}, warn() {}, error() {} }
+  });
+  const { interaction } = ownerInteraction({
+    channelId: "admin",
+    options: { getSubcommand() { return "backup"; } },
+    async reply(payload) { calls.push(payload); this.replied = true; }
+  });
+
+  await service.handleInteraction(interaction);
+
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].content, /bridge-config-test\.json/);
+  assert.equal(calls[0].files, undefined);
+});
