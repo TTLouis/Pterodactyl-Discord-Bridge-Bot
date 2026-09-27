@@ -1,4 +1,4 @@
-import { ApplicationCommandOptionType, MessageFlags, PermissionFlagsBits } from "discord.js";
+import { ApplicationCommandOptionType, ChannelType, MessageFlags, PermissionFlagsBits } from "discord.js";
 import { CANCEL_AUTO_STOP_REACTION, RESTART_SERVER_REACTION } from "./auto-stop-service.js";
 
 function isDiscordAdministrator(interaction) {
@@ -39,6 +39,55 @@ export const DISCORD_SLASH_COMMANDS = [
         type: ApplicationCommandOptionType.Subcommand,
         name: "connection",
         description: "Check Pterodactyl connectivity without exposing credentials"
+      },
+      {
+        type: ApplicationCommandOptionType.Subcommand,
+        name: "repair",
+        description: "Repair missing or misplaced Discord bridge channels/categories"
+      },
+      {
+        type: ApplicationCommandOptionType.Subcommand,
+        name: "remove",
+        description: "Stop managing a Pterodactyl server without deleting it",
+        options: [
+          {
+            type: ApplicationCommandOptionType.String,
+            name: "server",
+            description: "Managed server name or Pterodactyl identifier",
+            required: true,
+            autocomplete: true
+          },
+          {
+            type: ApplicationCommandOptionType.String,
+            name: "channel-action",
+            description: "What to do with the Discord server channel (default: archive)",
+            choices: [
+              { name: "Archive channel", value: "archive" },
+              { name: "Keep channel", value: "keep" },
+              { name: "Delete channel", value: "delete" }
+            ]
+          }
+        ]
+      },
+      {
+        type: ApplicationCommandOptionType.Subcommand,
+        name: "rebind",
+        description: "Bind a managed server to another Discord channel",
+        options: [
+          {
+            type: ApplicationCommandOptionType.String,
+            name: "server",
+            description: "Managed server name or Pterodactyl identifier",
+            required: true,
+            autocomplete: true
+          },
+          {
+            type: ApplicationCommandOptionType.Channel,
+            name: "channel",
+            description: "Existing text channel; omit to create a replacement",
+            channel_types: [ChannelType.GuildText]
+          }
+        ]
       },
       {
         type: ApplicationCommandOptionType.Subcommand,
