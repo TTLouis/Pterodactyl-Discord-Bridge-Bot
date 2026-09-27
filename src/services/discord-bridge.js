@@ -70,6 +70,7 @@ export class DiscordBridge {
       if (
         !interaction.isChatInputCommand()
         && !interaction.isStringSelectMenu()
+        && !interaction.isModalSubmit()
         && !interaction.isAutocomplete()
       ) return;
 
@@ -77,7 +78,9 @@ export class DiscordBridge {
         ? `Discord autocomplete /${interaction.commandName}`
         : interaction.isChatInputCommand()
           ? `Discord interaction /${interaction.commandName}`
-          : `Discord component ${interaction.customId}`;
+          : interaction.isModalSubmit()
+            ? `Discord modal ${interaction.customId}`
+            : `Discord component ${interaction.customId}`;
       await runHandlers(this.interactionHandlers, interaction, {
         logger: this.logger,
         label
