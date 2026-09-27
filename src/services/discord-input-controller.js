@@ -23,7 +23,63 @@ export const DISCORD_SLASH_COMMANDS = [
       {
         type: ApplicationCommandOptionType.Subcommand,
         name: "setup",
-        description: "Create/continue Discord onboarding and import a Pterodactyl server"
+        description: "Create or continue first-run Discord onboarding"
+      },
+      {
+        type: ApplicationCommandOptionType.Subcommand,
+        name: "servers",
+        description: "List managed and discoverable Pterodactyl servers"
+      },
+      {
+        type: ApplicationCommandOptionType.Subcommand,
+        name: "add",
+        description: "Discover and import another Pterodactyl server"
+      },
+      {
+        type: ApplicationCommandOptionType.Subcommand,
+        name: "connection",
+        description: "Check Pterodactyl connectivity without exposing credentials"
+      },
+      {
+        type: ApplicationCommandOptionType.Subcommand,
+        name: "configure",
+        description: "Change safe live settings for a managed server",
+        options: [
+          {
+            type: ApplicationCommandOptionType.String,
+            name: "server",
+            description: "Managed server name or Pterodactyl identifier",
+            required: true,
+            autocomplete: true
+          },
+          {
+            type: ApplicationCommandOptionType.String,
+            name: "name",
+            description: "New display name"
+          },
+          {
+            type: ApplicationCommandOptionType.Boolean,
+            name: "archived",
+            description: "Archive or restore the server"
+          },
+          {
+            type: ApplicationCommandOptionType.Boolean,
+            name: "auto-stop",
+            description: "Enable or disable inactivity auto-stop"
+          },
+          {
+            type: ApplicationCommandOptionType.Number,
+            name: "empty-hours",
+            description: "Hours empty before auto-stop",
+            min_value: 0.1
+          },
+          {
+            type: ApplicationCommandOptionType.Number,
+            name: "warning-minutes",
+            description: "Minutes before auto-stop to warn",
+            min_value: 1
+          }
+        ]
       }
     ]
   }
@@ -57,6 +113,13 @@ export class DiscordInputController {
   }
 
   async #handleInteraction(interaction) {
+    if (interaction.isAutocomplete?.()) {
+      if (interaction.commandName === "bridge" && this.onboardingService) {
+        await this.onboardingService.handleInteraction(interaction);
+      }
+      return;
+    }
+
     if (interaction.isStringSelectMenu?.()) {
       if (interaction.customId?.startsWith("bridge:") && this.onboardingService) {
         await this.onboardingService.handleInteraction(interaction);
