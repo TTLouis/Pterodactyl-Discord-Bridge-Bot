@@ -165,6 +165,13 @@ function normalizeMinecraftGame(server) {
   };
 }
 
+function normalizeGenericGame() {
+  return {
+    type: "generic",
+    chatCommandTemplate: null
+  };
+}
+
 function normalizeSatisfactoryGame(server) {
   const apiRequestTimeoutSeconds = normalizePositiveNumber(
     server.game?.apiRequestTimeoutSeconds,
@@ -236,7 +243,9 @@ function normalizeServer(server) {
       ? normalizeSatisfactoryGame(server)
       : gameType === "minecraft"
         ? normalizeMinecraftGame(server)
-        : normalizeFactorioGame(server),
+        : gameType === "generic"
+          ? normalizeGenericGame(server)
+          : normalizeFactorioGame(server),
     autoStop: normalizeAutoStop(server)
   };
 }
@@ -308,7 +317,16 @@ function validateConfig(config) {
       continue;
     }
 
-    throw new Error(`Unsupported server type: ${server.game?.type}. Supported types are factorio, minecraft, and satisfactory.`);
+    if (server.game?.type === "generic") {
+      if (server.autoStop?.enabled) {
+        throw new Error(
+          `Generic Pterodactyl server "${server.name}" cannot enable auto-stop because a reliable player count is unavailable.`
+        );
+      }
+      continue;
+    }
+
+    throw new Error(`Unsupported server type: ${server.game?.type}. Supported types are factorio, minecraft, satisfactory, and generic.`);
   }
 
   validateUniqueServerMappings(config.servers);
