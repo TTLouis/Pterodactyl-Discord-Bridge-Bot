@@ -124,6 +124,7 @@ export class StatusSyncService {
     this.initialSnapshotLogged = false;
     this.livePanelInitialized = false;
     this.lastArchivePanelKey = null;
+    this.knownServerIds = new Set(config.servers.map((server) => server.pterodactylServerId));
     this.discordInputController = new DiscordInputController({
       config,
       discordBridge,
@@ -194,9 +195,22 @@ export class StatusSyncService {
   }
 
   onConfigReloaded() {
+    const configuredServerIds = new Set(
+      this.config.servers.map((server) => server.pterodactylServerId)
+    );
     const activeServerIds = new Set(
       this.config.servers.filter((server) => !server.archived).map((server) => server.pterodactylServerId)
     );
+
+    for (const serverId of this.knownServerIds) {
+      if (!configuredServerIds.has(serverId)) {
+        this.stateStore?.clearManagedServerState?.(serverId);
+        this.inMemoryRelayQueues.delete(serverId);
+        this.relayOverflowNotified.delete(serverId);
+        this.recentRelayLines.delete(serverId);
+      }
+    }
+    this.knownServerIds = configuredServerIds;
 
     for (const [serverId, adapter] of this.adapters.entries()) {
       if (activeServerIds.has(serverId)) {
