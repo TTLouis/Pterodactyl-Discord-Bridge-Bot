@@ -730,7 +730,7 @@ test("restart-bot command in the admin channel requests a process restart", asyn
   assert.deepEqual(editReply, { content: "Restarting bot process. It should come back online shortly." });
   assert.deepEqual(restartRequests, [{
     requestedBy: "Operator",
-    channelId: "logs"
+    channelId: "admin"
   }]);
 });
 
