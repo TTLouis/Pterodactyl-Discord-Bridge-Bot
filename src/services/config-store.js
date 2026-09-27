@@ -90,8 +90,7 @@ export class ConfigStore {
     }
 
     const conflicting = config.servers.find(
-      (entry) => !entry.archived
-        && entry.pterodactylServerId !== serverId
+      (entry) => entry.pterodactylServerId !== serverId
         && entry.discordChannelId === channelId
     );
     if (conflicting) {
