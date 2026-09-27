@@ -61,12 +61,18 @@ function formatAddress(snapshot) {
 }
 
 function formatPlayers(snapshot) {
+  if (typeof snapshot.playerCount !== "number" || !Number.isFinite(snapshot.playerCount)) {
+    return "不可用";
+  }
   const maxPlayers = snapshot.maxPlayers ?? "?";
   return `${snapshot.playerCount}/${maxPlayers}`;
 }
 
 function formatPlayerCountLabel(snapshot) {
-  const playerCount = Number(snapshot.playerCount ?? 0);
+  if (typeof snapshot.playerCount !== "number" || !Number.isFinite(snapshot.playerCount)) {
+    return "👤 不可用";
+  }
+  const playerCount = snapshot.playerCount;
   const maxPlayers = typeof snapshot.maxPlayers === "number" ? snapshot.maxPlayers : null;
 
   if (playerCount <= 0) {
@@ -172,14 +178,18 @@ function getStatusMeta(status) {
 }
 
 function buildServerInfoText(snapshot) {
-  const durationLabel = snapshot.gameDurationCached ? "上次已知时间" : "时间";
+  const isGeneric = snapshot.genericPterodactyl === true;
+  const durationLabel = isGeneric
+    ? "运行时间"
+    : snapshot.gameDurationCached ? "上次已知时间" : "时间";
+  const durationValue = isGeneric ? snapshot.uptimeMs : snapshot.gameDurationMs;
   const lines = [
     "**服务器信息**",
     `**内存:** ${formatMemory(snapshot.memoryBytes)}`,
     `**CPU:** ${formatCpu(snapshot.cpuPercent)}`,
     "",
-    "**总游戏时长**",
-    `**${durationLabel}:** ${formatDuration(snapshot.gameDurationMs)}`
+    isGeneric ? "**Pterodactyl 运行时间**" : "**总游戏时长**",
+    `**${durationLabel}:** ${formatDuration(durationValue)}`
   ];
 
   if (snapshot.satisfactoryState) {
