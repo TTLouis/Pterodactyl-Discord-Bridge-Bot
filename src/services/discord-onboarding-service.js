@@ -174,15 +174,29 @@ export class DiscordOnboardingService {
         const adminChannel = await this.discordBridge.createPrivateAdminChannel({
           requestedByUserId: interaction.user.id
         });
-        const statusChannel = this.config.discord.statusChannelId
-          ? { id: this.config.discord.statusChannelId }
-          : await this.discordBridge.createStatusChannel();
-
         this.config.discord.adminChannelId = adminChannel.id;
+
+        const categories = await this.#ensureServerCategories();
+        let statusChannel;
+        if (this.config.discord.statusChannelId) {
+          await this.discordBridge.setChannelCategory(
+            this.config.discord.statusChannelId,
+            categories.activeCategoryId,
+            "Pterodactyl Platform Bridge active status channel"
+          );
+          statusChannel = { id: this.config.discord.statusChannelId };
+        } else {
+          statusChannel = await this.discordBridge.createStatusChannel({
+            parentId: categories.activeCategoryId
+          });
+        }
+
         this.config.discord.statusChannelId = statusChannel.id;
         this.configStore.updateDiscordChannels({
           adminChannelId: adminChannel.id,
-          statusChannelId: statusChannel.id
+          statusChannelId: statusChannel.id,
+          activeServerCategoryId: categories.activeCategoryId,
+          archiveServerCategoryId: categories.archiveCategoryId
         });
 
         await this.discordBridge.sendMessage(
@@ -393,21 +407,57 @@ export class DiscordOnboardingService {
     }
   }
 
-  async #ensureStatusChannel(interaction) {
-    if (this.config.discord.statusChannelId) return true;
+  async #ensureServerCategories() {
+    if (
+      this.config.discord.activeServerCategoryId
+      && this.config.discord.archiveServerCategoryId
+    ) {
+      return {
+        activeCategoryId: this.config.discord.activeServerCategoryId,
+        archiveCategoryId: this.config.discord.archiveServerCategoryId
+      };
+    }
 
+    const categories = await this.discordBridge.ensureServerCategories();
+    this.config.discord.activeServerCategoryId = categories.activeCategoryId;
+    this.config.discord.archiveServerCategoryId = categories.archiveCategoryId;
+    this.configStore.updateDiscordChannels({
+      adminChannelId: this.config.discord.adminChannelId,
+      statusChannelId: this.config.discord.statusChannelId,
+      activeServerCategoryId: categories.activeCategoryId,
+      archiveServerCategoryId: categories.archiveCategoryId
+    });
+    return categories;
+  }
+
+  async #ensureStatusChannel(interaction) {
     try {
-      const statusChannel = await this.discordBridge.createStatusChannel();
+      const categories = await this.#ensureServerCategories();
+
+      if (this.config.discord.statusChannelId) {
+        await this.discordBridge.setChannelCategory(
+          this.config.discord.statusChannelId,
+          categories.activeCategoryId,
+          "Pterodactyl Platform Bridge active status channel"
+        );
+        return true;
+      }
+
+      const statusChannel = await this.discordBridge.createStatusChannel({
+        parentId: categories.activeCategoryId
+      });
       this.config.discord.statusChannelId = statusChannel.id;
       this.configStore.updateDiscordChannels({
         adminChannelId: this.config.discord.adminChannelId,
-        statusChannelId: statusChannel.id
+        statusChannelId: statusChannel.id,
+        activeServerCategoryId: categories.activeCategoryId,
+        archiveServerCategoryId: categories.archiveCategoryId
       });
       return true;
     } catch (error) {
-      this.logger.error("Discord onboarding status channel creation failed", error);
+      this.logger.error("Discord onboarding status/category creation failed", error);
       await interaction.editReply({
-        content: `Could not create the status channel: ${error.message}. Make sure the bot has **Manage Channels** permission.`
+        content: `Could not prepare the active/archive categories or status channel: ${error.message}. Make sure the bot has **Manage Channels** permission.`
       });
       return false;
     }
