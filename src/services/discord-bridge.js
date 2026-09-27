@@ -224,26 +224,33 @@ export class DiscordBridge {
     };
   }
 
+  async setChannelCategory(channelId, categoryId, reason = "Pterodactyl Platform Bridge channel placement") {
+    if (!categoryId) {
+      throw new Error("Discord category is not configured.");
+    }
+
+    const channel = await this.#getTextChannel(channelId);
+    if (channel.parentId !== categoryId) {
+      await channel.setParent(categoryId, {
+        lockPermissions: true,
+        reason
+      });
+    }
+    return channel;
+  }
+
   async setServerChannelArchived(channelId, archived, {
     activeCategoryId,
     archiveCategoryId
   }) {
-    const channel = await this.#getTextChannel(channelId);
     const targetCategoryId = archived ? archiveCategoryId : activeCategoryId;
-    if (!targetCategoryId) {
-      throw new Error("Discord server categories are not configured.");
-    }
-
-    if (channel.parentId !== targetCategoryId) {
-      await channel.setParent(targetCategoryId, {
-        lockPermissions: true,
-        reason: archived
-          ? "Pterodactyl Platform Bridge archived server"
-          : "Pterodactyl Platform Bridge restored server"
-      });
-    }
-
-    return channel;
+    return this.setChannelCategory(
+      channelId,
+      targetCategoryId,
+      archived
+        ? "Pterodactyl Platform Bridge archived server"
+        : "Pterodactyl Platform Bridge restored server"
+    );
   }
 
   async createServerChannel(serverName, { parentId = null } = {}) {
