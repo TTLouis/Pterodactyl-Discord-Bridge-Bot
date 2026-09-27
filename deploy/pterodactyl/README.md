@@ -24,11 +24,21 @@ Invite the Discord application with the `bot` and `applications.commands` scopes
 - Add Reactions
 - Manage Messages
 
-`Manage Channels` is required because `/bridge setup` can create the private administration channel, global status channel, and per-server channels. The `/bridge setup`, `/refresh-status`, and `/restart-bot` administration paths are restricted to the guild owner or Discord administrators.
+`Manage Channels` is required because `/bridge setup` and `/bridge add` can create the private administration channel, global status channel, and per-server channels. Bridge administration commands are restricted to the guild owner or Discord administrators and, after setup, to the configured private admin channel.
 
 ## Current preview boundary
 
-The Egg bootstraps the process and `/bridge setup` creates or claims the administration/status channels, validates the Client API connection, discovers accessible servers, and can import Factorio or Minecraft servers without hand-editing `servers.json`. Satisfactory onboarding is still pending because it also requires a game API token.
+The Egg bootstraps the process and `/bridge setup` creates the administration/status channels, validates the Client API connection, discovers accessible servers, and imports Factorio, Minecraft, or Satisfactory servers without hand-editing `servers.json`. Satisfactory uses a private Discord modal for its game API token; the token is persisted but is not echoed into Discord or logs.
+
+After initial setup, use:
+
+- `/bridge servers` — list managed servers and Pterodactyl servers still available to import.
+- `/bridge add` — discover and import another server.
+- `/bridge connection` — verify Client API connectivity without displaying credentials.
+- `/bridge configure` — change safe live settings such as display name, archive state, and inactivity auto-stop.
+- `/bridge backup` — create a restricted backup under the bridge data directory; backups may contain credentials and should not be shared publicly.
+
+Game ↔ Discord/KOOK chat relay remains experimental and disabled by default while message-loss reliability work is shelved.
 
 ## API key expectation
 
