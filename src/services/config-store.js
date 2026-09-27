@@ -62,6 +62,47 @@ export class ConfigStore {
     return config;
   }
 
+  removeServer(serverId) {
+    const config = this.read();
+    config.servers ??= [];
+
+    const index = config.servers.findIndex((entry) => entry.pterodactylServerId === serverId);
+    if (index === -1) {
+      throw new Error(`Managed server ${serverId} was not found.`);
+    }
+
+    const [removed] = config.servers.splice(index, 1);
+    this.#write(config);
+    return removed;
+  }
+
+  updateServerChannel(serverId, discordChannelId) {
+    const channelId = String(discordChannelId ?? "").trim();
+    if (!channelId) {
+      throw new Error("Discord channel ID is required.");
+    }
+
+    const config = this.read();
+    config.servers ??= [];
+    const server = config.servers.find((entry) => entry.pterodactylServerId === serverId);
+    if (!server) {
+      throw new Error(`Managed server ${serverId} was not found.`);
+    }
+
+    const conflicting = config.servers.find(
+      (entry) => !entry.archived
+        && entry.pterodactylServerId !== serverId
+        && entry.discordChannelId === channelId
+    );
+    if (conflicting) {
+      throw new Error(`Discord channel ${channelId} is already bound to ${conflicting.name}.`);
+    }
+
+    server.discordChannelId = channelId;
+    this.#write(config);
+    return server;
+  }
+
   createBackup(now = new Date()) {
     const config = this.read();
     const backupDirectory = path.join(path.dirname(this.filePath), "backups");
