@@ -377,12 +377,32 @@ export class DiscordOnboardingService {
     }
 
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const previousArchived = Boolean(server.archived);
+    const archiveChanged = archived !== null
+      && archived !== undefined
+      && Boolean(archived) !== previousArchived;
+    let categories = null;
+    let channelMoved = false;
+
     try {
+      if (archiveChanged) {
+        categories = await this.#ensureServerCategories();
+        await this.discordBridge.setServerChannelArchived(
+          server.discordChannelId,
+          Boolean(archived),
+          categories
+        );
+        channelMoved = true;
+      }
+
       this.configStore.updateServer(server.pterodactylServerId, updates);
       const reloaded = this.onConfigChanged ? await this.onConfigChanged() : false;
       if (!reloaded) {
+        if (archiveChanged) {
+          await this.#rollbackArchiveChange(server, previousArchived, categories, channelMoved);
+        }
         await interaction.editReply({
-          content: `Saved changes for **${server.name}**, but live reload failed. Restart the bot once to apply them.`
+          content: `Saved changes for **${server.name}**, but live reload failed. The archive channel move was rolled back; restart the bot once to apply non-archive changes.`
         });
         return;
       }
@@ -390,20 +410,50 @@ export class DiscordOnboardingService {
       const updated = this.config.servers.find(
         (entry) => entry.pterodactylServerId === server.pterodactylServerId
       );
+      const placement = archiveChanged
+        ? updated?.archived
+          ? "\nChannel moved to the hidden archive category."
+          : "\nChannel restored to the active server category."
+        : "";
       await interaction.editReply({
         content:
           `Updated **${updated?.name ?? server.name}**.\n`
           + `Archived: ${updated?.archived ? "yes" : "no"}\n`
           + `Auto-stop: ${formatAutoStop(updated ?? server)}`
+          + placement
       });
       this.logger.info("Discord administration updated managed server", {
         serverId: server.pterodactylServerId,
         updates: Object.keys(updates),
+        channelPlacementChanged: archiveChanged,
         requestedBy: interaction.user?.id ?? null
       });
     } catch (error) {
+      if (archiveChanged) {
+        await this.#rollbackArchiveChange(server, previousArchived, categories, channelMoved);
+      }
       this.logger.error("Discord server configuration update failed", error);
       await interaction.editReply({ content: `Could not update that server: ${error.message}` });
+    }
+  }
+
+  async #rollbackArchiveChange(server, previousArchived, categories, channelMoved) {
+    try {
+      this.configStore.updateServer(server.pterodactylServerId, {
+        archived: previousArchived
+      });
+      if (this.onConfigChanged) {
+        await this.onConfigChanged();
+      }
+      if (channelMoved && categories) {
+        await this.discordBridge.setServerChannelArchived(
+          server.discordChannelId,
+          previousArchived,
+          categories
+        );
+      }
+    } catch (rollbackError) {
+      this.logger.error("Could not fully roll back Discord archive placement", rollbackError);
     }
   }
 
