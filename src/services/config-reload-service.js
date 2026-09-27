@@ -49,14 +49,17 @@ export function validateReloadCompatibility(currentConfig, nextConfig) {
     currentConfig.servers.map((server) => [server.pterodactylServerId, server])
   );
 
-  if (currentServers.size !== nextConfig.servers.length) {
-    throw new Error("The configured server list changed; restart the bot to apply server additions or removals.");
+  const nextServerIds = new Set(nextConfig.servers.map((server) => server.pterodactylServerId));
+  for (const currentServerId of currentServers.keys()) {
+    if (!nextServerIds.has(currentServerId)) {
+      throw new Error("Removing managed servers still requires a bot restart.");
+    }
   }
 
   for (const server of nextConfig.servers) {
     const current = currentServers.get(server.pterodactylServerId);
     if (!current) {
-      throw new Error("A Pterodactyl server ID changed; restart the bot to apply server topology changes.");
+      continue;
     }
 
     if (current.discordChannelId !== server.discordChannelId) {
@@ -87,6 +90,9 @@ export function applyReloadedConfig(currentConfig, nextConfig) {
   );
   currentConfig.servers = nextConfig.servers.map((server) => {
     const current = currentServers.get(server.pterodactylServerId);
+    if (!current) {
+      return server;
+    }
     Object.assign(current, server);
     return current;
   });
