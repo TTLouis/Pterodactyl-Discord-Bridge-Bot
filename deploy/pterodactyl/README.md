@@ -13,6 +13,15 @@ This directory contains the first native Pterodactyl installation path for Ptero
 
 The Egg writes persistent state under `/home/container/data`. The initial configuration is generated automatically when it does not exist.
 
+## Discord channel layout
+
+During onboarding, the bridge manages two server categories:
+
+- **Game Servers** — visible active category containing the live `bridge-status` refresh channel and all active managed-server channels.
+- **Archived Game Servers** — hidden from normal members. Archiving a server moves its existing channel here and stops active polling; restoring it moves the same channel back to **Game Servers**.
+
+The bridge persists the category IDs, so future imports and archive/restore operations reuse the same categories instead of creating replacements.
+
 ## Discord application permissions
 
 Invite the Discord application with the `bot` and `applications.commands` scopes. For the current onboarding flow, the bot needs:
