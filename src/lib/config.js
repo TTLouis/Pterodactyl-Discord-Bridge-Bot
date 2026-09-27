@@ -367,6 +367,8 @@ export function loadConfig({ requireRuntimeTokens = true } = {}) {
       adminChannelId:
         normalizeOptionalString(process.env.DISCORD_ADMIN_CHANNEL_ID)
         ?? normalizeOptionalString(rawConfig.discord?.adminChannelId),
+      activeServerCategoryId: normalizeOptionalString(rawConfig.discord?.activeServerCategoryId),
+      archiveServerCategoryId: normalizeOptionalString(rawConfig.discord?.archiveServerCategoryId),
       displayTimeZone: resolveDisplayTimeZone(rawConfig.discord),
       serverAdminRoleId: normalizeOptionalString(rawConfig.discord?.serverAdminRoleId),
       serverAdminRoleName: normalizeOptionalString(rawConfig.discord?.serverAdminRoleName) ?? "server-admin"
