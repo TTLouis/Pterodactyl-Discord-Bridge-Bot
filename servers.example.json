@@ -5,7 +5,8 @@
     "logChannelId": "OPTIONAL_LOG_CHANNEL_ID",
     "serverAdminRoleId": "OPTIONAL_SERVER_ADMIN_ROLE_ID",
     "serverAdminRoleName": "server-admin",
-    "displayTimeZone": "America/Toronto"
+    "displayTimeZone": "America/Toronto",
+    "adminChannelId": "BRIDGE_ADMIN_CHANNEL_ID"
   },
   "kook": {
     "guildId": "YOUR_KOOK_GUILD_ID",
@@ -95,5 +96,8 @@
         "Use the current experimental game version."
       ]
     }
-  ]
+  ],
+  "features": {
+    "gameChatRelayEnabled": false
+  }
 }
