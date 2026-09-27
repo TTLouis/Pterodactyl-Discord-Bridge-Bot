@@ -186,6 +186,6 @@ test("generic Pterodactyl status shows unavailable players and process uptime", 
 
   assert.match(statusField, /👤 Unavailable/);
   assert.match(statusField, /Unavailable from API/);
-  assert.match(serverInfoField, /**Pterodactyl Uptime**/);
-  assert.match(serverInfoField, /**Uptime:** 1h 2m/);
+  assert.match(serverInfoField, /\*\*Pterodactyl Uptime\*\*/);
+  assert.match(serverInfoField, /\*\*Uptime:\*\* 1h 2m/);
 });
