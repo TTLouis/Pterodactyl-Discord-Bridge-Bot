@@ -1,19 +1,41 @@
-import { MessageFlags } from "discord.js";
+import { ApplicationCommandOptionType, MessageFlags, PermissionFlagsBits } from "discord.js";
 import { CANCEL_AUTO_STOP_REACTION, RESTART_SERVER_REACTION } from "./auto-stop-service.js";
 
 export const DISCORD_SLASH_COMMANDS = [
   { name: "start-server", description: "Start a stopped game server" },
   { name: "cancel-stop", description: "Cancel a pending auto-stop" },
   { name: "refresh-status", description: "Force refresh all game server status panels" },
-  { name: "restart-bot", description: "Restart the bot process" }
+  { name: "restart-bot", description: "Restart the bot process" },
+  {
+    name: "bridge",
+    description: "Configure Pterodactyl Platform Bridge",
+    default_member_permissions: PermissionFlagsBits.Administrator.toString(),
+    options: [
+      {
+        type: ApplicationCommandOptionType.Subcommand,
+        name: "setup",
+        description: "Create/continue Discord onboarding and import a Pterodactyl server"
+      }
+    ]
+  }
 ];
 
 export class DiscordInputController {
-  constructor({ config, discordBridge, autoStopService, syncService, logger, onRestartRequested = null, restartDelayMs = 1000 }) {
+  constructor({
+    config,
+    discordBridge,
+    autoStopService,
+    syncService,
+    onboardingService = null,
+    logger,
+    onRestartRequested = null,
+    restartDelayMs = 1000
+  }) {
     this.config = config;
     this.discordBridge = discordBridge;
     this.autoStopService = autoStopService;
     this.syncService = syncService;
+    this.onboardingService = onboardingService;
     this.logger = logger;
     this.onRestartRequested = onRestartRequested;
     this.restartDelayMs = restartDelayMs;
@@ -26,6 +48,25 @@ export class DiscordInputController {
   }
 
   async #handleInteraction(interaction) {
+    if (interaction.isStringSelectMenu?.()) {
+      if (interaction.customId?.startsWith("bridge:") && this.onboardingService) {
+        await this.onboardingService.handleInteraction(interaction);
+      }
+      return;
+    }
+
+    if (interaction.commandName === "bridge") {
+      if (!this.onboardingService) {
+        await interaction.reply({
+          content: "Discord onboarding is not available in this runtime.",
+          flags: MessageFlags.Ephemeral
+        });
+        return;
+      }
+      await this.onboardingService.handleInteraction(interaction);
+      return;
+    }
+
     if (interaction.commandName === "refresh-status") {
       await this.#handleRefreshStatusCommand(interaction);
       return;
