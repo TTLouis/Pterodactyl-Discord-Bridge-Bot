@@ -380,3 +380,83 @@ test("power requests carry the API credentials and abort signal", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+
+test("accessible servers are discovered and normalized across client API pages", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url, options });
+    const page = new URL(url).searchParams.get("page");
+    return {
+      ok: true,
+      async json() {
+        if (page === "1") {
+          return {
+            data: [{
+              attributes: {
+                identifier: "alpha123",
+                uuid: "uuid-alpha",
+                name: "Alpha",
+                description: "Primary server",
+                node: "Node 1",
+                limits: { memory: 1024 },
+                feature_limits: { databases: 1 }
+              }
+            }],
+            meta: { pagination: { total_pages: 2 } }
+          };
+        }
+
+        return {
+          data: [{
+            attributes: {
+              identifier: "beta456",
+              uuid: "uuid-beta",
+              name: "Beta",
+              description: null,
+              node: "Node 2"
+            }
+          }],
+          meta: { pagination: { total_pages: 2 } }
+        };
+      }
+    };
+  };
+
+  try {
+    const client = new PterodactylClient({
+      baseUrl: "https://panel.example.test/",
+      apiKey: "ptlc_test"
+    });
+
+    const servers = await client.listServers();
+
+    assert.equal(requests.length, 2);
+    assert.equal(requests[0].url, "https://panel.example.test/api/client?per_page=100&page=1");
+    assert.equal(requests[1].url, "https://panel.example.test/api/client?per_page=100&page=2");
+    assert.equal(requests[0].options.headers.Authorization, "Bearer ptlc_test");
+    assert.deepEqual(servers, [
+      {
+        identifier: "alpha123",
+        uuid: "uuid-alpha",
+        name: "Alpha",
+        description: "Primary server",
+        node: "Node 1",
+        limits: { memory: 1024 },
+        featureLimits: { databases: 1 }
+      },
+      {
+        identifier: "beta456",
+        uuid: "uuid-beta",
+        name: "Beta",
+        description: null,
+        node: "Node 2",
+        limits: null,
+        featureLimits: null
+      }
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
