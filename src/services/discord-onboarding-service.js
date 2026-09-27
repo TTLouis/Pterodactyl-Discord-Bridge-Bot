@@ -243,6 +243,267 @@ export class DiscordOnboardingService {
     await this.#showDiscovery(interaction);
   }
 
+  #findManagedServer(serverRef) {
+    const value = String(serverRef ?? "").trim();
+    if (!value) return null;
+    return this.config.servers.find(
+      (entry) => entry.pterodactylServerId === value
+        || entry.name.toLowerCase() === value.toLowerCase()
+    ) ?? null;
+  }
+
+  async #handleRemoveCommand(interaction) {
+    const server = this.#findManagedServer(interaction.options.getString("server", true));
+    if (!server) {
+      await this.#replyEphemeral(interaction, "That managed server was not found. Use **/bridge servers** to review managed servers.");
+      return;
+    }
+
+    const channelAction = interaction.options.getString("channel-action") ?? "archive";
+    if (!["archive", "keep", "delete"].includes(channelAction)) {
+      await this.#replyEphemeral(interaction, "Invalid channel action.");
+      return;
+    }
+
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const categories = channelAction === "archive" ? await this.#ensureServerCategories() : null;
+    const existingChannel = await this.discordBridge.fetchGuildChannel(server.discordChannelId);
+    let movedForRemoval = false;
+
+    try {
+      if (channelAction === "archive" && existingChannel) {
+        await this.discordBridge.setServerChannelArchived(
+          server.discordChannelId,
+          true,
+          categories
+        );
+        movedForRemoval = !server.archived;
+      }
+
+      const removed = this.configStore.removeServer(server.pterodactylServerId);
+      const reloaded = this.onConfigChanged ? await this.onConfigChanged() : false;
+      if (!reloaded) {
+        this.configStore.addServer(removed);
+        if (this.onConfigChanged) await this.onConfigChanged();
+        if (movedForRemoval) {
+          await this.discordBridge.setServerChannelArchived(
+            server.discordChannelId,
+            false,
+            categories
+          );
+        }
+        await interaction.editReply({
+          content: `Could not remove **${server.name}** from the live bridge configuration; the change was rolled back.`
+        });
+        return;
+      }
+
+      let channelResult = channelAction === "keep"
+        ? "Discord channel kept in place."
+        : existingChannel
+          ? "Discord channel moved to the hidden archive category."
+          : "The configured Discord channel was already missing.";
+
+      if (channelAction === "delete") {
+        const deleted = await this.discordBridge.deleteChannel(
+          server.discordChannelId,
+          `Pterodactyl Platform Bridge stopped managing ${server.name}`
+        );
+        channelResult = deleted
+          ? "Discord channel deleted."
+          : "The configured Discord channel was already missing.";
+      }
+
+      await interaction.editReply({
+        content:
+          `Stopped managing **${server.name}**. The Pterodactyl server was not modified or deleted.\n`
+          + channelResult
+      });
+      this.logger.info("Discord administration removed managed server", {
+        serverId: server.pterodactylServerId,
+        serverName: server.name,
+        channelAction,
+        requestedBy: interaction.user?.id ?? null
+      });
+    } catch (error) {
+      this.logger.error("Discord managed-server removal failed", error);
+      await interaction.editReply({ content: `Could not remove that server: ${error.message}` });
+    }
+  }
+
+  async #handleRebindCommand(interaction) {
+    const server = this.#findManagedServer(interaction.options.getString("server", true));
+    if (!server) {
+      await this.#replyEphemeral(interaction, "That managed server was not found. Use **/bridge servers** to review managed servers.");
+      return;
+    }
+
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const previousChannelId = server.discordChannelId;
+    const categories = await this.#ensureServerCategories();
+    const targetCategoryId = server.archived
+      ? categories.archiveCategoryId
+      : categories.activeCategoryId;
+    let selectedChannel = interaction.options.getChannel("channel");
+    let createdChannel = false;
+
+    try {
+      if (selectedChannel && selectedChannel.guildId !== interaction.guildId) {
+        throw new Error("The replacement channel must belong to this Discord server.");
+      }
+
+      if (!selectedChannel) {
+        selectedChannel = await this.discordBridge.createServerChannel(server.name, {
+          parentId: targetCategoryId
+        });
+        createdChannel = true;
+      } else {
+        await this.discordBridge.setChannelCategory(
+          selectedChannel.id,
+          targetCategoryId,
+          "Pterodactyl Platform Bridge server rebind"
+        );
+      }
+
+      this.configStore.updateServerChannel(server.pterodactylServerId, selectedChannel.id);
+      const reloaded = this.onConfigChanged ? await this.onConfigChanged() : false;
+      if (!reloaded) {
+        this.configStore.updateServerChannel(server.pterodactylServerId, previousChannelId);
+        if (this.onConfigChanged) await this.onConfigChanged();
+        if (createdChannel) {
+          await this.discordBridge.deleteChannel(
+            selectedChannel.id,
+            "Pterodactyl Platform Bridge rebind rollback"
+          );
+        }
+        await interaction.editReply({
+          content: `Could not live-rebind **${server.name}**; the configuration was rolled back.`
+        });
+        return;
+      }
+
+      await interaction.editReply({
+        content:
+          `Rebound **${server.name}** to <#${selectedChannel.id}>.`
+          + (createdChannel ? " A replacement channel was created automatically." : "")
+      });
+      this.logger.info("Discord administration rebound managed server", {
+        serverId: server.pterodactylServerId,
+        previousChannelId,
+        nextChannelId: selectedChannel.id,
+        createdChannel,
+        requestedBy: interaction.user?.id ?? null
+      });
+    } catch (error) {
+      this.logger.error("Discord managed-server rebind failed", error);
+      await interaction.editReply({ content: `Could not rebind that server: ${error.message}` });
+    }
+  }
+
+  async #handleRepairCommand(interaction) {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const repaired = [];
+    const unchanged = [];
+
+    try {
+      let adminChannel = await this.discordBridge.fetchGuildChannel(this.config.discord.adminChannelId);
+      if (!adminChannel?.isTextBased?.() || adminChannel.isDMBased?.()) {
+        adminChannel = await this.discordBridge.createPrivateAdminChannel({
+          requestedByUserId: interaction.user.id
+        });
+        this.config.discord.adminChannelId = adminChannel.id;
+        repaired.push(`admin channel → <#${adminChannel.id}>`);
+      } else {
+        unchanged.push("admin channel");
+      }
+
+      const categories = await this.discordBridge.ensureServerCategories({
+        activeCategoryId: this.config.discord.activeServerCategoryId,
+        archiveCategoryId: this.config.discord.archiveServerCategoryId
+      });
+      if (categories.activeCategoryId !== this.config.discord.activeServerCategoryId) {
+        repaired.push("active category");
+      } else {
+        unchanged.push("active category");
+      }
+      if (categories.archiveCategoryId !== this.config.discord.archiveServerCategoryId) {
+        repaired.push("hidden archive category");
+      } else {
+        unchanged.push("hidden archive category");
+      }
+      this.config.discord.activeServerCategoryId = categories.activeCategoryId;
+      this.config.discord.archiveServerCategoryId = categories.archiveCategoryId;
+
+      let statusChannel = await this.discordBridge.fetchGuildChannel(this.config.discord.statusChannelId);
+      if (!statusChannel?.isTextBased?.() || statusChannel.isDMBased?.()) {
+        statusChannel = await this.discordBridge.createStatusChannel({
+          parentId: categories.activeCategoryId
+        });
+        this.config.discord.statusChannelId = statusChannel.id;
+        repaired.push(`live status channel → <#${statusChannel.id}>`);
+      } else {
+        await this.discordBridge.setChannelCategory(
+          statusChannel.id,
+          categories.activeCategoryId,
+          "Pterodactyl Platform Bridge repair active status placement"
+        );
+        unchanged.push("live status channel");
+      }
+
+      this.configStore.updateDiscordChannels({
+        adminChannelId: adminChannel.id,
+        statusChannelId: statusChannel.id,
+        activeServerCategoryId: categories.activeCategoryId,
+        archiveServerCategoryId: categories.archiveCategoryId
+      });
+
+      for (const server of [...this.config.servers]) {
+        const expectedCategoryId = server.archived
+          ? categories.archiveCategoryId
+          : categories.activeCategoryId;
+        let channel = await this.discordBridge.fetchGuildChannel(server.discordChannelId);
+
+        if (!channel?.isTextBased?.() || channel.isDMBased?.()) {
+          channel = await this.discordBridge.createServerChannel(server.name, {
+            parentId: expectedCategoryId
+          });
+          this.configStore.updateServerChannel(server.pterodactylServerId, channel.id);
+          repaired.push(`${server.name} channel → <#${channel.id}>`);
+          continue;
+        }
+
+        await this.discordBridge.setChannelCategory(
+          channel.id,
+          expectedCategoryId,
+          server.archived
+            ? "Pterodactyl Platform Bridge repair archived placement"
+            : "Pterodactyl Platform Bridge repair active placement"
+        );
+      }
+
+      const reloaded = this.onConfigChanged ? await this.onConfigChanged() : false;
+      if (!reloaded) {
+        await interaction.editReply({
+          content: "Discord infrastructure was repaired, but the live configuration reload failed. Restart the bot once to reconcile the repaired bindings."
+        });
+        return;
+      }
+
+      await interaction.editReply({
+        content:
+          `Bridge repair completed.\n**Repaired:** ${repaired.length ? repaired.join(", ") : "nothing"}\n`
+          + `**Already healthy:** ${unchanged.length ? unchanged.join(", ") : "none"}`
+      });
+      this.logger.info("Discord administration repaired bridge infrastructure", {
+        repairedCount: repaired.length,
+        requestedBy: interaction.user?.id ?? null
+      });
+    } catch (error) {
+      this.logger.error("Discord bridge repair failed", error);
+      await interaction.editReply({ content: `Bridge repair failed: ${error.message}` });
+    }
+  }
+
   async #handleServersCommand(interaction) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
