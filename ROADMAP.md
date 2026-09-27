@@ -25,7 +25,7 @@ Initial vertical slice:
 1. Start the bot with the Discord token as the only required bootstrap secret.
 2. Add `/bridge setup`, restricted to the guild owner or Discord administrators.
 3. Create or claim a private bridge administration channel.
-4. Collect the Pterodactyl panel URL and Client API key through a secure Discord interaction/modal.
+4. Bootstrap the Pterodactyl panel URL and Client API key through the deployment environment/Egg; never echo credentials into Discord. A future connection-replacement flow may move credential rotation into a secure Discord interaction.
 5. Validate the connection without echoing the credential.
 6. Discover servers accessible to the Client API account.
 7. Let the administrator select one discovered server to import.
@@ -132,18 +132,21 @@ These features should build on the control-plane/reconciler architecture rather 
 
 ## Near-term implementation order
 
-The next implementation work should remain deliberately narrow:
+Implemented on the current productization branch:
 
 1. Native Pterodactyl Egg and bootstrap environment path.
 2. Dedicated Discord administration channel, separate from logs.
-3. Persistent configuration model that supersedes hand-edited `servers.json`.
-4. Secure Discord setup claim in the administration channel.
-5. Pterodactyl connection validation and server discovery.
-6. Import one server.
-7. Dynamic runtime creation for that server.
-8. Restart persistence.
-9. Regression coverage for authorization, secret handling, duplicate setup, failed validation, and recovery.
+3. Persistent configuration store with fresh installs no longer requiring a prebuilt server list.
+4. `/bridge setup` for admin/status channel provisioning and server discovery.
+5. Pterodactyl Client API validation and paginated server discovery.
+6. Repeat server import through `/bridge add`, including Satisfactory token collection through a private modal.
+7. Live runtime creation for newly imported servers without restarting the process.
+8. `/bridge servers`, `/bridge connection`, and safe `/bridge configure` settings.
+9. Restricted local configuration backups through `/bridge backup`.
+10. Regression coverage for authorization, secret handling, duplicate imports, failed validation, live additions, and configuration persistence.
 
-The Egg may collect the initial Discord and Pterodactyl bootstrap values needed to start the application. The longer-term control plane should persist normal operational configuration from Discord and reduce Egg variables to deployment/bootstrap concerns.
+Next control-plane work should focus on server removal/rebinding as explicit lifecycle operations, secret separation/rotation, generic unsupported-game support, and clean-install/restart E2E validation before broad publication.
+
+The Egg currently collects the initial Discord and Pterodactyl bootstrap values needed to start the application. The longer-term control plane should persist normal operational configuration from Discord and reduce Egg variables to deployment/bootstrap concerns.
 
 Do not start broad marketplace/deployment publication until this first Discord-native onboarding slice is reliable enough that hosted users are not forced back into manual `servers.json` maintenance.
