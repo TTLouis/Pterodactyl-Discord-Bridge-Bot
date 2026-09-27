@@ -194,67 +194,8 @@ export class DiscordOnboardingService {
     }
 
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-    if (!this.config.discord.statusChannelId) {
-      try {
-        const statusChannel = await this.discordBridge.createStatusChannel();
-        this.config.discord.statusChannelId = statusChannel.id;
-        this.configStore.updateDiscordChannels({
-          adminChannelId: this.config.discord.adminChannelId,
-          statusChannelId: statusChannel.id
-        });
-      } catch (error) {
-        this.logger.error("Discord onboarding status channel creation failed", error);
-        await interaction.editReply({
-          content: `Could not create the status channel: ${error.message}. Make sure the bot has **Manage Channels** permission.`
-        });
-        return;
-      }
-    }
-
-    let discovered;
-    try {
-      discovered = await this.pterodactylClient.listServers();
-    } catch (error) {
-      this.logger.error("Pterodactyl onboarding validation failed", error);
-      await interaction.editReply({
-        content: `Could not validate the Pterodactyl Client API connection: ${error.message}`
-      });
-      return;
-    }
-
-    const importedIds = new Set(this.config.servers.map((server) => server.pterodactylServerId));
-    const available = discovered.filter((server) => !importedIds.has(server.identifier));
-
-    if (available.length === 0) {
-      await interaction.editReply({
-        content: discovered.length === 0
-          ? "Pterodactyl connection succeeded, but this Client API account does not expose any servers."
-          : `Pterodactyl connection succeeded. All ${discovered.length} accessible server(s) are already imported.`,
-        components: []
-      });
-      return;
-    }
-
-    const shown = available.slice(0, MAX_SELECT_OPTIONS);
-    const selector = new StringSelectMenuBuilder()
-      .setCustomId(SERVER_SELECT_ID)
-      .setPlaceholder("Choose a Pterodactyl server to import")
-      .addOptions(shown.map((server) => ({
-        label: String(server.name).slice(0, 100),
-        description: String(server.description || server.identifier).slice(0, 100),
-        value: server.identifier
-      })));
-
-    const row = new ActionRowBuilder().addComponents(selector);
-    const suffix = available.length > shown.length
-      ? ` Showing the first ${shown.length} of ${available.length} available servers.`
-      : "";
-
-    await interaction.editReply({
-      content: `Pterodactyl connection validated. Found ${discovered.length} accessible server(s); ${available.length} are not yet imported.${suffix}`,
-      components: [row]
-    });
+    if (!(await this.#ensureStatusChannel(interaction))) return;
+    await this.#showDiscovery(interaction);
   }
 
   async #handleServersCommand(interaction) {
