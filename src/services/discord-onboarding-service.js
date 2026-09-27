@@ -327,6 +327,97 @@ export class DiscordOnboardingService {
     }
   }
 
+  async #handleConfigureCommand(interaction) {
+    const serverRef = interaction.options.getString("server", true);
+    const server = this.config.servers.find(
+      (entry) => entry.pterodactylServerId === serverRef
+        || entry.name.toLowerCase() === String(serverRef).toLowerCase()
+    );
+
+    if (!server) {
+      await this.#replyEphemeral(interaction, "That managed server was not found. Use **/bridge servers** to review managed servers.");
+      return;
+    }
+
+    const name = interaction.options.getString("name");
+    const archived = interaction.options.getBoolean("archived");
+    const autoStopEnabled = interaction.options.getBoolean("auto-stop");
+    const emptyHours = interaction.options.getNumber("empty-hours");
+    const warningMinutes = interaction.options.getNumber("warning-minutes");
+    const values = [name, archived, autoStopEnabled, emptyHours, warningMinutes];
+    const hasMutation = values.some((value) => value !== null && value !== undefined);
+
+    if (!hasMutation) {
+      await this.#replyEphemeral(
+        interaction,
+        `**${server.name}**\n`
+        + `Pterodactyl ID: \`${server.pterodactylServerId}\`\n`
+        + `Game: ${gameLabel(server.game?.type)}\n`
+        + `Channel: <#${server.discordChannelId}>\n`
+        + `Archived: ${server.archived ? "yes" : "no"}\n`
+        + `Auto-stop: ${formatAutoStop(server)}`
+      );
+      return;
+    }
+
+    const updates = {};
+    if (name !== null && name !== undefined) {
+      const normalizedName = String(name).trim();
+      if (!normalizedName || normalizedName.length > 100) {
+        await this.#replyEphemeral(interaction, "Display name must be between 1 and 100 characters.");
+        return;
+      }
+      updates.name = normalizedName;
+    }
+    if (archived !== null && archived !== undefined) {
+      updates.archived = archived;
+    }
+
+    if (autoStopEnabled !== null || emptyHours !== null || warningMinutes !== null) {
+      const current = server.autoStop ?? {};
+      const nextAutoStop = {
+        enabled: autoStopEnabled ?? Boolean(current.enabled),
+        emptyTimeoutHours: emptyHours ?? current.emptyTimeoutHours ?? 24,
+        warningMinutesBefore: warningMinutes ?? current.warningMinutesBefore ?? 60
+      };
+      if (nextAutoStop.enabled && nextAutoStop.warningMinutesBefore >= nextAutoStop.emptyTimeoutHours * 60) {
+        await this.#replyEphemeral(interaction, "Auto-stop warning time must be shorter than the empty timeout.");
+        return;
+      }
+      updates.autoStop = nextAutoStop;
+    }
+
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    try {
+      this.configStore.updateServer(server.pterodactylServerId, updates);
+      const reloaded = this.onConfigChanged ? await this.onConfigChanged() : false;
+      if (!reloaded) {
+        await interaction.editReply({
+          content: `Saved changes for **${server.name}**, but live reload failed. Restart the bot once to apply them.`
+        });
+        return;
+      }
+
+      const updated = this.config.servers.find(
+        (entry) => entry.pterodactylServerId === server.pterodactylServerId
+      );
+      await interaction.editReply({
+        content:
+          `Updated **${updated?.name ?? server.name}**.\n`
+          + `Archived: ${updated?.archived ? "yes" : "no"}\n`
+          + `Auto-stop: ${formatAutoStop(updated ?? server)}`
+      });
+      this.logger.info("Discord administration updated managed server", {
+        serverId: server.pterodactylServerId,
+        updates: Object.keys(updates),
+        requestedBy: interaction.user?.id ?? null
+      });
+    } catch (error) {
+      this.logger.error("Discord server configuration update failed", error);
+      await interaction.editReply({ content: `Could not update that server: ${error.message}` });
+    }
+  }
+
   async #ensureStatusChannel(interaction) {
     if (this.config.discord.statusChannelId) return true;
 
