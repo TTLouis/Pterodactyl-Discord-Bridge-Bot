@@ -358,3 +358,92 @@ test("game chat relay defaults off and can be enabled from the environment", () 
     else process.env.GAME_CHAT_RELAY_ENABLED = previous;
   }
 });
+
+
+test("fresh onboarding config may start without a status channel or managed servers", () => {
+  const previousEnv = {
+    CONFIG_PATH: process.env.CONFIG_PATH,
+    DISCORD_TOKEN: process.env.DISCORD_TOKEN,
+    DISCORD_GUILD_ID: process.env.DISCORD_GUILD_ID,
+    DISCORD_STATUS_CHANNEL_ID: process.env.DISCORD_STATUS_CHANNEL_ID,
+    PTERODACTYL_PANEL_URL: process.env.PTERODACTYL_PANEL_URL,
+    PTERODACTYL_CLIENT_API_KEY: process.env.PTERODACTYL_CLIENT_API_KEY,
+    KOOK_ENABLED: process.env.KOOK_ENABLED
+  };
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-fresh-onboarding-"));
+  const configPath = path.join(tempDir, "config.json");
+
+  try {
+    fs.writeFileSync(configPath, JSON.stringify({
+      discord: {},
+      pterodactyl: {},
+      features: { gameChatRelayEnabled: false },
+      servers: []
+    }), "utf8");
+
+    process.env.CONFIG_PATH = configPath;
+    process.env.DISCORD_TOKEN = "discord-token";
+    process.env.DISCORD_GUILD_ID = "guild";
+    delete process.env.DISCORD_STATUS_CHANNEL_ID;
+    process.env.PTERODACTYL_PANEL_URL = "https://panel.example.com";
+    process.env.PTERODACTYL_CLIENT_API_KEY = "ptlc_test";
+    process.env.KOOK_ENABLED = "false";
+
+    const runtime = loadConfig();
+    assert.equal(runtime.config.discord.guildId, "guild");
+    assert.equal(runtime.config.discord.statusChannelId, null);
+    assert.deepEqual(runtime.config.servers, []);
+  } finally {
+    for (const [name, value] of Object.entries(previousEnv)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("managed servers still require a Discord status channel", () => {
+  const previousEnv = {
+    CONFIG_PATH: process.env.CONFIG_PATH,
+    DISCORD_TOKEN: process.env.DISCORD_TOKEN,
+    DISCORD_GUILD_ID: process.env.DISCORD_GUILD_ID,
+    DISCORD_STATUS_CHANNEL_ID: process.env.DISCORD_STATUS_CHANNEL_ID,
+    PTERODACTYL_PANEL_URL: process.env.PTERODACTYL_PANEL_URL,
+    PTERODACTYL_CLIENT_API_KEY: process.env.PTERODACTYL_CLIENT_API_KEY,
+    KOOK_ENABLED: process.env.KOOK_ENABLED
+  };
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-status-required-"));
+  const configPath = path.join(tempDir, "config.json");
+
+  try {
+    fs.writeFileSync(configPath, JSON.stringify({
+      discord: {},
+      pterodactyl: {},
+      servers: [{
+        name: "Factory",
+        discordChannelId: "factory-channel",
+        pterodactylServerId: "factory-id",
+        game: { type: "factorio" }
+      }]
+    }), "utf8");
+
+    process.env.CONFIG_PATH = configPath;
+    process.env.DISCORD_TOKEN = "discord-token";
+    process.env.DISCORD_GUILD_ID = "guild";
+    delete process.env.DISCORD_STATUS_CHANNEL_ID;
+    process.env.PTERODACTYL_PANEL_URL = "https://panel.example.com";
+    process.env.PTERODACTYL_CLIENT_API_KEY = "ptlc_test";
+    process.env.KOOK_ENABLED = "false";
+
+    assert.throws(
+      () => loadConfig(),
+      /discord\.statusChannelId once at least one server is managed/
+    );
+  } finally {
+    for (const [name, value] of Object.entries(previousEnv)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
