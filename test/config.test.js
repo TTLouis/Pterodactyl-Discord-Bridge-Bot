@@ -447,3 +447,31 @@ test("managed servers still require a Discord status channel", () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+
+test("generic Pterodactyl servers validate without game-specific configuration", () => {
+  const runtime = loadConfigWithServer({
+    name: "Custom Game",
+    game: { type: "generic" },
+    autoStop: { enabled: false }
+  });
+
+  assert.equal(runtime.config.servers[0].game.type, "generic");
+  assert.equal(runtime.config.servers[0].game.chatCommandTemplate, null);
+  assert.equal(runtime.config.servers[0].autoStop, null);
+});
+
+test("generic Pterodactyl servers reject player-based auto-stop", () => {
+  assert.throws(
+    () => loadConfigWithServer({
+      name: "Custom Game",
+      game: { type: "generic" },
+      autoStop: {
+        enabled: true,
+        emptyTimeoutHours: 4,
+        warningMinutesBefore: 30
+      }
+    }),
+    /cannot enable auto-stop because a reliable player count is unavailable/
+  );
+});
