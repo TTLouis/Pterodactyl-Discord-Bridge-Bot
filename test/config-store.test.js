@@ -45,3 +45,44 @@ test("ConfigStore persists onboarding channels and imported servers atomically",
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+
+test("ConfigStore updates safe server settings without changing topology", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-config-update-"));
+  const configPath = path.join(tempDir, "config.json");
+
+  try {
+    fs.writeFileSync(configPath, JSON.stringify({
+      discord: {},
+      pterodactyl: {},
+      servers: [{
+        name: "Factory",
+        pterodactylServerId: "factory-id",
+        discordChannelId: "factory-channel",
+        game: { type: "factorio" },
+        autoStop: { enabled: false }
+      }]
+    }), "utf8");
+
+    const store = new ConfigStore(configPath);
+    store.updateServer("factory-id", {
+      name: "Factory Prime",
+      archived: true,
+      autoStop: { enabled: true, emptyTimeoutHours: 6, warningMinutesBefore: 30 }
+    });
+
+    const persisted = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    const server = persisted.servers[0];
+    assert.equal(server.name, "Factory Prime");
+    assert.equal(server.archived, true);
+    assert.deepEqual(server.autoStop, {
+      enabled: true,
+      emptyTimeoutHours: 6,
+      warningMinutesBefore: 30
+    });
+    assert.equal(server.discordChannelId, "factory-channel");
+    assert.equal(server.pterodactylServerId, "factory-id");
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
