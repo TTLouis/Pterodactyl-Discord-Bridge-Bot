@@ -760,3 +760,95 @@ test("/bridge repair recreates missing control-plane and server channels", async
   }]);
   assert.match(calls.at(-1).payload.content, /Bridge repair completed/);
 });
+
+
+test("generic game selection imports an unsupported Pterodactyl server safely", async () => {
+  const config = {
+    discord: {
+      adminChannelId: "admin",
+      statusChannelId: "status",
+      activeServerCategoryId: "active-category",
+      archiveServerCategoryId: "archive-category"
+    },
+    servers: []
+  };
+  const imported = [];
+  const service = new DiscordOnboardingService({
+    config,
+    discordBridge: {
+      async createServerChannel(_name, { parentId }) {
+        assert.equal(parentId, "active-category");
+        return { id: "generic-channel" };
+      }
+    },
+    pterodactylClient: {
+      async listServers() {
+        return [{ identifier: "generic-id", name: "Custom Game", description: null }];
+      }
+    },
+    configStore: {
+      addServer(server) { imported.push(server); }
+    },
+    logger: { info() {}, warn() {}, error() {} },
+    async onConfigChanged() { return true; }
+  });
+  const calls = [];
+  const interaction = {
+    guild: { ownerId: "owner" },
+    user: { id: "owner" },
+    channelId: "admin",
+    customId: "bridge:game:generic-id",
+    values: ["generic"],
+    deferred: false,
+    replied: false,
+    isAutocomplete() { return false; },
+    isChatInputCommand() { return false; },
+    isModalSubmit() { return false; },
+    isStringSelectMenu() { return true; },
+    async deferUpdate() { calls.push({ method: "deferUpdate" }); this.deferred = true; },
+    async editReply(payload) { calls.push({ method: "editReply", payload }); },
+    async reply(payload) { calls.push({ method: "reply", payload }); this.replied = true; },
+    async followUp(payload) { calls.push({ method: "followUp", payload }); }
+  };
+
+  await service.handleInteraction(interaction);
+
+  assert.equal(imported.length, 1);
+  assert.deepEqual(imported[0].game, { type: "generic" });
+  assert.deepEqual(imported[0].autoStop, { enabled: false });
+  assert.match(calls.at(-1).payload.content, /Generic Pterodactyl/);
+});
+
+test("/bridge configure refuses auto-stop settings for generic servers", async () => {
+  const config = {
+    discord: { adminChannelId: "admin" },
+    servers: [{
+      name: "Custom Game",
+      pterodactylServerId: "generic-id",
+      discordChannelId: "generic-channel",
+      archived: false,
+      game: { type: "generic" },
+      autoStop: null
+    }]
+  };
+  let writes = 0;
+  const service = new DiscordOnboardingService({
+    config,
+    discordBridge: {},
+    pterodactylClient: {},
+    configStore: { updateServer() { writes += 1; } },
+    logger: { info() {}, warn() {}, error() {} }
+  });
+  const options = {
+    getSubcommand() { return "configure"; },
+    getString(name) { return name === "server" ? "generic-id" : null; },
+    getBoolean(name) { return name === "auto-stop" ? true : null; },
+    getNumber() { return null; }
+  };
+  const { interaction, calls } = ownerInteraction({ channelId: "admin", options });
+
+  await service.handleInteraction(interaction);
+
+  assert.equal(writes, 0);
+  assert.match(calls.at(-1).payload.content, /Auto-stop is unavailable for generic Pterodactyl servers/);
+});
