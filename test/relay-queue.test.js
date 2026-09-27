@@ -18,6 +18,7 @@ function createRelayService() {
 
   const service = new StatusSyncService({
     config: {
+      features: { gameChatRelayEnabled: true },
       discord: { statusChannelId: "status", displayTimeZone: "UTC" },
       pterodactyl: { pollIntervalSeconds: 60 },
       servers: [server]
