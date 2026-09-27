@@ -120,7 +120,7 @@ export class DiscordInputController {
       return;
     }
 
-    if (interaction.isStringSelectMenu?.()) {
+    if (interaction.isStringSelectMenu?.() || interaction.isModalSubmit?.()) {
       if (interaction.customId?.startsWith("bridge:") && this.onboardingService) {
         await this.onboardingService.handleInteraction(interaction);
       }
