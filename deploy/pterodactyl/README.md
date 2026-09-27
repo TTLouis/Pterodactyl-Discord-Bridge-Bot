@@ -6,15 +6,16 @@ This directory contains the first native Pterodactyl installation path for Ptero
 
 1. In the Pterodactyl admin panel, import `egg-pterodactyl-platform-bridge.json` into a Nest.
 2. Create a server from the imported Egg.
-3. Supply the Discord bot token, guild/admin/status channel IDs, Panel URL, and a Pterodactyl Client API key.
-4. Leave **Game Chat Relay** set to `false`.
-5. Start the server.
+3. Supply the Discord bot token, Discord guild ID, Panel URL, and a Pterodactyl Client API key.
+4. Leave the admin/status channel IDs blank unless you want to bind existing channels.
+5. Leave **Game Chat Relay** set to `false`.
+6. Start the server and run **/bridge setup** as the guild owner or a Discord administrator.
 
 The Egg writes persistent state under `/home/container/data`. The initial configuration is generated automatically when it does not exist.
 
 ## Current preview boundary
 
-The Egg bootstraps the process and separates Discord administration from logging, but the full `/bridge setup` onboarding flow is not implemented yet. The next control-plane milestone will use the admin channel to discover/import Pterodactyl servers and persist them without hand-editing `servers.json`.
+The Egg bootstraps the process and `/bridge setup` creates or claims the administration/status channels, validates the Client API connection, discovers accessible servers, and can import Factorio or Minecraft servers without hand-editing `servers.json`. Satisfactory onboarding is still pending because it also requires a game API token.
 
 ## API key expectation
 
