@@ -307,13 +307,18 @@ export class DiscordOnboardingService {
           : "The configured Discord channel was already missing.";
 
       if (channelAction === "delete") {
-        const deleted = await this.discordBridge.deleteChannel(
-          server.discordChannelId,
-          `Pterodactyl Platform Bridge stopped managing ${server.name}`
-        );
-        channelResult = deleted
-          ? "Discord channel deleted."
-          : "The configured Discord channel was already missing.";
+        try {
+          const deleted = await this.discordBridge.deleteChannel(
+            server.discordChannelId,
+            `Pterodactyl Platform Bridge stopped managing ${server.name}`
+          );
+          channelResult = deleted
+            ? "Discord channel deleted."
+            : "The configured Discord channel was already missing.";
+        } catch (deleteError) {
+          this.logger.warn(`Removed ${server.name} from bridge management but could not delete its Discord channel.`, deleteError);
+          channelResult = `Bridge removal succeeded, but the Discord channel could not be deleted: ${deleteError.message}`;
+        }
       }
 
       await interaction.editReply({
@@ -348,42 +353,77 @@ export class DiscordOnboardingService {
       : categories.activeCategoryId;
     let selectedChannel = interaction.options.getChannel("channel");
     let createdChannel = false;
+    let configRebound = false;
+    let channelMoved = false;
+    let previousTargetParentId = selectedChannel?.parentId ?? null;
+
+    const rollback = async () => {
+      if (configRebound) {
+        this.configStore.updateServerChannel(server.pterodactylServerId, previousChannelId);
+        if (this.onConfigChanged) await this.onConfigChanged();
+        configRebound = false;
+      }
+
+      if (createdChannel && selectedChannel) {
+        await this.discordBridge.deleteChannel(
+          selectedChannel.id,
+          "Pterodactyl Platform Bridge rebind rollback"
+        );
+      } else if (channelMoved && selectedChannel) {
+        await this.discordBridge.setChannelCategory(
+          selectedChannel.id,
+          previousTargetParentId,
+          "Pterodactyl Platform Bridge rebind rollback"
+        );
+      }
+    };
 
     try {
       if (selectedChannel && selectedChannel.guildId !== interaction.guildId) {
         throw new Error("The replacement channel must belong to this Discord server.");
       }
 
+      if (selectedChannel) {
+        const conflict = this.config.servers.find(
+          (entry) => entry.pterodactylServerId !== server.pterodactylServerId
+            && entry.discordChannelId === selectedChannel.id
+        );
+        if (conflict) {
+          throw new Error(`That Discord channel is already bound to ${conflict.name}.`);
+        }
+      }
+
       if (!selectedChannel) {
         selectedChannel = await this.discordBridge.createServerChannel(server.name, {
           parentId: targetCategoryId
         });
+        previousTargetParentId = null;
         createdChannel = true;
-      } else {
+      }
+
+      this.configStore.updateServerChannel(server.pterodactylServerId, selectedChannel.id);
+      configRebound = true;
+
+      if (!createdChannel && selectedChannel.parentId !== targetCategoryId) {
         await this.discordBridge.setChannelCategory(
           selectedChannel.id,
           targetCategoryId,
           "Pterodactyl Platform Bridge server rebind"
         );
+        channelMoved = true;
       }
 
-      this.configStore.updateServerChannel(server.pterodactylServerId, selectedChannel.id);
       const reloaded = this.onConfigChanged ? await this.onConfigChanged() : false;
       if (!reloaded) {
-        this.configStore.updateServerChannel(server.pterodactylServerId, previousChannelId);
-        if (this.onConfigChanged) await this.onConfigChanged();
-        if (createdChannel) {
-          await this.discordBridge.deleteChannel(
-            selectedChannel.id,
-            "Pterodactyl Platform Bridge rebind rollback"
-          );
-        }
+        await rollback();
         await interaction.editReply({
-          content: `Could not live-rebind **${server.name}**; the configuration was rolled back.`
+          content: `Could not live-rebind **${server.name}**; the configuration and channel placement were rolled back.`
         });
         return;
       }
 
+      configRebound = false;
+      channelMoved = false;
       await interaction.editReply({
         content:
           `Rebound **${server.name}** to <#${selectedChannel.id}>.`
@@ -397,6 +437,11 @@ export class DiscordOnboardingService {
         requestedBy: interaction.user?.id ?? null
       });
     } catch (error) {
+      try {
+        await rollback();
+      } catch (rollbackError) {
+        this.logger.error("Discord managed-server rebind rollback failed", rollbackError);
+      }
       this.logger.error("Discord managed-server rebind failed", error);
       await interaction.editReply({ content: `Could not rebind that server: ${error.message}` });
     }
