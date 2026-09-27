@@ -587,6 +587,84 @@ export class DiscordOnboardingService {
     }
   }
 
+  async #handleSatisfactoryModal(interaction) {
+    if (!(await this.#requireAdminChannel(interaction))) return;
+
+    const serverId = interaction.customId.slice(SATISFACTORY_MODAL_PREFIX.length);
+    if (!serverId) {
+      await this.#replyEphemeral(interaction, "Invalid Satisfactory setup request.");
+      return;
+    }
+    if (this.config.servers.some((server) => server.pterodactylServerId === serverId)) {
+      await this.#replyEphemeral(interaction, "That Pterodactyl server is already imported.");
+      return;
+    }
+
+    const apiToken = interaction.fields.getTextInputValue("api-token").trim();
+    const rawApiUrl = interaction.fields.getTextInputValue("api-url").trim();
+    if (!apiToken) {
+      await this.#replyEphemeral(interaction, "A Satisfactory API token is required.");
+      return;
+    }
+
+    let apiUrl = null;
+    if (rawApiUrl) {
+      try {
+        const parsed = new URL(rawApiUrl);
+        if (!["http:", "https:"].includes(parsed.protocol)) throw new Error("unsupported protocol");
+        apiUrl = parsed.toString().replace(/\/+$/, "");
+      } catch {
+        await this.#replyEphemeral(interaction, "The Satisfactory API URL must be a valid HTTP or HTTPS URL.");
+        return;
+      }
+    }
+
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    try {
+      const discovered = await this.pterodactylClient.listServers();
+      const remote = discovered.find((entry) => entry.identifier === serverId);
+      if (!remote) {
+        await interaction.editReply({
+          content: "That Pterodactyl server is no longer accessible to this Client API account."
+        });
+        return;
+      }
+
+      const serverChannel = await this.discordBridge.createServerChannel(remote.name);
+      const game = { type: "satisfactory", apiToken };
+      if (apiUrl) game.apiUrl = apiUrl;
+      this.configStore.addServer({
+        name: remote.name,
+        pterodactylServerId: remote.identifier,
+        discordChannelId: serverChannel.id,
+        game,
+        autoStop: { enabled: false }
+      });
+
+      const reloaded = this.onConfigChanged ? await this.onConfigChanged() : false;
+      if (!reloaded) {
+        await interaction.editReply({
+          content: `Saved **${remote.name}** and created <#${serverChannel.id}>, but live reload failed. Check the Satisfactory API URL/allocation and restart the bot once after correcting it.`
+        });
+        return;
+      }
+
+      await interaction.editReply({
+        content: `Imported **${remote.name}** as Satisfactory and created <#${serverChannel.id}>. The API token was stored without being echoed back.`
+      });
+      this.logger.info("Discord administration imported Satisfactory server", {
+        serverId: remote.identifier,
+        serverName: remote.name,
+        discordChannelId: serverChannel.id,
+        apiUrlSource: apiUrl ? "manual" : "pterodactyl-allocation",
+        requestedBy: interaction.user?.id ?? null
+      });
+    } catch (error) {
+      this.logger.error("Discord Satisfactory import failed", error);
+      await interaction.editReply({ content: `Could not import that Satisfactory server: ${error.message}` });
+    }
+  }
+
   async #requireAdminChannel(interaction) {
     const adminChannelId = this.config.discord.adminChannelId;
     if (adminChannelId && interaction.channelId === adminChannelId) {
