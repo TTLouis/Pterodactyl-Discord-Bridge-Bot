@@ -50,6 +50,19 @@ function normalizeOptionalString(value) {
   return normalized || null;
 }
 
+function resolveBooleanSetting(envName, configValue, fallback = false) {
+  const envValue = process.env[envName];
+  if (envValue === undefined || envValue === null || envValue === "") {
+    return typeof configValue === "boolean" ? configValue : fallback;
+  }
+
+  const normalized = String(envValue).trim().toLowerCase();
+  if (["true", "1", "yes", "on"].includes(normalized)) return true;
+  if (["false", "0", "no", "off"].includes(normalized)) return false;
+
+  throw new Error(`${envName} must be a boolean value (true/false, 1/0, yes/no, on/off). Received: ${JSON.stringify(envValue)}`);
+}
+
 function normalizeArchived(server) {
   if (server.archived === undefined) {
     return false;
@@ -277,7 +290,9 @@ function validateConfig(config) {
     }
 
     if (server.game?.type === "factorio") {
-      validateFactorioRelayTemplate(server.name, server.game.chatCommandTemplate, "chatCommandTemplate");
+      if (config.features?.gameChatRelayEnabled) {
+        validateFactorioRelayTemplate(server.name, server.game.chatCommandTemplate, "chatCommandTemplate");
+      }
       continue;
     }
 
@@ -340,6 +355,9 @@ export function loadConfig({ requireRuntimeTokens = true } = {}) {
   const config = {
     discord: {
       ...rawConfig.discord,
+      adminChannelId:
+        normalizeOptionalString(process.env.DISCORD_ADMIN_CHANNEL_ID)
+        ?? normalizeOptionalString(rawConfig.discord?.adminChannelId),
       displayTimeZone: resolveDisplayTimeZone(rawConfig.discord),
       serverAdminRoleId: normalizeOptionalString(rawConfig.discord?.serverAdminRoleId),
       serverAdminRoleName: normalizeOptionalString(rawConfig.discord?.serverAdminRoleName) ?? "server-admin"
@@ -347,6 +365,12 @@ export function loadConfig({ requireRuntimeTokens = true } = {}) {
     kook: normalizeKookConfig(rawConfig.kook),
     pterodactyl: {
       ...rawConfig.pterodactyl,
+      baseUrl:
+        normalizeOptionalString(process.env.PTERODACTYL_PANEL_URL)
+        ?? normalizeOptionalString(rawConfig.pterodactyl?.baseUrl),
+      apiKey:
+        normalizeOptionalString(process.env.PTERODACTYL_CLIENT_API_KEY)
+        ?? normalizeOptionalString(rawConfig.pterodactyl?.apiKey),
       pollIntervalSeconds: normalizePositiveNumber(rawConfig.pterodactyl?.pollIntervalSeconds, 60),
       activePlayerPollIntervalSeconds: normalizePositiveNumber(rawConfig.pterodactyl?.activePlayerPollIntervalSeconds, 15),
       apiRequestTimeoutMs: requirePositiveNumber(
@@ -357,6 +381,13 @@ export function loadConfig({ requireRuntimeTokens = true } = {}) {
       wingsFqdn: process.env.PTERODACTYL_WINGS_FQDN || null,
       wingsWsScheme: process.env.PTERODACTYL_WINGS_WS_SCHEME || null,
       wingsWsPort: process.env.PTERODACTYL_WINGS_WS_PORT || null
+    },
+    features: {
+      gameChatRelayEnabled: resolveBooleanSetting(
+        "GAME_CHAT_RELAY_ENABLED",
+        rawConfig.features?.gameChatRelayEnabled,
+        false
+      )
     },
     servers: rawConfig.servers.map(normalizeServer)
   };
