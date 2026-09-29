@@ -1,4 +1,4 @@
-import { ChannelType, MessageFlags, PermissionFlagsBits } from "discord.js";
+import { ChannelType, MessageFlags, OverwriteType, PermissionFlagsBits } from "discord.js";
 
 const BRIDGE_ADMIN_TOPIC = "Private administration for the Pterodactyl bridge";
 
@@ -66,9 +66,10 @@ export class BridgeSetupController {
       const memberIds = new Set([interaction.client.user.id, interaction.user.id, interaction.guild.ownerId]);
       const access = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory];
       const permissionOverwrites = [
-        { id: interaction.guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+        { id: interaction.guild.id, type: OverwriteType.Role, deny: [PermissionFlagsBits.ViewChannel] },
         ...Array.from(memberIds).map((id) => ({
           id,
+          type: OverwriteType.Member,
           allow: id === interaction.client.user.id ? [...access, PermissionFlagsBits.ManageChannels] : access
         }))
       ];

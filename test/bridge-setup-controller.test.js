@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ChannelType, MessageFlags, PermissionFlagsBits } from "discord.js";
+import { ChannelType, MessageFlags, OverwriteType, PermissionFlagsBits, PermissionOverwrites } from "discord.js";
 import { BRIDGE_SETUP_COMMAND, BridgeSetupController } from "../src/services/bridge-setup-controller.js";
 import { DiscordInputController } from "../src/services/discord-input-controller.js";
 
@@ -76,8 +76,10 @@ test("guild owner can create a private admin channel and persist its ID", async 
   const creation = calls.find((call) => call.method === "create").options;
   assert.equal(creation.name, "bridge-admin");
   assert.equal(creation.type, ChannelType.GuildText);
-  assert.deepEqual(creation.permissionOverwrites[0], { id: "guild", deny: [PermissionFlagsBits.ViewChannel] });
+  assert.deepEqual(creation.permissionOverwrites[0], { id: "guild", type: OverwriteType.Role, deny: [PermissionFlagsBits.ViewChannel] });
   assert.deepEqual(creation.permissionOverwrites.map((item) => item.id), ["guild", "bot", "caller"]);
+  assert.deepEqual(creation.permissionOverwrites.map((item) => item.type), [OverwriteType.Role, OverwriteType.Member, OverwriteType.Member]);
+  assert.equal(PermissionOverwrites.resolve(creation.permissionOverwrites[1]).type, OverwriteType.Member);
   assert.equal(creation.permissionOverwrites[1].allow.includes(PermissionFlagsBits.ManageChannels), true);
   assert.equal(getSavedChannelId(), "created-channel");
   assert.equal(calls.at(-1).content, "Created bridge administration channel: <#created-channel>");
