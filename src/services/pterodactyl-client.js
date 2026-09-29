@@ -94,7 +94,8 @@ export class PterodactylClient {
     const response = await this.#request(pathname, {}, errorLabel);
 
     if (!response.ok) {
-      throw new Error(`Pterodactyl ${errorLabel} request failed with ${response.status}: ${await response.text()}`);
+      // A panel error body can echo request details, including a credential.
+      throw new Error(`Pterodactyl ${errorLabel} request failed with ${response.status}`);
     }
 
     return response.json();
@@ -108,6 +109,27 @@ export class PterodactylClient {
       cpuPercent: body.attributes.resources?.cpu_absolute ?? null,
       uptimeMs: body.attributes.resources?.uptime ?? null
     };
+  }
+
+  async listAccessibleServers() {
+    const servers = [];
+    for (let page = 1; page <= 100; page += 1) {
+      const body = await this.#getJson(`/api/client?page=${page}&per_page=100`, "server discovery");
+      const entries = Array.isArray(body.data) ? body.data : [];
+      for (const entry of entries) {
+        const attributes = entry?.attributes ?? {};
+        const identifier = attributes.identifier;
+        if (typeof identifier === "string" && /^[a-zA-Z0-9-]{1,64}$/.test(identifier)) {
+          servers.push({ identifier, name: String(attributes.name ?? identifier).slice(0, 100),
+            uuid: typeof attributes.uuid === "string" ? attributes.uuid : null,
+            legacyIdentifier: typeof attributes.__deprecated_uuid_short === "string" ? attributes.__deprecated_uuid_short : null
+          });
+        }
+      }
+      const pagination = body.meta?.pagination;
+      if (!pagination || page >= Number(pagination.total_pages ?? 1)) return servers;
+    }
+    throw new Error("Pterodactyl discovery exceeded the page limit");
   }
 
   async getServerAllocations(serverId) {

@@ -54,7 +54,8 @@ export class DiscordBridge {
     });
 
     this.client.on(Events.InteractionCreate, async (interaction) => {
-      if (!interaction.isChatInputCommand() || interaction.guildId !== this.guildId) return;
+      if (!(interaction.isChatInputCommand() || interaction.isModalSubmit() || interaction.isButton() || interaction.isAutocomplete())
+        || interaction.guildId !== this.guildId) return;
       await runHandlers(this.interactionHandlers, interaction, {
         logger: this.logger,
         label: `Discord interaction /${interaction.commandName}`

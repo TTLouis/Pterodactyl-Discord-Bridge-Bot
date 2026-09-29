@@ -94,9 +94,21 @@ The Docker healthcheck verifies that the poll loop is alive. `SYNC_HEALTH_PATH` 
 
 ### Bridge administration channel
 
-In the configured Discord guild, the guild owner or an administrator can run `/bridge setup` to create a private `#bridge-admin` channel. The bot needs **Manage Channels** permission. The command is safe to repeat: it returns the saved channel instead of creating another. This first setup step does not yet collect a Pterodactyl key or import servers.
+In the configured Discord guild, the guild owner or an administrator can run `/bridge setup` to create a private `#bridge-admin` channel. The bot needs **Manage Channels** permission. The command is safe to repeat: it returns the saved channel instead of creating another.
 
-The bot continues to run from `servers.json`. It also imports a versioned copy into `/data/persistent-config.json` and saves API credentials separately in `/data/persistent-secrets.json`. Both files are private to the bot user and persist in the existing `bot_data` volume. Keep `servers.json` and `.env` in place for now. If the persistent files are damaged, server monitoring continues, but `/bridge setup` remains disabled until the store is repaired.
+Use the remaining commands in `#bridge-admin`:
+
+| Command | Purpose |
+| --- | --- |
+| `/bridge connect` | Open a private modal to validate a Client API key for the panel URL already in `servers.json`. The key must retain access to every linked server. |
+| `/bridge servers` | List accessible servers, marking existing links. Use `page` for more results. |
+| `/bridge import` | Select a server ID and game type. It is saved inactive and hidden by default; `activate: true` starts it immediately. |
+| `/bridge activate` | Start monitoring a saved inactive import. Omit `channel` to create a private channel, or select an existing channel and confirm its visibility. Satisfactory prompts for its game API token. |
+| `/bridge publish` | Show an active import in the shared live panel and reveal its bot-created server channel. Existing channel permissions are not changed. |
+
+An active but unpublished import is polled and can use its bound server channel, while the shared live and archive panels omit it. Imported settings and credentials survive a restart. Existing `servers.json` servers keep their current definitions. Changing the panel URL or provisioning from only a Discord token is not supported yet.
+
+The bot reads existing server definitions from `servers.json` and merges Discord-managed imports from `/data/persistent-config.json`. API credentials live separately in `/data/persistent-secrets.json`. Both persistent files are private to the bot user and live in the existing `bot_data` volume. Keep `servers.json` and `.env` in place for now. If the persistent files are damaged, legacy server monitoring continues, but bridge administration is disabled until the store is repaired.
 
 ## Architecture
 

@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { normalizeServer } from "./config.js";
 
 const SCHEMA_VERSION = 1;
 
@@ -57,6 +58,7 @@ export class PersistentConfigStore {
     this.secretsPath = secretsPath ?? defaults.secretsPath;
     this.logger = logger;
     this.document = null;
+    this.secrets = null;
     this.available = true;
   }
 
@@ -68,8 +70,22 @@ export class PersistentConfigStore {
       if (fs.existsSync(this.configPath)) {
         const document = readDocument(this.configPath);
         if (document.schemaVersion !== SCHEMA_VERSION || document.source !== "legacy"
-          || !isRecord(document.settings) || !isRecord(document.administration)) {
+          || !isRecord(document.settings) || !isRecord(document.administration)
+          || (document.managed && (!isRecord(document.managed) || !Array.isArray(document.managed.servers)))) {
           throw new Error("Unsupported or invalid persistent configuration");
+        }
+        if (document.managed && (document.managed.connection !== null && document.managed.connection !== undefined
+          && (typeof document.managed.connection.baseUrl !== "string" || !document.managed.connection.baseUrl)) ) {
+          throw new Error("Invalid managed connection");
+        }
+        if (document.managed?.servers.some((server) => !isRecord(server)
+          || typeof server.pterodactylServerId !== "string" || !server.pterodactylServerId
+          || typeof server.name !== "string" || !isRecord(server.game)
+          || !["factorio", "minecraft", "satisfactory"].includes(server.game.type)
+          || typeof server.active !== "boolean" || typeof server.published !== "boolean"
+          || server.archived !== false || (server.published && !server.active)
+          || (server.active && (typeof server.discordChannelId !== "string" || !server.discordChannelId)))) {
+          throw new Error("Invalid managed server");
         }
         this.document = document;
       }
@@ -79,6 +95,20 @@ export class PersistentConfigStore {
         if (secrets.schemaVersion !== SCHEMA_VERSION || !isRecord(secrets.values)) {
           throw new Error("Unsupported or invalid persistent credentials");
         }
+        if (this.document && typeof secrets.values["pterodactyl/default/client-api-key"] !== "string") {
+          throw new Error("Persistent Pterodactyl credential is missing");
+        }
+        if (this.document?.managed?.servers.some((server) => server.active && server.game.type === "satisfactory"
+          && (typeof server.game.apiTokenRef !== "string" || typeof secrets.values[server.game.apiTokenRef] !== "string"))) {
+          throw new Error("Persistent Satisfactory credential is missing");
+        }
+        for (const server of this.document?.managed?.servers ?? []) {
+          if (!server.active) continue;
+          normalizeServer({ ...server, game: { ...server.game,
+            apiToken: server.game.apiTokenRef ? secrets.values[server.game.apiTokenRef] : undefined
+          } });
+        }
+        this.secrets = secrets;
       } else if (this.document) {
         throw new Error("Persistent credentials are missing");
       }
@@ -92,6 +122,12 @@ export class PersistentConfigStore {
 
   syncLegacyConfig(rawConfig) {
     if (!this.available) return false;
+    if (this.document?.managed?.connection?.baseUrl
+      && this.document.managed.connection.baseUrl !== rawConfig.pterodactyl.baseUrl.replace(/\/+$/, "")) {
+      this.available = false;
+      this.logger?.error("Persistent connection panel differs from servers.json; continuing with legacy configuration.");
+      return false;
+    }
     const { settings, values } = splitLegacyConfig(rawConfig);
     const document = {
       schemaVersion: SCHEMA_VERSION,
@@ -100,18 +136,96 @@ export class PersistentConfigStore {
       administration: this.document?.administration ?? {
         guildId: rawConfig.discord.guildId,
         channelId: null
-      }
+      },
+      managed: this.document?.managed ?? { connection: null, servers: [] }
     };
 
     try {
-      writePrivateJson(this.secretsPath, { schemaVersion: SCHEMA_VERSION, values });
+      const secrets = { schemaVersion: SCHEMA_VERSION, values: { ...this.secrets?.values, ...values } };
+      if (document.managed.connection) {
+        secrets.values["pterodactyl/default/client-api-key"] = this.secrets.values["pterodactyl/default/client-api-key"];
+      }
+      writePrivateJson(this.secretsPath, secrets);
       writePrivateJson(this.configPath, document);
+      this.secrets = secrets;
       this.document = document;
       return true;
     } catch {
       this.available = false;
       this.logger?.error("Could not persist configuration; /bridge setup is disabled. Legacy configuration remains active.");
       return false;
+    }
+  }
+
+  getConnectionKey() {
+    this.#assertReady();
+    return this.secrets.values["pterodactyl/default/client-api-key"];
+  }
+
+  getManagedServers() {
+    this.#assertReady();
+    return structuredClone((this.document.managed?.servers ?? []).map((server) => {
+      const copy = { ...server, game: { ...server.game } };
+      if (copy.game.apiTokenRef) {
+        copy.game.apiToken = this.secrets.values[copy.game.apiTokenRef];
+        delete copy.game.apiTokenRef;
+      }
+      return copy;
+    }));
+  }
+
+  setConnectionKey(key, baseUrl) {
+    this.#assertReady();
+    const secrets = { schemaVersion: SCHEMA_VERSION, values: {
+      ...this.secrets.values,
+      "pterodactyl/default/client-api-key": key
+    } };
+    const document = { ...this.document, managed: {
+      ...(this.document.managed ?? { servers: [] }), connection: { baseUrl }
+    } };
+    this.#save(document, secrets);
+  }
+
+  addManagedServer(server) {
+    this.#assertReady();
+    if (this.document.managed.servers.some((item) => item.pterodactylServerId === server.pterodactylServerId)
+      || this.document.settings.servers.some((item) => item.pterodactylServerId === server.pterodactylServerId)) {
+      throw new Error("Server already linked");
+    }
+    this.#save({ ...this.document, managed: { ...this.document.managed,
+      servers: [...this.document.managed.servers, structuredClone(server)]
+    } }, this.secrets);
+  }
+
+  updateManagedServer(serverId, changes, { apiToken = null } = {}) {
+    this.#assertReady();
+    const servers = this.document.managed.servers.map((server) => {
+      if (server.pterodactylServerId !== serverId) return server;
+      const next = { ...server, ...changes };
+      if (apiToken) next.game = { ...server.game, apiTokenRef: `server/${serverId}/satisfactory-api-token` };
+      return next;
+    });
+    if (!servers.some((server) => server.pterodactylServerId === serverId)) throw new Error("Managed server not found");
+    const secrets = apiToken ? { schemaVersion: SCHEMA_VERSION, values: {
+      ...this.secrets.values, [`server/${serverId}/satisfactory-api-token`]: apiToken
+    } } : this.secrets;
+    this.#save({ ...this.document, managed: { ...this.document.managed, servers } }, secrets);
+  }
+
+  #assertReady() {
+    if (!this.available || !this.document || !this.secrets) throw new Error("Persistent configuration unavailable");
+  }
+
+  #save(document, secrets) {
+    try {
+      if (secrets !== this.secrets) writePrivateJson(this.secretsPath, secrets);
+      writePrivateJson(this.configPath, document);
+      this.document = document;
+      this.secrets = secrets;
+    } catch {
+      this.available = false;
+      this.logger?.error("Could not save persistent bridge configuration.");
+      throw new Error("Persistent configuration unavailable");
     }
   }
 

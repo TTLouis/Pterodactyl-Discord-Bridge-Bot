@@ -85,6 +85,23 @@ test("archived servers are excluded from polling and published only to the archi
   assert.deepEqual(panelEvents[0].archivedServers.map((item) => item.name), ["archived"]);
 });
 
+test("active unpublished imports are polled but omitted from shared panels", async () => {
+  const polled = [];
+  const visible = makeServer("visible");
+  const hidden = { ...makeServer("hidden"), published: false };
+  const { service, panels, panelEvents } = createService({
+    servers: [visible, hidden],
+    async getServerResources(serverId) {
+      polled.push(serverId);
+      return { currentState: "offline", cpuPercent: 0, memoryBytes: 0 };
+    }
+  });
+  await service.syncOnce({ force: true });
+  assert.deepEqual(polled, ["visible-id", "hidden-id"]);
+  assert.deepEqual(panels[0].map((snapshot) => snapshot.name), ["visible"]);
+  assert.deepEqual(panelEvents[0].archivedServers, []);
+});
+
 test("forced sync passes a live-player refresh request to adapters", async () => {
   const server = makeServer("factorio");
   const { service } = createService({

@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { CoreEventBus } from "./core/core-events.js";
-import { getConfigPath, loadConfig } from "./lib/config.js";
+import { getConfigPath, loadConfig, normalizeServer } from "./lib/config.js";
 import { isKookEnabled } from "./lib/kook-config.js";
 import { logger } from "./lib/logger.js";
 import { getHeartbeatPath, writeHeartbeat } from "./lib/heartbeat.js";
@@ -9,6 +9,7 @@ import { getStatePath, StateStore } from "./lib/state-store.js";
 import { PersistentConfigStore } from "./lib/persistent-config-store.js";
 import { AutoStopService } from "./services/auto-stop-service.js";
 import { BRIDGE_SETUP_COMMAND, BridgeSetupController } from "./services/bridge-setup-controller.js";
+import { BRIDGE_ADMIN_COMMANDS, BridgeAdminController } from "./services/bridge-admin-controller.js";
 import { applyReloadedConfig, ConfigReloadService } from "./services/config-reload-service.js";
 import { DiscordBridge } from "./services/discord-bridge.js";
 import { DISCORD_SLASH_COMMANDS } from "./services/discord-input-controller.js";
@@ -24,6 +25,12 @@ async function main() {
   const configStore = new PersistentConfigStore({ logger });
   configStore.load();
   configStore.syncLegacyConfig(runtime.rawConfig);
+  if (configStore.available) {
+    runtime.config.pterodactyl.apiKey = configStore.getConnectionKey();
+    runtime.config.servers.push(...configStore.getManagedServers()
+      .filter((server) => server.active)
+      .map(normalizeServer));
+  }
   const stateStore = new StateStore(getStatePath(), { logger });
   stateStore.load();
   const eventBus = new CoreEventBus();
@@ -150,12 +157,20 @@ async function main() {
     guildId: runtime.config.discord.guildId,
     logger
   });
+  const bridgeAdminController = new BridgeAdminController({
+    discordBridge, configStore, config: runtime.config, pterodactylClient,
+    syncService: statusSyncService, guildId: runtime.config.discord.guildId, logger
+  });
 
   discordPlatformListener.start();
   kookPlatformListener?.start();
   statusSyncService.registerDiscordInputs();
   bridgeSetupController.start();
-  discordBridge.setSlashCommands([...DISCORD_SLASH_COMMANDS, BRIDGE_SETUP_COMMAND]);
+  bridgeAdminController.start();
+  discordBridge.setSlashCommands([...DISCORD_SLASH_COMMANDS, {
+    ...BRIDGE_SETUP_COMMAND,
+    options: [...BRIDGE_SETUP_COMMAND.options, ...BRIDGE_ADMIN_COMMANDS]
+  }]);
 
   await discordBridge.start();
   await kookBridge?.start();
@@ -192,6 +207,12 @@ async function main() {
     loadConfig,
     logger,
     async onReload(nextConfig, nextRawConfig) {
+      if (configStore.available) {
+        nextConfig.pterodactyl.apiKey = configStore.getConnectionKey();
+        nextConfig.servers.push(...configStore.getManagedServers()
+          .filter((server) => server.active)
+          .map(normalizeServer));
+      }
       await hydrateServerNetworkConfig({
         config: nextConfig,
         pterodactylClient,
