@@ -129,8 +129,8 @@ export class ConfigReloadService {
 
   async reloadNow() {
     try {
-      const nextConfig = this.loadConfig().config;
-      await this.onReload(nextConfig);
+      const { config: nextConfig, rawConfig } = this.loadConfig();
+      await this.onReload(nextConfig, rawConfig);
       this.logger.info("Reloaded servers.json and refreshed the Discord status panel");
       return true;
     } catch (error) {

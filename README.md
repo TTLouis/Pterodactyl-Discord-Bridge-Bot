@@ -92,13 +92,19 @@ Valid edits to display settings, archive state, poll intervals, and Satisfactory
 
 The Docker healthcheck verifies that the poll loop is alive. `SYNC_HEALTH_PATH` stores the latest poll summary so operators can distinguish a running bot from one that cannot reach every server. Set `PTERODACTYL_CONSOLE_DIAGNOSTICS=true` temporarily for safe console WebSocket diagnostics; tokens and query parameters are excluded from those logs.
 
+### Bridge administration channel
+
+In the configured Discord guild, the guild owner or an administrator can run `/bridge setup` to create a private `#bridge-admin` channel. The bot needs **Manage Channels** permission. The command is safe to repeat: it returns the saved channel instead of creating another. This first setup step does not yet collect a Pterodactyl key or import servers.
+
+The bot continues to run from `servers.json`. It also imports a versioned copy into `/data/persistent-config.json` and saves API credentials separately in `/data/persistent-secrets.json`. Both files are private to the bot user and persist in the existing `bot_data` volume. Keep `servers.json` and `.env` in place for now. If the persistent files are damaged, server monitoring continues, but `/bridge setup` remains disabled until the store is repaired.
+
 ## Architecture
 
 Core services poll Pterodactyl, track power state and auto-stop decisions, and publish domain events. Discord and KOOK listeners render those events for each platform. Discord command and reaction handling is isolated from the polling/relay coordinator, so platform input can evolve independently.
 
 ## Deployment
 
-Deploy from a clean clone plus your private `.env` and `servers.json`. The GitHub Actions workflow runs tests for pull requests and `main` pushes; a `main` deployment waits for a healthy container and restores the previous checkout if verification fails.
+Deploy from a clean clone plus your private `.env` and `servers.json`. The GitHub Actions workflow runs tests for pull requests and `testing` pushes; a `testing` deployment waits for a healthy container and restores the previous checkout if verification fails.
 
 ## License
 
