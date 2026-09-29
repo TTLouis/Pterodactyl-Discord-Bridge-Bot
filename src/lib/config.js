@@ -204,7 +204,7 @@ function normalizeAutoStop(server) {
   return { enabled: true, emptyTimeoutHours, warningMinutesBefore };
 }
 
-function normalizeServer(server) {
+export function normalizeServer(server) {
   const gameType = server.game?.type ?? "factorio";
 
   return {
@@ -218,6 +218,8 @@ function normalizeServer(server) {
     kookChannelId: normalizeKookConfigId(server.kookChannelId),
     pterodactylServerId: server.pterodactylServerId,
     archived: normalizeArchived(server),
+    published: server.published !== false,
+    channelManaged: server.channelManaged === true,
     archiveNote: normalizeOptionalString(server.archiveNote),
     game: gameType === "satisfactory"
       ? normalizeSatisfactoryGame(server)

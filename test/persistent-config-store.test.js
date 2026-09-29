@@ -103,3 +103,60 @@ test("a failed store write disables setup without changing the legacy input", ()
     assert.equal(errors.some((message) => message.includes("ptlc_private_value")), false);
   });
 });
+
+test("Discord-managed connection and inactive imports survive legacy sync and restart", () => {
+  withStore(({ configPath, secretsPath, makeStore }) => {
+    const first = makeStore();
+    first.load();
+    first.syncLegacyConfig(legacyConfig);
+    first.setConnectionKey("ptlc_new_private_value", legacyConfig.pterodactyl.baseUrl);
+    first.addManagedServer({
+      name: "New World", pterodactylServerId: "new-id", game: { type: "minecraft" },
+      active: false, published: false, archived: false, discordChannelId: null
+    });
+    assert.throws(() => first.addManagedServer({ pterodactylServerId: "new-id" }), /already linked/);
+    first.syncLegacyConfig({ ...legacyConfig, pterodactyl: { ...legacyConfig.pterodactyl, apiKey: "ptlc_old_changed" } });
+    const restarted = makeStore();
+    assert.equal(restarted.load(), true);
+    assert.equal(restarted.getConnectionKey(), "ptlc_new_private_value");
+    assert.equal(restarted.getManagedServers()[0].active, false);
+    assert.equal(fs.readFileSync(configPath, "utf8").includes("ptlc_new_private_value"), false);
+    assert.equal(JSON.parse(fs.readFileSync(secretsPath, "utf8")).values["pterodactyl/default/client-api-key"], "ptlc_new_private_value");
+    restarted.updateManagedServer("new-id", { active: true, discordChannelId: "private-channel" });
+    const afterActivation = makeStore();
+    assert.equal(afterActivation.load(), true);
+    assert.equal(afterActivation.getManagedServers()[0].discordChannelId, "private-channel");
+  });
+});
+
+test("Satisfactory activation token stays outside ordinary persistent configuration", () => {
+  withStore(({ configPath, secretsPath, makeStore }) => {
+    const store = makeStore();
+    store.load();
+    store.syncLegacyConfig(legacyConfig);
+    store.addManagedServer({ name: "Factory", pterodactylServerId: "new-sat", game: { type: "satisfactory" }, active: false, published: false, archived: false });
+    store.updateManagedServer("new-sat", { active: true }, { apiToken: "sat_private_value" });
+    assert.equal(store.getManagedServers()[0].game.apiToken, "sat_private_value");
+    assert.equal(fs.readFileSync(configPath, "utf8").includes("sat_private_value"), false);
+    assert.equal(fs.readFileSync(secretsPath, "utf8").includes("sat_private_value"), true);
+  });
+});
+
+test("damaged managed imports disable administration without replacing legacy files", () => {
+  withStore(({ configPath, makeStore }) => {
+    const first = makeStore();
+    first.load();
+    first.syncLegacyConfig(legacyConfig);
+    const document = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    document.managed.servers = [{
+      name: "Broken", pterodactylServerId: "broken", active: true, published: false,
+      archived: false, discordChannelId: "channel", publicPort: "invalid",
+      game: { type: "minecraft" }
+    }];
+    fs.writeFileSync(configPath, JSON.stringify(document));
+    const restarted = makeStore();
+    assert.equal(restarted.load(), false);
+    assert.equal(restarted.syncLegacyConfig(legacyConfig), false);
+    assert.equal(JSON.parse(fs.readFileSync(configPath, "utf8")).managed.servers[0].publicPort, "invalid");
+  });
+});

@@ -307,6 +307,8 @@ export class StatusSyncService {
     }));
 
     const snapshots = results.filter((snapshot) => snapshot !== null);
+    const publishedSnapshots = results.flatMap((snapshot, index) =>
+      snapshot && activeServers[index].published !== false ? [snapshot] : []);
     // The loop finished, which is the liveness signal a healthcheck needs.
     // Per-server failures do not change that the bot is running and polling.
     const syncSummary = {
@@ -344,7 +346,7 @@ export class StatusSyncService {
     }
 
     await this.eventBus.emit(CoreEvents.STATUS_PANEL_UPDATED, {
-      snapshots,
+      snapshots: publishedSnapshots,
       archivedServers,
       livePanelChanged: anyChanged,
       archivePanelChanged

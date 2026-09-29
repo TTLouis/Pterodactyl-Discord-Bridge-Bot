@@ -3,6 +3,38 @@ import { EventEmitter } from "node:events";
 import test from "node:test";
 import { PterodactylClient } from "../src/services/pterodactyl-client.js";
 
+test("server discovery follows Client API pagination and keeps bearer tokens out of results", async () => {
+  const originalFetch = global.fetch;
+  const urls = [];
+  global.fetch = async (url, options) => {
+    urls.push(url);
+    assert.equal(options.headers.Authorization, "Bearer private-key");
+    const page = Number(new URL(url).searchParams.get("page"));
+    return { ok: true, async json() { return {
+      data: [{ attributes: { identifier: `server-${page}`, name: `World ${page}` } }],
+      meta: { pagination: { total_pages: 2 } }
+    }; } };
+  };
+  try {
+    const client = new PterodactylClient({ baseUrl: "https://panel.example.test", apiKey: "private-key" });
+    assert.deepEqual(await client.listAccessibleServers(), [
+      { identifier: "server-1", name: "World 1", uuid: null, legacyIdentifier: null },
+      { identifier: "server-2", name: "World 2", uuid: null, legacyIdentifier: null }
+    ]);
+    assert.deepEqual(urls.map((url) => new URL(url).searchParams.get("page")), ["1", "2"]);
+  } finally { global.fetch = originalFetch; }
+});
+
+test("panel error bodies cannot leak a Client API key through thrown errors", async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async () => ({ ok: false, status: 403, async text() { return "private-key"; } });
+  try {
+    const client = new PterodactylClient({ baseUrl: "https://panel.example.test", apiKey: "private-key" });
+    await assert.rejects(client.listAccessibleServers(), (error) =>
+      error.message.includes("403") && !error.message.includes("private-key"));
+  } finally { global.fetch = originalFetch; }
+});
+
 class FakeWebSocket extends EventEmitter {
   constructor() {
     super();
