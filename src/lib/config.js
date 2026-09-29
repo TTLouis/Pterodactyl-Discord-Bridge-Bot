@@ -366,6 +366,7 @@ export function loadConfig({ requireRuntimeTokens = true } = {}) {
   return {
     discordToken: requireRuntimeTokens ? assertRequiredEnv("DISCORD_TOKEN") : null,
     kookToken: requireRuntimeTokens && isKookEnabled() ? assertRequiredEnv("KOOK_TOKEN") : process.env.KOOK_TOKEN ?? null,
-    config
+    config,
+    rawConfig
   };
 }

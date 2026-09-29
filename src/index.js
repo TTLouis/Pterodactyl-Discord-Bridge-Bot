@@ -6,9 +6,12 @@ import { logger } from "./lib/logger.js";
 import { getHeartbeatPath, writeHeartbeat } from "./lib/heartbeat.js";
 import { getSyncHealthPath, writeSyncHealth } from "./lib/sync-health.js";
 import { getStatePath, StateStore } from "./lib/state-store.js";
+import { PersistentConfigStore } from "./lib/persistent-config-store.js";
 import { AutoStopService } from "./services/auto-stop-service.js";
+import { BRIDGE_SETUP_COMMAND, BridgeSetupController } from "./services/bridge-setup-controller.js";
 import { applyReloadedConfig, ConfigReloadService } from "./services/config-reload-service.js";
 import { DiscordBridge } from "./services/discord-bridge.js";
+import { DISCORD_SLASH_COMMANDS } from "./services/discord-input-controller.js";
 import { KookBridge } from "./services/kook-bridge.js";
 import { PterodactylClient } from "./services/pterodactyl-client.js";
 import { hydrateServerNetworkConfig } from "./services/server-network-config.js";
@@ -18,6 +21,9 @@ import { KookPlatformListener } from "./platforms/kook-platform-listener.js";
 
 async function main() {
   const runtime = loadConfig();
+  const configStore = new PersistentConfigStore({ logger });
+  configStore.load();
+  configStore.syncLegacyConfig(runtime.rawConfig);
   const stateStore = new StateStore(getStatePath(), { logger });
   stateStore.load();
   const eventBus = new CoreEventBus();
@@ -138,9 +144,18 @@ async function main() {
       writeSyncHealth(summary, getSyncHealthPath(), logger);
     }
   });
+  const bridgeSetupController = new BridgeSetupController({
+    discordBridge,
+    configStore,
+    guildId: runtime.config.discord.guildId,
+    logger
+  });
 
   discordPlatformListener.start();
   kookPlatformListener?.start();
+  statusSyncService.registerDiscordInputs();
+  bridgeSetupController.start();
+  discordBridge.setSlashCommands([...DISCORD_SLASH_COMMANDS, BRIDGE_SETUP_COMMAND]);
 
   await discordBridge.start();
   await kookBridge?.start();
@@ -176,7 +191,7 @@ async function main() {
     configPath: getConfigPath(),
     loadConfig,
     logger,
-    async onReload(nextConfig) {
+    async onReload(nextConfig, nextRawConfig) {
       await hydrateServerNetworkConfig({
         config: nextConfig,
         pterodactylClient,
@@ -184,6 +199,7 @@ async function main() {
       });
       applyReloadedConfig(runtime.config, nextConfig);
       statusSyncService.onConfigReloaded();
+      configStore.syncLegacyConfig(nextRawConfig);
       await statusSyncService.syncOnce({ force: true });
       statusSyncService.refreshPeriodicSchedule();
     }

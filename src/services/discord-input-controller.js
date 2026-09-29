@@ -20,6 +20,8 @@ export class DiscordInputController {
   }
 
   start() {
+    if (this.started) return;
+    this.started = true;
     this.discordBridge.setSlashCommands(DISCORD_SLASH_COMMANDS);
     this.discordBridge.onInteraction(async (interaction) => this.#handleInteraction(interaction));
     this.discordBridge.onReaction(async (reaction) => this.#handleReaction(reaction));
@@ -35,6 +37,8 @@ export class DiscordInputController {
       await this.#handleRestartBotCommand(interaction);
       return;
     }
+
+    if (interaction.commandName !== "start-server" && interaction.commandName !== "cancel-stop") return;
 
     const server = this.config.servers.find((entry) => !entry.archived && entry.discordChannelId === interaction.channelId);
     if (!server) {

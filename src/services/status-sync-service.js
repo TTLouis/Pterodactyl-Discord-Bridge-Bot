@@ -139,7 +139,7 @@ export class StatusSyncService {
 
   async start() {
     this.started = true;
-    this.discordInputController.start();
+    this.registerDiscordInputs();
 
     this.discordBridge.onMessage(async (message) => {
       await this.#handleMessage({ sourcePlatform: "discord", ...message });
@@ -155,6 +155,10 @@ export class StatusSyncService {
 
     await this.syncOnce();
     this.#scheduleNextPeriodicSync();
+  }
+
+  registerDiscordInputs() {
+    this.discordInputController.start();
   }
 
   async stop() {
