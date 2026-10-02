@@ -15,9 +15,10 @@ test("core administration notifies affected platforms after applying runtime, wi
 });
 
 test("core publication policy rejects paused records and supplies supported relay defaults", () => {
-  for (const change of [{ active: false }, { archived: true }, { unavailable: true }, { deleted: true }, { published: true }]) {
+  for (const change of [{ active: false }, { archived: true }, { unavailable: true }, { deleted: true }]) {
     assert.equal(getAdministrationState({ active: true, game: { type: "factorio" }, ...change }).canPublish, false);
   }
+  assert.equal(getAdministrationState({ active: true, published: true, game: { type: "minecraft" } }).canPublish, true);
   assert.equal(getAdministrationState({ active: true, game: { type: "minecraft" } }).canPublish, true);
   assert.equal(getAdministrationState({ active: true, game: { type: "minecraft" } }).relayEnabled, true);
   assert.equal(getAdministrationState({ active: true, game: { type: "satisfactory" } }).relaySupported, false);

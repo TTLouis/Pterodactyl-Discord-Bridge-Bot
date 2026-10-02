@@ -5,6 +5,6 @@ export function getAdministrationState(server) {
   const relaySupported = Boolean(server.game?.chatCommandTemplate || getDefaultChatCommandTemplate(server.game?.type));
   const relayEnabled = relaySupported && server.chatRelay !== false && server.chatRelay?.enabled !== false;
   return { relaySupported, relayEnabled, state, monitoring: state === "monitoring", published: server.published === true,
-    canPublish: state === "monitoring" && !server.published,
+    canPublish: state === "monitoring",
     publicationBlocker: server.published ? "already-published" : state === "monitoring" ? null : state };
 }

@@ -44,7 +44,7 @@ function fixture({ admin = true, channelId = "admin", key = "old-key" } = {}) {
     ...editableChannel("existing", "unrelated-category"),
     id: "existing", type: ChannelType.GuildText,
     permissionsFor: () => ({ has: () => true }),
-    permissionOverwrites: { async edit(_target, permissions) { calls.push({ method: "permission-edit", permissions }); } }
+    permissionOverwrites: { cache: new Map(), async edit(_target, permissions) { calls.push({ method: "permission-edit", permissions }); } }
   };
   channels.set(existing.id, existing);
   channels.set("category", { id: "category", type: ChannelType.GuildCategory,
@@ -350,7 +350,7 @@ test("missing or managed roles and invalid public categories fail before changin
   }
 });
 
-test("publication never moves or alters existing bound server and status channels", async () => {
+test("publication moves existing linked channels and retains an externally bound status channel", async () => {
   const f = fixture();
   await f.controller.handleInteraction(f.command("import", { server: "new-id", game: "minecraft", activate: true, channel: f.existing }));
   const activate = f.command("activate");
@@ -361,8 +361,9 @@ test("publication never moves or alters existing bound server and status channel
   await f.controller.handleInteraction(f.command("publish", { server: "new-id" }));
   await confirmPublication(f);
   assert.equal(f.managed[0].published, true);
-  assert.equal(f.existing.parentId, "unrelated-category");
-  assert.equal(f.calls.some((call) => ["channel-edit", "permission-edit"].includes(call.method)), false);
+  assert.equal(f.existing.parentId, "public-category");
+  assert.equal(f.channels.get("status").parentId, "category");
+  assert.deepEqual([...f.existing.permissionOverwrites.cache.keys()], ["guild", "linked-role", "bot"]);
 });
 
 test("bot-created status channel copies public category permissions with explicit bot access", async () => {
@@ -568,7 +569,7 @@ test("publication moves a bound linked channel in the selected private category"
   await f.controller.handleInteraction(f.command("import", { server: "new-id", game: "minecraft", activate: true }));
   f.store.updateManagedServer("new-id", { channelManaged: false });
   await f.controller.handleInteraction(f.command("publish", { server: "new-id" }));
-  assert.match(f.calls.at(-1).payload.content, /linked channel will move/);
+  assert.match(f.calls.at(-1).payload.content, /linked channel <#new-channel> will move/);
   await confirmPublication(f);
   const channel = f.channels.get("new-channel");
   assert.equal(channel.parentId, "public-category");
@@ -617,4 +618,29 @@ test("publication checks bot permissions at the destination before moving channe
   await confirmPublication(f);
   assert.equal(f.managed[0].published, false);
   assert.equal(f.calls.some(c => c.method === "channel-edit"), false);
+});
+
+test("already-published migrated channels can repair their category and role permissions", async () => {
+  const f = fixture();
+  await f.controller.handleInteraction(f.command("import", { server: "new-id", game: "minecraft", activate: true }));
+  f.store.updateManagedServer("new-id", { published: true, channelManaged: false });
+  f.config.servers.at(-1).published = true;
+  f.channels.get("new-channel").parentId = "unrelated-category";
+  await f.controller.handleInteraction(f.command("publish", { server: "new-id" }));
+  await confirmPublication(f);
+  assert.equal(f.channels.get("new-channel").parentId, "public-category");
+  assert.deepEqual([...f.channels.get("new-channel").permissionOverwrites.cache.keys()], ["guild", "linked-role", "bot"]);
+  assert.equal(f.managed[0].published, true);
+});
+
+test("publication fails and restores permissions if linked-role effective access is insufficient", async () => {
+  const f = fixture();
+  await f.controller.handleInteraction(f.command("import", { server: "new-id", game: "minecraft", activate: true }));
+  const channel = f.channels.get("new-channel");
+  channel.permissionsFor = target => ({ has: () => target !== "linked-role" && target?.id !== "linked-role" });
+  await f.controller.handleInteraction(f.command("publish", { server: "new-id" }));
+  await confirmPublication(f);
+  assert.equal(f.managed[0].published, false);
+  assert.equal(channel.parentId, "category");
+  assert.equal(channel.permissionOverwrites.cache.has("linked-role"), false);
 });
