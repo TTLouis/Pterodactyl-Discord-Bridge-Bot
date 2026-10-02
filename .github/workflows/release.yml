@@ -2,10 +2,15 @@ name: Release
 on:
   push:
     tags: ['v*']
+    # Bootstrap the first beta; later releases continue to use version tags.
+    branches: [main]
+    paths: ['docs/releases/0.3.0-beta.1.md']
 permissions:
   contents: read
 jobs:
   validate:
+    if: >-
+      startsWith(github.ref, 'refs/tags/') || github.event.head_commit.message == 'release: publish first public beta'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -16,10 +21,14 @@ jobs:
           cache: npm
       - name: Check tag matches package version
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: node --input-type=module -e 'import fs from "node:fs"; const p=JSON.parse(fs.readFileSync("package.json")); if(process.env.RELEASE_TAG !== `v${p.version}`) process.exit(1);'
+          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v0.3.0-beta.1' }}
+        run: node --input-type=module -e 'import fs from "node:fs"; const p=JSON.parse(fs.readFileSync("package.json")); if(process.env.RELEASE_TAG !== `v${p.version}` || !fs.existsSync(`docs/releases/${p.version}.md`)) process.exit(1);'
       - run: npm ci
       - run: npm test
+      - name: Validate public Compose
+        run: |
+          cp .env.example .env
+          BRIDGE_VERSION=ci docker compose -f docker-compose.yml config --quiet
       - name: Build and rehearse Egg image
         run: |
           docker build -t bridge:release-check .
@@ -51,6 +60,7 @@ jobs:
           images: ${{ steps.image.outputs.name }}
           tags: |
             type=semver,pattern={{version}}
+            type=raw,value=0.3.0-beta.1,enable=${{ github.ref == 'refs/heads/main' }}
           flavor: latest=false
       - uses: docker/build-push-action@v6
         id: build
@@ -60,14 +70,19 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: BRIDGE_REVISION=${{ github.sha }}
       - name: Publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v0.3.0-beta.1' }}
           IMAGE: ${{ steps.image.outputs.name }}
           DIGEST: ${{ steps.build.outputs.digest }}
         run: |
-          printf 'Container: `%s@%s`\n\nImport the attached Egg for Pterodactyl, or use Docker Compose. Actual Panel/Wings validation is pending. Read docs/PTERODACTYL.md and docs/OPERATIONS.md for setup, upgrade and private backup instructions.\n' "$IMAGE" "$DIGEST" > /tmp/release-notes.md
+          version="${RELEASE_TAG#v}"
+          cp "docs/releases/$version.md" /tmp/release-notes.md
+          printf '\nContainer: `%s:%s`\n\nImage digest: `%s`\n' "$IMAGE" "$version" "$DIGEST" >> /tmp/release-notes.md
           prerelease=()
           if [[ "$RELEASE_TAG" == *-* ]]; then prerelease+=(--prerelease); fi
-          gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" --notes-file /tmp/release-notes.md "${prerelease[@]}" deployment/egg-pterodactyl-platform-bridge.json
+          target=(--verify-tag)
+          if [[ "$GITHUB_REF" == refs/heads/main ]]; then target=(--target "$GITHUB_SHA"); fi
+          gh release create "$RELEASE_TAG" "${target[@]}" --title "$RELEASE_TAG" --notes-file /tmp/release-notes.md "${prerelease[@]}" deployment/egg-pterodactyl-platform-bridge.json docker-compose.yml .env.example

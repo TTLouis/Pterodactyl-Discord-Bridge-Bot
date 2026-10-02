@@ -101,7 +101,7 @@ Configuration and power-action audit events omit secret values. Logs and redacte
 
 ## Public release gate
 
-`Public CI` runs tests and builds the Docker image on hosted runners. `Maintainer Deployment` remains a separate testing-branch workflow for the maintainer's host. `Release` accepts `v<package version>` tags, reruns tests, builds AMD64/ARM64 GHCR images and creates a GitHub Release. Prerelease versions are marked prerelease; no floating latest tag is published.
+`Public CI` runs tests and builds the Docker image on hosted runners. Maintainer deployment is manual and separate from public CI and releases. `Release` accepts `v<package version>` tags, reruns tests, builds AMD64/ARM64 GHCR images and creates a GitHub Release. Prerelease versions are marked prerelease; no floating latest tag is published.
 
 Before pushing a public tag, make the GHCR package publicly readable and ensure the supported Node 24 suite passes and complete this checklist:
 
