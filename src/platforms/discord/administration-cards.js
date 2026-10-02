@@ -26,7 +26,6 @@ export function buildServerSetupCard(discovered, managed, legacy = false) {
     row(button(prefix + "archive", managed.archived ? "Unarchive server" : "Archive server", "📦"), button(prefix + "disable", "Pause monitoring", "⏸️"), button(prefix + "deleted", "Mark record deleted", "🗂️").setDisabled(!managed.unavailable || managed.deleted), button(prefix + "relay", "Chat relay", "💬"))
   ] : [row(new StringSelectMenuBuilder().setCustomId(prefix + "import").setPlaceholder("🎮 Choose game to import privately").addOptions(["factorio", "minecraft", "satisfactory", "source"].map((value) => ({ label: value === "source" ? "Source engine" : value[0].toUpperCase() + value.slice(1), value }))))];
   if (managed?.game.type === "satisfactory") components[1].addComponents(button(prefix + "game-api", "Game API credentials", "🔑"));
-  if (managed) components.push(row(button(prefix + "order-up", "Move up in status & channels", "⬆️"), button(prefix + "order-down", "Move down in status & channels", "⬇️")));
   return { content: "", embeds, components, allowedMentions: { parse: [] } };
 }
 
@@ -41,6 +40,6 @@ export function buildAdministrationOverview(config) {
       footer: { text: "Changes persist across restarts • Export omits credentials" } }], allowedMentions: { parse: [] }, components: [
       row(button("bridge:guide:connect", "Connect panel", "🔑", ButtonStyle.Primary), button("bridge:guide:status-create", "Create main status page", "📊"), button("bridge:guide:status-select", "Select main status channel", "🔗"), button("bridge:guide:categories", "Categories / access role", "🗂️")),
       row(button("bridge:guide:diagnostics", "Diagnostics", "🩺"), button("bridge:guide:export", "Export", "📥"), button("bridge:guide:display", "Archive / deleted display", "👁️"), button("bridge:guide:migrate", "Migrate legacy settings", "📦")),
-      row(button("bridge:guide:arrange", "Arrange status & channels", "↕️"), button("bridge:guide:refresh", "Refresh admin panels", "🔄"))
+      row(button("bridge:guide:order", "Set display order", "🔢"), button("bridge:guide:arrange", "Arrange status & channels", "↕️"), button("bridge:guide:refresh", "Refresh admin panels", "🔄"))
     ] };
 }

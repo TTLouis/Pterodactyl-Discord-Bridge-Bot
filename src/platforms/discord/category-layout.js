@@ -2,7 +2,8 @@ import { ChannelType, OverwriteType, PermissionsBitField, PermissionFlagsBits } 
 import { isServerMonitoringEnabled } from "../../lib/server-lifecycle.js";
 import { orderServers } from "../../lib/server-display-order.js";
 
-export const ARCHIVE_DIVIDER_NAME = "＝＝＝＝archieve＝＝＝＝";
+// Discord strips ASCII equals signs; Unicode separators survive API readback.
+export const ARCHIVE_DIVIDER_NAME = "一一archieve一一";
 
 export function categoryChannelOrder({ channels, statusChannelId, dividerChannelId, servers, savedOrder = [] }) {
   const present = new Set(channels.map(channel => channel.id));
@@ -59,7 +60,7 @@ export class DiscordCategoryLayout {
       await divider.edit({ name: ARCHIVE_DIVIDER_NAME, parent: category.id, permissionOverwrites: overwrites });
     }
     divider = await guild.channels.fetch(divider.id, { force: true });
-    if (divider.parentId !== category.id || !overwritesMatch(divider, overwrites)
+    if (divider.name !== ARCHIVE_DIVIDER_NAME || divider.parentId !== category.id || !overwritesMatch(divider, overwrites)
       || !divider.permissionsFor(role)?.has(read) || divider.permissionsFor(role)?.has(PermissionFlagsBits.SendMessages)) throw new Error("Archive divider access verification failed");
     if (this.configStore.document.settings.discord.archiveDividerChannelId !== divider.id) {
       this.configStore.updateSettings({ discord: { archiveDividerChannelId: divider.id } });
