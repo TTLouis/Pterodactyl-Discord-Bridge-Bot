@@ -428,17 +428,18 @@ export class GuidedAdminController extends BridgeAdminController {
     }
     if (await this.relaySettings.handle(interaction, server, action)) return;
     if (action === "settings") {
-      const fields = [ ["name", "Display name", server.name, TextInputStyle.Short], ["description", "Description (one line per entry)", (server.description ?? []).join("\n"), TextInputStyle.Paragraph], ["idle", "Idle hours; blank disables auto-stop", server.autoStop?.enabled ? String(server.autoStop.emptyTimeoutHours) : "", TextInputStyle.Short], ["warning", "Auto-stop warning in minutes", String(server.autoStop?.warningMinutesBefore ?? 60), TextInputStyle.Short] ];
+      const fields = [ ["name", "Display name", server.name, TextInputStyle.Short], ["description", "Description (one line per entry)", (server.description ?? []).join("\n"), TextInputStyle.Paragraph], ["idle", "Idle hours; blank disables auto-stop", server.autoStop?.enabled ? String(server.autoStop.emptyTimeoutHours) : "", TextInputStyle.Short], ["warning", "Auto-stop warning in minutes", String(server.autoStop?.warningMinutesBefore ?? 60), TextInputStyle.Short], ["archive", "Archive message; blank uses default", server.archiveNote ?? "", TextInputStyle.Paragraph] ];
       const modal = new ModalBuilder().setCustomId(`bridge:card:${id}:save-settings`).setTitle("Server settings");
-      for (const [key, text, value, style] of fields) { const field = new TextInputBuilder().setCustomId(key).setLabel(text).setStyle(style).setRequired(key === "name").setMaxLength(key === "description" ? 1000 : 200); if (value) field.setValue(value); modal.addComponents(row(field)); }
+      for (const [key, text, value, style] of fields) { const field = new TextInputBuilder().setCustomId(key).setLabel(text).setStyle(style).setRequired(key === "name").setMaxLength(["description", "archive"].includes(key) ? 1000 : 200); if (value) field.setValue(value); modal.addComponents(row(field)); }
       return interaction.showModal(modal);
     }
     if (action === "save-settings") {
-      const value = (key) => interaction.fields.getTextInputValue(key).trim();
+      const value = (key) => (interaction.fields.getTextInputValue(key) ?? "").trim();
       const hours = value("idle"); const warning = value("warning");
       if (!value("name")) return this.reply(interaction, "A display name is required.");
-      const changes = { name: value("name"), description: value("description").split("\n"), autoStop: hours ? { enabled: true, emptyTimeoutHours: Number(hours), warningMinutesBefore: Number(warning) } : { enabled: false } };
+      const changes = { name: value("name"), archiveNote: value("archive") || null, description: value("description").split("\n"), autoStop: hours ? { enabled: true, emptyTimeoutHours: Number(hours), warningMinutesBefore: Number(warning) } : { enabled: false } };
       if (hours && (!Number.isFinite(Number(hours)) || Number(hours) <= 0 || !Number.isFinite(Number(warning)) || Number(warning) <= 0 || Number(warning) >= Number(hours) * 60)) return this.reply(interaction, "Idle timeout must be positive and the positive warning shorter than the timeout.");
+      if (changes.archiveNote?.length > 1000) return this.reply(interaction, "Archive message must be 1000 characters or fewer.");
       normalizeServer({ ...server, ...changes });
       this.configStore.updateManagedServer(id, changes); this.audit("server.settings", interaction, id);
       return this.reply(interaction, "Server settings saved.");

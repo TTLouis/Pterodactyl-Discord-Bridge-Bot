@@ -382,6 +382,9 @@ test("archive notices reach linked channels on both platforms and report the pow
     assert.match(calls[0].content, outcome === "accepted" ? /request was accepted/ : outcome === "failed" ? /could not be confirmed/ : /power state is unchanged/);
   }
   calls.length = 0;
+  await eventBus.emit(CoreEvents.SERVER_NOTICE, { kind: "server-archived", server: { ...server, archiveNote: "Season ended; world preserved. @everyone" } });
+  for (const call of calls) { assert.match(call.content, /Season ended; world preserved/);assert.equal(call.content.includes("@everyone"),false); }
+  calls.length = 0;
   await eventBus.emit(CoreEvents.SERVER_NOTICE, { kind: "server-unarchived", server: { ...server, active: true, published: true } });
   assert.match(calls[0].content, /monitoring enabled; main status page listed/);
   assert.match(calls[1].content, /监控已启用/);

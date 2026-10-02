@@ -23,11 +23,12 @@ const LOG_CHANNEL_NOTICE_KINDS = new Set([
 function formatKookServerNotice(event) {
   if (event.kind === "server-archived" || event.kind === "server-unarchived") {
     const name = String(event.server.name).replace(/[`*_~<>@\r\n]/g, " ");
+    const note = event.server.archiveNote ? `\n${String(event.server.archiveNote).replace(/@/g, "＠").slice(0, 1000)}` : "";
     const power = event.stopOutcome === "accepted" ? "管理员已请求停止服务器，请求已接受，关闭过程可能仍在进行。"
       : event.stopRequested ? "无法确认管理员的停止请求，请在 Pterodactyl 面板检查服务器运行状态。"
       : "游戏服务器的运行状态不变。";
     return event.kind === "server-archived"
-      ? `📦 ${name} 已归档。监控、聊天转发和空闲自动停止已暂停。本频道及消息历史保留。${power}`
+      ? `📦 ${name} 已归档。监控、聊天转发和空闲自动停止已暂停。本频道及消息历史保留。${power}${note}`
       : `📂 ${name} 已取消归档，恢复归档前的设置：监控${event.server.active ? "已启用" : "暂停"}，主状态页面${event.server.published ? "已列出" : "未列出"}。本频道及消息历史保留，游戏服务器的运行状态不变。`;
   }
   if (["relay-uncertain", "relay-cancelled", "relay-restored-discarded", "relay-persistence-failed"].includes(event.kind)) {

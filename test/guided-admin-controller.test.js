@@ -702,3 +702,15 @@ test("failed batch creation keeps old admin card bindings until every replacemen
   await assert.rejects(f.controller.refreshCards(f.guild));assert.equal(f.store.getCardMessageId("server"), old);assert.equal(f.store.getCardMessageId("overview"), overview);assert.ok(f.messages.has(old));
   channel.send = send;await f.controller.refreshCards(f.guild);assert.deepEqual(f.store.document.administration.pendingCardDeletion, []);
 });
+
+
+test("Settings exposes, persists and clears the archive message", async t => {
+  const f = fixture(t);f.add({ archiveNote: "Previous season ended" });
+  await f.controller.handleInteraction(f.interaction("bridge:card:server:settings"));
+  const fields = f.replies.at(-1).modal.toJSON().components.map(row=>row.components[0]);
+  const archive=fields.find(field=>field.custom_id==="archive");assert.equal(archive.value,"Previous season ended");assert.equal(archive.required,false);assert.equal(archive.max_length,1000);
+  const values={name:"My server",description:"",idle:"",warning:"60",archive:" World preserved for the next season "};
+  const submit=f.interaction("bridge:card:server:save-settings",{modal:true});submit.fields={getTextInputValue:key=>values[key]};await f.controller.handleInteraction(submit);
+  const restarted=new PersistentConfigStore(f.paths);assert.equal(restarted.load(),true);assert.equal(restarted.getManagedServers()[0].archiveNote,"World preserved for the next season");assert.equal(f.config.servers[0].archiveNote,"World preserved for the next season");
+  values.archive="";await f.controller.handleInteraction(submit);assert.equal(f.store.getManagedServers()[0].archiveNote,null);
+});

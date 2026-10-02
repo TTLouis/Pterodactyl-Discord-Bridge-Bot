@@ -73,11 +73,12 @@ const LOG_CHANNEL_NOTICE_KINDS = new Set([
 function formatDiscordServerNotice(event) {
   if (event.kind === "server-archived" || event.kind === "server-unarchived") {
     const name = String(event.server.name).replace(/[`*_~<>@\r\n]/g, " ");
+    const note = event.server.archiveNote ? `\n${String(event.server.archiveNote).replace(/@/g, "＠").slice(0, 1000)}` : "";
     const power = event.stopOutcome === "accepted" ? "An administrator requested a stop; the request was accepted and shutdown may still be in progress."
       : event.stopRequested ? "The administrator's stop request could not be confirmed. Check the server's power state in Pterodactyl."
       : "The game server's power state is unchanged.";
     return event.kind === "server-archived"
-      ? `📦 ${name} has been archived. Monitoring, chat relay and idle auto-stop are paused. This channel and its message history are retained. ${power}`
+      ? `📦 ${name} has been archived. Monitoring, chat relay and idle auto-stop are paused. This channel and its message history are retained. ${power}${note}`
       : `📂 ${name} has been unarchived. Previous state restored: monitoring ${event.server.active ? "enabled" : "paused"}; main status page ${event.server.published ? "listed" : "not listed"}. This channel and its message history are retained. The game server's power state is unchanged.`;
   }
   if (["relay-uncertain", "relay-cancelled", "relay-restored-discarded", "relay-persistence-failed"].includes(event.kind)) {
