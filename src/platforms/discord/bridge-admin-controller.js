@@ -431,21 +431,19 @@ export class BridgeAdminController {
     await this.#defer(interaction);
     const id = interaction.options.getString("server", true);
     const server = this.configStore.getManagedServers().find((entry) => entry.pterodactylServerId === id);
-    if (!server || !getAdministrationState(server).canPublish) return this.#reply(interaction, "Choose an active, unpublished imported server.");
-    if (this.config.servers.filter((entry) => !entry.archived && entry.published !== false).length >= MAX_STATUS_PANEL_SERVERS) {
+    if (!server || !getAdministrationState(server).canPublish) return this.#reply(interaction, "Choose a monitored server to publish or repair its linked-channel access.");
+    if (!server.published && this.config.servers.filter((entry) => !entry.archived && entry.published !== false).length >= MAX_STATUS_PANEL_SERVERS) {
       return this.#reply(interaction, `The shared live panel is full (${MAX_STATUS_PANEL_SERVERS} servers). Nothing was published.`);
     }
     const channel = await interaction.guild.channels.fetch(server.discordChannelId, { force: true });
     if (!channel || channel.type !== ChannelType.GuildText) return this.#reply(interaction, "The saved server channel is unavailable; nothing was published.");
-    const privateCategoryId = this.config.discord.privateCategoryId ?? this.configStore.getCategoryId(interaction.guildId);
-    const moveLinkedChannel = server.channelManaged === true || Boolean(privateCategoryId && channel.parentId === privateCategoryId);
     if (!this.config.discord.publicCategoryId || !this.config.discord.linkedChannelRoleId) {
       return this.#reply(interaction, "Choose Categories / access role in Bridge administration before publishing. Select the private category, public or semi-public destination, and linked-channel access role.");
     }
     if (!interaction.bridgePublishConfirmed) {
       const nonce = randomUUID();
       this.pending.set(nonce, { kind: "publish", userId: interaction.user.id, serverId: id, at: Date.now() });
-      return this.#reply(interaction, `Publish ${safeName(server.name)} to the main status page in <#${this.config.discord.statusChannelId}>?${moveLinkedChannel ? ` Its linked channel will move to <#${this.config.discord.publicCategoryId}> with access for <@&${this.config.discord.linkedChannelRoleId}> and the bot; existing individual and other role grants will be replaced` : "; its existing channel permissions and category stay unchanged"}.`, { components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`bridge:publish-confirm:${nonce}`).setLabel("Publish status & channel").setStyle(ButtonStyle.Primary))] });
+      return this.#reply(interaction, `Publish ${safeName(server.name)} to the main status page in <#${this.config.discord.statusChannelId}>? Its linked channel <#${channel.id}> will move to <#${this.config.discord.publicCategoryId}> with access for <@&${this.config.discord.linkedChannelRoleId}> and the bot; existing individual and other role grants will be replaced.`, { components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`bridge:publish-confirm:${nonce}`).setLabel("Publish status & channel").setStyle(ButtonStyle.Primary))] });
     }
     if (this.busy) return this.#reply(interaction, "Another bridge change is in progress. Try again shortly.");
     this.busy = true;
@@ -466,15 +464,13 @@ export class BridgeAdminController {
       const options = { guild: interaction.guild, configStore: this.configStore,
         botUserId: interaction.client.user.id, actorId: interaction.user.id };
       const planned = [];
-      if (moveLinkedChannel) {
-        planned.push({ channel, before: publicationSnapshot(channel, options),
+      planned.push({ channel, before: publicationSnapshot(channel, options),
           after: { parent: publicCategory.id, permissionOverwrites: [
             { id: interaction.guild.id, type: OverwriteType.Role, deny: [PermissionFlagsBits.ViewChannel] },
             { id: requiredRole.id, type: OverwriteType.Role,
               allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
             botAccess
           ] } });
-      }
       if (this.config.discord.statusChannelManaged) {
         const statusChannel = await interaction.guild.channels.fetch(this.config.discord.statusChannelId);
         if (!statusChannel || statusChannel.type !== ChannelType.GuildText || statusChannel.id === channel.id) throw new Error("Status channel missing or overlaps server channel");
@@ -492,7 +488,12 @@ export class BridgeAdminController {
         }
         mutations.push(change);
         await change.channel.edit(change.after);
-        verifyPublicationChannel(await interaction.guild.channels.fetch(change.channel.id, { force: true }), change.after);
+        const verified = await interaction.guild.channels.fetch(change.channel.id, { force: true });
+        verifyPublicationChannel(verified, change.after);
+        if (change.channel.id === channel.id && typeof verified.permissionsFor === "function"
+          && !verified.permissionsFor(requiredRole)?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory])) {
+          throw new Error("Linked role cannot view, send messages and read history after publication");
+        }
       }
       this.configStore.updateManagedServer(id, { published: true });
       persisted = true;
@@ -500,7 +501,7 @@ export class BridgeAdminController {
       if (runtime) runtime.published = true;
       try { this.syncService.requestSync?.({ force: true, reason: "bridge-publish" }); }
       catch { this.logger?.error("The first published status refresh failed; periodic polling will retry."); }
-      await this.#reply(interaction, `Listed ${safeName(server.name)} on the main status page in <#${this.config.discord.statusChannelId}>. ${moveLinkedChannel ? `Its linked channel is in <#${publicCategory.id}> and requires <@&${requiredRole.id}>. Its category and permissions were verified.` : "Its existing channel permissions and category remain unchanged."}${this.config.discord.statusChannelManaged ? ` The managed status channel is in <#${publicCategory.id}>.` : ""}`, { allowedMentions: { parse: [] } });
+      await this.#reply(interaction, `Listed ${safeName(server.name)} on the main status page in <#${this.config.discord.statusChannelId}>. Its linked channel <#${channel.id}> is in <#${publicCategory.id}> and requires <@&${requiredRole.id}>. Its category, permissions and linked-role access were verified.${this.config.discord.statusChannelManaged ? ` The managed status channel is in <#${publicCategory.id}>.` : ""}`, { allowedMentions: { parse: [] } });
     } catch {
       if (!persisted) {
         for (const change of mutations.reverse()) {

@@ -21,13 +21,14 @@ function fixture(t) {
   const messages = new Map(), calls = [], replies = [], channels = new Map();
   let sequence = 0;
   function channel(id) {
-    const result = { id, type: ChannelType.GuildText, permissionsFor: () => ({ has: () => true }),
-      permissionOverwrites: { async edit(_role, options) { calls.push(["permissions", id, options]); } },
+    const result = { id, type: ChannelType.GuildText, parentId: "unrelated-category", permissionsFor: () => ({ has: () => true }),
+      permissionOverwrites: { cache: new Map(), async edit(_role, options) { calls.push(["permissions", id, options]); } },
       messages: { async edit(messageId, payload) {
         if (!messages.has(messageId)) throw Object.assign(new Error("Unknown message"), { code: 10008 });
         messages.set(messageId, payload); calls.push(["edit", messageId]);
       } },
       async send(payload) { const messageId = `message-${++sequence}`; messages.set(messageId, payload); calls.push(["send", messageId]); return { id: messageId }; },
+      async edit(options) { this.parentId = options.parent; this.permissionOverwrites.cache = new Map(options.permissionOverwrites.map(o => [o.id, o])); calls.push(["channel-edit", id]); },
       async delete() { calls.push(["delete", id]); channels.delete(id); }
     };
     channels.set(id, result); return result;
