@@ -656,12 +656,12 @@ test("ordering popup includes archived servers and persists all three display or
   const f = fixture(t); f.add({ name: "First", archived: true });f.controller.categoryLayout.sync = async () => {};
   f.store.addManagedServer({ name: "Second", pterodactylServerId: "second", active: false, archived: false, published: false, game: { type: "minecraft" } });await f.reconcile();
   await f.controller.handleInteraction(f.interaction("bridge:guide:order"));
-  const modal = f.replies.at(-1).modal.toJSON();assert.match(modal.components[0].components[0].value, /First \[archived\] \| 1/);
+  const modal = f.replies.at(-1).modal.toJSON();assert.match(modal.components[0].components[0].value, /First \[archived\] \| 10/);
   const submit = f.interaction(modal.custom_id, { modal: true });submit.fields = { getTextInputValue: () => "First [archived] | 9000\nSecond | -20" };
   await f.controller.handleInteraction(submit);assert.deepEqual(f.config.servers.map(s => s.pterodactylServerId), ["second", "server"]);
   const restarted = new PersistentConfigStore(f.paths);restarted.load();assert.deepEqual(restarted.getRuntimeConfig().servers.map(s => s.pterodactylServerId), ["second", "server"]);
   await f.controller.handleInteraction(f.interaction("bridge:guide:order"));
-  assert.equal(f.replies.at(-1).modal.toJSON().components[0].components[0].value, "Second | 1\nFirst [archived] | 2");
+  assert.equal(f.replies.at(-1).modal.toJSON().components[0].components[0].value, "Second | 10\nFirst [archived] | 20");
 });
 
 
