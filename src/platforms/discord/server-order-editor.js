@@ -1,14 +1,13 @@
 export function orderEditorIncrement(count) {
-  const lower = 10 ** Math.floor(Math.log10(Math.max(10, count)));
-  const upper = lower * 10;
-  return count - lower < upper - count ? lower : upper;
+  const unit = 10 ** Math.floor(Math.log10(Math.max(10, count)));
+  return Math.max(10, Math.ceil(count / unit) * unit);
 }
 
 export function orderEditorRows(servers) {
   const increment = orderEditorIncrement(servers.length);
   return servers.map((server, index) => ({ id: server.pterodactylServerId,
     label: `${String(server.name).replace(/[|\r\n<>@`]/g, " ").slice(0, 80)}${server.archived ? " [archived]" : server.deleted ? " [deleted]" : ""}`,
-    number: (index + 1) * increment }));
+    number: index * increment }));
 }
 
 export function parseOrderEditor(rows, text) {
