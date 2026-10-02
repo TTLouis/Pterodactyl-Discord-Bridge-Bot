@@ -343,6 +343,13 @@ export class PersistentConfigStore {
     } }, this.secrets);
   }
 
+  replaceCardMessages(cards, pendingDeletion) {
+    this.#assertReady();
+    this.#save({ ...this.document, administration: { ...this.document.administration,
+      cards: { ...this.document.administration.cards, ...cards }, pendingCardDeletion: pendingDeletion
+    } }, this.secrets);
+  }
+
   recordAudit(action, { actorId = null, serverId = null } = {}) {
     this.#assertReady();
     // Only controlled action names and IDs are stored; modal values and credentials are never accepted.

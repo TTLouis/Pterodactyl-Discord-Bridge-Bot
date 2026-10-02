@@ -1,3 +1,4 @@
+import { orderEditorRows, parseOrderEditor } from "./server-order-editor.js";
 import { DiscordRelaySettingsController } from "./relay-settings-controller.js";
 import { buildServerSetupCard, buildAdministrationOverview } from "./administration-cards.js";
 import { CoreEventBus, CoreEvents } from "../../core/core-events.js";
@@ -38,11 +39,15 @@ export class GuidedAdminController extends BridgeAdminController {
     this.relaySettings = new DiscordRelaySettingsController({ configStore: this.configStore, reply: (...args) => this.reply(...args), audit: (...args) => this.audit(...args) });
     const eventBus = options.eventBus ?? new CoreEventBus();
     this.eventBus = eventBus;
+    this.cardDisplayOrder = JSON.stringify([this.config.discord.serverDisplayOrder ?? [], this.config.discord.adminDisplayOrderRevision]);
     this.categoryLayout = new DiscordCategoryLayout({ config: this.config, configStore: this.configStore, botUserId: () => this.discordBridge.client.user.id });
     this.administrationCoordinator = options.administrationCoordinator ?? new AdministrationConfigurationCoordinator({ eventBus, applyRuntime: () => this.reconcile() });
     this.unsubscribeAdministration = eventBus.on(CoreEvents.ADMINISTRATION_CONFIGURATION_CHANGED, async ({ serverId }) => {
       const guild = this.discordBridge.client?.guilds.cache.get(this.config.discord.guildId);
-      if (guild) { await this.refreshChangedCard(guild, serverId); await this.categoryLayout.sync(guild); }
+      if (guild) {
+        if (this.cardDisplayOrder !== JSON.stringify([this.config.discord.serverDisplayOrder ?? [], this.config.discord.adminDisplayOrderRevision])) { if (this.discoveryRefresh) await this.discoveryRefresh; await this.refreshCards(guild); this.cardDisplayOrder = JSON.stringify([this.config.discord.serverDisplayOrder ?? [], this.config.discord.adminDisplayOrderRevision]); }
+        else { await this.refreshChangedCard(guild, serverId); await this.categoryLayout.sync(guild); }
+      }
     });
   }
   stop() { clearInterval(this.discoveryTimer); this.discoveryTimer = null; this.unsubscribeAdministration?.(); }
@@ -142,14 +147,40 @@ export class GuidedAdminController extends BridgeAdminController {
     if (checkAvailability && !this.locked) await this.markUnavailable(this.configStore.getManagedServers().filter((server) => server.active && !identities.has(server.pterodactylServerId) && !identities.has(server.pterodactylUuid)));
     const managed = this.configStore.getManagedServers();
     const shown = new Set();
+    const cards = new Map();
     for (const server of discovered) {
       const saved = managed.find((record) => [server.identifier, server.uuid, server.legacyIdentifier].includes(record.pterodactylServerId) || (record.pterodactylUuid && record.pterodactylUuid === server.uuid));
       const legacy = !saved && this.configStore.document.settings.servers.some((record) => [server.identifier, server.uuid, server.legacyIdentifier].includes(record.pterodactylServerId));
       const id = saved?.pterodactylServerId ?? server.identifier;
       shown.add(id);
-      await this.upsert(channel, id, () => buildServerSetupCard({ ...server, identifier: id }, this.configStore.getManagedServers().find(record => record.pterodactylServerId === id) ?? saved, legacy));
+      cards.set(id, buildServerSetupCard({ ...server, identifier: id }, this.configStore.getManagedServers().find(record => record.pterodactylServerId === id) ?? saved, legacy));
     }
-    for (const saved of managed.filter((record) => !shown.has(record.pterodactylServerId))) await this.upsert(channel, saved.pterodactylServerId, buildServerSetupCard({ identifier: saved.pterodactylServerId, name: saved.name }, saved));
+    for (const saved of managed.filter((record) => !shown.has(record.pterodactylServerId))) cards.set(saved.pterodactylServerId, buildServerSetupCard({ identifier: saved.pterodactylServerId, name: saved.name }, saved));
+    const desired = [...new Set([...this.config.servers.map(server => server.pterodactylServerId), ...cards.keys()])].filter(id => cards.has(id));
+    await this.cleanOldCards(channel);
+    const current = desired.filter(id => this.configStore.getCardMessageId(id)).sort((a, b) => this.configStore.getCardMessageId(a).localeCompare(this.configStore.getCardMessageId(b), undefined, { numeric: true }));
+    const reorder = this.config.discord.serverDisplayOrder?.length && (this.cardDisplayOrder !== JSON.stringify([this.config.discord.serverDisplayOrder ?? [], this.config.discord.adminDisplayOrderRevision]) || current.length !== desired.length || desired.some((id, index) => id !== current[index]));
+    if (!reorder) { for (const id of desired) await this.upsert(channel, id, cards.get(id)); return; }
+    // Stage every replacement before switching bindings and deleting old cards.
+    const replacements = {}, staged = [];
+    const payloads = new Map([["overview", buildAdministrationOverview(this.config)], ...desired.map(id => [id, cards.get(id)])]);
+    for (const [id, payload] of payloads) {
+      const replacement = await channel.send(payload);
+      try { this.configStore.replaceCardMessages({}, [...(this.configStore.document.administration.pendingCardDeletion ?? []), replacement.id]); }
+      catch (error) { await channel.messages.delete(replacement.id).catch(() => {}); throw error; }
+      replacements[id] = replacement.id; staged.push(replacement.id);
+    }
+    const old = Object.keys(replacements).map(id => this.configStore.getCardMessageId(id)).filter(Boolean);
+    this.configStore.replaceCardMessages(replacements, [...this.configStore.document.administration.pendingCardDeletion.filter(id => !staged.includes(id)), ...old]);
+    await this.cleanOldCards(channel);
+    this.cardDisplayOrder = JSON.stringify([this.config.discord.serverDisplayOrder ?? [], this.config.discord.adminDisplayOrderRevision]);
+  }
+  async cleanOldCards(channel) {
+    for (const messageId of [...(this.configStore.document.administration.pendingCardDeletion ?? [])]) {
+      try { await channel.messages.delete(messageId); }
+      catch (error) { if (error.code !== 10008) throw error; }
+      this.configStore.replaceCardMessages({}, this.configStore.document.administration.pendingCardDeletion.filter(id => id !== messageId));
+    }
   }
   async markUnavailable(servers) {
     for (const server of servers) {
@@ -226,11 +257,41 @@ export class GuidedAdminController extends BridgeAdminController {
   }
   audit(action, interaction, serverId = null) { this.configStore.recordAudit(action, { actorId: interaction.user.id, serverId }); }
   async guideAction(interaction, action) {
+    if (action === "order") {
+      const rows = orderEditorRows(this.config.servers);
+      if (!rows.length) return this.reply(interaction, "Import servers before setting their display order.");
+      const chunks = [];
+      for (const item of rows) {
+        const line = `${item.label} | ${item.number}`;
+        if (!chunks.length || chunks.at(-1).length + line.length + 1 > 4000) chunks.push(line);
+        else chunks[chunks.length - 1] += `\n${line}`;
+      }
+      if (chunks.length > 5) return this.reply(interaction, "Too many servers for Discord's ordering popup.");
+      const nonce = randomUUID();
+      this.pending.set(nonce, { kind: "order", userId: interaction.user.id, guildId: interaction.guildId, at: Date.now(), rows, fieldCount: chunks.length });
+      const modal = new ModalBuilder().setCustomId(`bridge:guide:order-save-${nonce}`).setTitle("Set server display order");
+      for (const [index, value] of chunks.entries()) modal.addComponents(row(new TextInputBuilder().setCustomId(`order-${index}`).setLabel("Server name | desired order (1, 2, ...)").setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(4000).setValue(value)));
+      return interaction.showModal(modal);
+    }
+    if (action.startsWith("order-save-")) {
+      await this.acknowledge(interaction);
+      const nonce = action.slice("order-save-".length), draft = this.pending.get(nonce);
+      if (!draft || draft.kind !== "order" || draft.userId !== interaction.user.id || draft.guildId !== interaction.guildId || Date.now() - draft.at > 600_000) return this.reply(interaction, "Ordering popup expired. Open Set display order again.");
+      const current = new Set(this.config.servers.map(server => server.pterodactylServerId));
+      if (current.size !== draft.rows.length || draft.rows.some(item => !current.has(item.id))) return this.reply(interaction, "The server list changed. Open Set display order again.");
+      let order;
+      try { order = parseOrderEditor(draft.rows, Array.from({ length: draft.fieldCount }, (_, index) => interaction.fields.getTextInputValue(`order-${index}`)).join("\n")); }
+      catch (error) { return this.reply(interaction, `${error.message} Open Set display order to try again.`); }
+      this.pending.delete(nonce);
+      this.configStore.updateSettings({ discord: { serverDisplayOrder: order, adminDisplayOrderRevision: Date.now(), channelOrderingEnabled: true } });
+      this.audit("server.order", interaction);
+      return this.reply(interaction, "Order saved. Refreshing admin control cards, status messages and linked channels together.", { components: [] });
+    }
     if (action === "arrange") {
       await this.acknowledge(interaction);
       if (this.config.discord.channelOrderingEnabled) await this.categoryLayout.sync(interaction.guild);
       else this.configStore.updateSettings({ discord: { channelOrderingEnabled: true } });
-      return this.reply(interaction, "Category arrangement enabled: main status channel, game channels in status order, archive divider, archived channels, then remaining channels. Use Move up / Move down on server cards to change the shared display order.");
+      return this.reply(interaction, "Category arrangement enabled: main status channel, game channels in status order, archive divider, archived channels, then remaining channels. Use Set display order to change the shared display order.");
     }
     if (action === "categories") {
       const privateCategory = interaction.options?.getChannel?.("private");
@@ -345,16 +406,6 @@ export class GuidedAdminController extends BridgeAdminController {
       this.audit("server.import-request", interaction, id); return;
     }
     if (!server) return this.reply(interaction, "This record has changed. Refresh discovery.");
-    if (action === "order-up" || action === "order-down") {
-      await this.acknowledge(interaction);
-      const order = this.configStore.getRuntimeConfig().servers.map(record => record.pterodactylServerId);
-      const from = order.indexOf(id), to = from + (action === "order-up" ? -1 : 1);
-      if (from < 0 || to < 0 || to >= order.length) return this.reply(interaction, "This server is already at that end of the display order.");
-      [order[from], order[to]] = [order[to], order[from]];
-      this.configStore.updateSettings({ discord: { serverDisplayOrder: order, channelOrderingEnabled: true } });
-      this.audit("server.order", interaction, id);
-      return this.reply(interaction, "Display order saved for the status messages and linked channels.", { components: [] });
-    }
     if (action === "game-api" && server.game.type === "satisfactory") {
       const token = new TextInputBuilder().setCustomId("token").setLabel("Replacement game API token (private)").setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(255);
       const url = new TextInputBuilder().setCustomId("url").setLabel("API URL; blank uses the server allocation").setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(250);

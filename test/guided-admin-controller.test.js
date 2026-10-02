@@ -23,7 +23,7 @@ function fixture(t) {
   function channel(id) {
     const result = { id, type: ChannelType.GuildText, parentId: "unrelated-category", permissionsFor: () => ({ has: () => true }),
       permissionOverwrites: { cache: new Map(), async edit(_role, options) { calls.push(["permissions", id, options]); } },
-      messages: { async edit(messageId, payload) {
+      messages: { async delete(messageId) { messages.delete(messageId); calls.push(["delete-message", messageId]); }, async edit(messageId, payload) {
         if (!messages.has(messageId)) throw Object.assign(new Error("Unknown message"), { code: 10008 });
         messages.set(messageId, payload); calls.push(["edit", messageId]);
       } },
@@ -652,15 +652,51 @@ test("legacy archives resume monitoring without issuing a game-server start", as
   assert.equal(power, 0);
 });
 
-test("administrators can persist one order for status messages and linked channels", async t => {
-  const f = fixture(t); f.add({ name: "First" });
+test("ordering popup includes archived servers and persists all three display orders", async t => {
+  const f = fixture(t); f.add({ name: "First", archived: true });f.controller.categoryLayout.sync = async () => {};
+  f.store.addManagedServer({ name: "Second", pterodactylServerId: "second", active: false, archived: false, published: false, game: { type: "minecraft" } });await f.reconcile();
+  await f.controller.handleInteraction(f.interaction("bridge:guide:order"));
+  const modal = f.replies.at(-1).modal.toJSON();assert.match(modal.components[0].components[0].value, /First \[archived\] \| 1/);
+  const submit = f.interaction(modal.custom_id, { modal: true });submit.fields = { getTextInputValue: () => "First [archived] | 2\nSecond | 1" };
+  await f.controller.handleInteraction(submit);assert.deepEqual(f.config.servers.map(s => s.pterodactylServerId), ["second", "server"]);
+  const restarted = new PersistentConfigStore(f.paths);restarted.load();assert.deepEqual(restarted.getRuntimeConfig().servers.map(s => s.pterodactylServerId), ["second", "server"]);
+});
+
+
+test("admin control cards follow saved display order without deleting other messages", async t => {
+  const f = fixture(t); f.add();
   f.controller.categoryLayout.sync = async () => {};
   f.store.addManagedServer({ name: "Second", pterodactylServerId: "second", active: false, archived: false, published: false, game: { type: "minecraft" } });
-  await f.reconcile();
-  await f.controller.handleInteraction(f.interaction("bridge:card:second:order-up"));
-  assert.deepEqual(f.config.servers.map(s => s.pterodactylServerId), ["second", "server"]);
-  const restarted = new PersistentConfigStore(f.paths); restarted.load();
-  assert.deepEqual(restarted.getRuntimeConfig().servers.map(s => s.pterodactylServerId), ["second", "server"]);
-  await f.controller.handleInteraction(f.interaction("bridge:card:second:order-up"));
-  assert.match(f.replies.at(-1).content, /already at that end/);
+  await f.reconcile(); await f.controller.refreshCards(f.guild);
+  const old = [f.store.getCardMessageId("server"), f.store.getCardMessageId("second")];
+  f.messages.set("human-history", { content: "keep me" });
+  f.store.updateSettings({ discord: { serverDisplayOrder: ["second", "server"] } });await f.reconcile();await f.controller.refreshCards(f.guild);
+  const ids = [f.store.getCardMessageId("second"), f.store.getCardMessageId("server")];
+  assert.ok(ids[0].localeCompare(ids[1], undefined, { numeric: true }) < 0);
+  assert.ok(old.every(id => !f.messages.has(id)));assert.ok(f.messages.has("human-history"));
+  assert.deepEqual(f.store.document.administration.pendingCardDeletion, []);
+  const sent = f.calls.filter(([name]) => name === "send").length;
+  await f.controller.refreshCards(f.guild);assert.equal(f.calls.filter(([name]) => name === "send").length, sent);
+});
+
+test("admin card replacement preserves cleanup after a failed deletion and restart", async t => {
+  const f = fixture(t); f.add();f.controller.categoryLayout.sync = async () => {};
+  f.store.addManagedServer({ name: "Second", pterodactylServerId: "second", active: false, archived: false, published: false, game: { type: "minecraft" } });await f.reconcile();await f.controller.refreshCards(f.guild);
+  f.store.updateSettings({ discord: { serverDisplayOrder: ["second", "server"] } });await f.reconcile();
+  const channel = f.channels.get("admin"), remove = channel.messages.delete;
+  channel.messages.delete = async () => { throw new Error("temporary Discord failure"); };
+  await assert.rejects(f.controller.refreshCards(f.guild));
+  const restarted = new PersistentConfigStore(f.paths);assert.equal(restarted.load(), true);assert.ok(restarted.document.administration.pendingCardDeletion.length > 0);
+  channel.messages.delete = remove;await f.controller.refreshCards(f.guild);assert.deepEqual(f.store.document.administration.pendingCardDeletion, []);
+});
+
+
+test("failed batch creation keeps old admin card bindings until every replacement is ready", async t => {
+  const f = fixture(t); f.add();f.controller.categoryLayout.sync = async () => {};await f.controller.refreshCards(f.guild);
+  const old = f.store.getCardMessageId("server"), overview = f.store.getCardMessageId("overview");
+  f.store.updateSettings({ discord: { serverDisplayOrder: ["server"], adminDisplayOrderRevision: 1 } });await f.reconcile();
+  const channel = f.channels.get("admin"), send = channel.send;let count = 0;
+  channel.send = async payload => { if (++count === 2) throw new Error("send failed");return send(payload); };
+  await assert.rejects(f.controller.refreshCards(f.guild));assert.equal(f.store.getCardMessageId("server"), old);assert.equal(f.store.getCardMessageId("overview"), overview);assert.ok(f.messages.has(old));
+  channel.send = send;await f.controller.refreshCards(f.guild);assert.deepEqual(f.store.document.administration.pendingCardDeletion, []);
 });
