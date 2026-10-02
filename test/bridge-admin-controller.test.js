@@ -569,7 +569,7 @@ test("publication moves a bound linked channel in the selected private category"
   await f.controller.handleInteraction(f.command("import", { server: "new-id", game: "minecraft", activate: true }));
   f.store.updateManagedServer("new-id", { channelManaged: false });
   await f.controller.handleInteraction(f.command("publish", { server: "new-id" }));
-  assert.match(f.calls.at(-1).payload.content, /linked channel <#new-channel> will move/);
+  assert.match(f.calls.at(-1).payload.content, /linked channel <#new-channel> will be checked/);
   await confirmPublication(f);
   const channel = f.channels.get("new-channel");
   assert.equal(channel.parentId, "public-category");
@@ -643,4 +643,17 @@ test("publication fails and restores permissions if linked-role effective access
   assert.equal(f.managed[0].published, false);
   assert.equal(channel.parentId, "category");
   assert.equal(channel.permissionOverwrites.cache.has("linked-role"), false);
+});
+
+test("publication reports already-correct channel configuration without rewriting it", async () => {
+  const f = fixture();
+  await f.controller.handleInteraction(f.command("import", { server: "new-id", game: "minecraft", activate: true }));
+  await f.controller.handleInteraction(f.command("publish", { server: "new-id" }));
+  await confirmPublication(f);
+  const edits = f.calls.filter(c => c.method === "channel-edit").length;
+  await f.controller.handleInteraction(f.command("publish", { server: "new-id" }));
+  await confirmPublication(f);
+  assert.equal(f.calls.filter(c => c.method === "channel-edit").length, edits);
+  assert.match(f.calls.at(-1).payload.content, /already configured correctly/);
+  assert.match(f.calls.at(-1).payload.content, /linked-role/);
 });
