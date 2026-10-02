@@ -1,5 +1,6 @@
 import { getDefaultChatCommandTemplate } from "./chat-relay-formatters.js";
 import fs from "node:fs";
+import { orderServers } from "./server-display-order.js";
 import path from "node:path";
 import { isKookEnabled, normalizeKookConfigId } from "./kook-config.js";
 
@@ -376,7 +377,7 @@ export function loadConfig({ requireRuntimeTokens = true, rawConfig: suppliedCon
       wingsWsPort: process.env.PTERODACTYL_WINGS_WS_PORT || null
     },
     publicDisplay: { archived: "marked", deleted: "marked", ...rawConfig.publicDisplay },
-    servers: (rawConfig.servers ?? []).map(normalizeServer)
+    servers: orderServers((rawConfig.servers ?? []).map(normalizeServer), rawConfig.discord?.serverDisplayOrder)
   };
 
   validateConfig(config, { managed });

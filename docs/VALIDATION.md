@@ -81,3 +81,7 @@ The full current Node 24 suite passed **428 tests**, zero failures; focused admi
 All **431 Node 24 tests** passed. Publication now applies the selected category and role policy to every linked channel, including migrated and manually bound channels. Already-published monitored servers expose Repair published channel. Read-back verifies both the exact category/overwrites and the linked role’s effective View Channel, Send Messages and Read Message History access. Already-correct channels are verified without rewriting their settings and reported as already configured correctly.
 
 The first correction was deployed, and Factorio-AI’s linked channel was repaired in the selected semi-public category with its original overwrites retained in a private backup. Read-back confirmed role `1372558467927248896` could view/send/read history, everyone was denied View Channel, and the exact three-overwrite policy was applied. No game power commands or test chat messages were sent.
+
+## Shared display order and archive divider — October 1, 2026
+
+All **440 Node 24 tests** passed. Coverage verifies a persisted shared order, unavailable status entries, main-status placement, live/archive/remaining channel order, archive/unarchive movement, read-only divider permissions, idempotence, permission drift repair and divider reuse after binding loss. The layout is opt-in through Arrange status & channels or server ordering controls. No game power actions were used in validation.

@@ -22,6 +22,12 @@ The first-beta candidate includes a version-matched Egg release attachment. [Pte
 
 Archive and unarchive post lifecycle announcements to linked Discord/KOOK channels. Channels and message history are retained. Unarchive restores the monitoring and publication state captured at archive time, including across bot restarts, while keeping configured relay/autostop settings. It sends no game-server start command. Restoring monitoring requires panel access and does not bypass unavailable/deleted records. Archives created by older versions have no captured monitoring state: unarchive resumes monitoring by default and keeps their publication setting. Archive listing visibility still follows the configured marked/hidden display setting.
 
+## Status and category ordering
+
+Select **Arrange status & channels** to enable category layout. The main status channel moves into the selected public/semi-public category while retaining its permissions. Published monitored game channels follow the status-message order. The read-only text divider `====archieve====` comes next, followed by archived/deleted linked channels already in that category, then remaining channels in their previous relative order. The linked role may view/read the divider; posting, reactions, threads, app commands and other interactions are denied. Discord administrators retain their inherent access.
+
+Use **Move up in status & channels** and **Move down in status & channels** on server cards to save a shared order. New servers append to unspecified records. The order survives restart and also applies to unavailable status entries. Private/unpublished game channels are not pulled into the public category by ordering. The layout is checked after administration changes and discovery refresh, and only changed positions/permissions are written. Divider bindings persist and deleted dividers are recreated without deleting channel history.
+
 ## Storage and migration
 
 The Docker volume contains configuration, separate credentials, runtime state, health files, administration-message bindings and audit data. Persistent configuration is schema-versioned. Treat the entire volume as private: a redacted `/bridge export` is useful for troubleshooting but **cannot restore credentials**.

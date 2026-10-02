@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { normalizeServer } from "./config.js";
+import { orderServers } from "./server-display-order.js";
 
 export const SCHEMA_VERSION = 2;
 
@@ -326,7 +327,7 @@ export class PersistentConfigStore {
     settings.discord = { ...settings.discord, guildId: this.getGuildId() };
     settings.pterodactyl = { ...settings.pterodactyl, ...this.document.managed.connection };
     settings.pterodactyl.apiKey = this.getConnectionKey();
-    settings.servers = [...(settings.servers ?? []), ...this.getManagedServers()];
+    settings.servers = orderServers([...(settings.servers ?? []), ...this.getManagedServers()], settings.discord.serverDisplayOrder);
     for (const server of settings.servers) {
       if (server.game?.apiTokenRef) { server.game.apiToken = this.secrets.values[server.game.apiTokenRef]; delete server.game.apiTokenRef; }
     }
