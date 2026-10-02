@@ -651,3 +651,16 @@ test("legacy archives resume monitoring without issuing a game-server start", as
   assert.equal(f.store.getManagedServers()[0].published, true);
   assert.equal(power, 0);
 });
+
+test("administrators can persist one order for status messages and linked channels", async t => {
+  const f = fixture(t); f.add({ name: "First" });
+  f.controller.categoryLayout.sync = async () => {};
+  f.store.addManagedServer({ name: "Second", pterodactylServerId: "second", active: false, archived: false, published: false, game: { type: "minecraft" } });
+  await f.reconcile();
+  await f.controller.handleInteraction(f.interaction("bridge:card:second:order-up"));
+  assert.deepEqual(f.config.servers.map(s => s.pterodactylServerId), ["second", "server"]);
+  const restarted = new PersistentConfigStore(f.paths); restarted.load();
+  assert.deepEqual(restarted.getRuntimeConfig().servers.map(s => s.pterodactylServerId), ["second", "server"]);
+  await f.controller.handleInteraction(f.interaction("bridge:card:second:order-up"));
+  assert.match(f.replies.at(-1).content, /already at that end/);
+});

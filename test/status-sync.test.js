@@ -545,3 +545,11 @@ test("Source runtime adapter publishes console player snapshots", async () => {
   assert.deepEqual(panels.at(-1)[0].onlinePlayers, ["Alice"]);
   service.stop();
 });
+
+test("saved custom display order keeps unavailable status entries in their chosen position", async () => {
+  const normal = makeServer("normal"), waiting = { ...makeServer("waiting"), unavailable: true, active: false };
+  const { service, panels } = createService({ servers: [waiting, normal], async getServerResources() { return { currentState: "offline" }; } });
+  service.config.discord.serverDisplayOrder = [waiting.pterodactylServerId, normal.pterodactylServerId];
+  await service.syncOnce({ force: true });
+  assert.deepEqual(panels[0].map(snapshot => snapshot.name), ["waiting", "normal"]);
+});

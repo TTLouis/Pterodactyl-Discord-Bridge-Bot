@@ -412,9 +412,15 @@ export class StatusSyncService {
 
     if (generation !== this.runtimeGeneration) { if (!this.stopped) this.queuedSyncOptions = { force: true }; return; }
     const snapshots = results.filter((snapshot) => snapshot !== null && !snapshot.stale);
-    const publishedSnapshots = results.flatMap((snapshot, index) =>
+    let publishedSnapshots = results.flatMap((snapshot, index) =>
       snapshot && activeServers[index].published !== false ? [snapshot] : []);
     publishedSnapshots.push(...unavailableServers.filter((server) => server.published !== false).map((server) => this.#staleSnapshot(server)));
+    if (this.config.discord.serverDisplayOrder?.length) {
+      const byId = new Map(activeServers.map((server, index) => [server.pterodactylServerId,
+        server.published !== false ? results[index] : null]));
+      for (const server of unavailableServers) if (server.published !== false) byId.set(server.pterodactylServerId, this.#staleSnapshot(server));
+      publishedSnapshots = this.config.servers.flatMap(server => byId.get(server.pterodactylServerId) ? [byId.get(server.pterodactylServerId)] : []);
+    }
     // The loop finished, which is the liveness signal a healthcheck needs.
     // Per-server failures do not change that the bot is running and polling.
     const syncSummary = {
