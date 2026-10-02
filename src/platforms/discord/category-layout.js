@@ -2,7 +2,7 @@ import { ChannelType, OverwriteType, PermissionsBitField, PermissionFlagsBits } 
 import { isServerMonitoringEnabled } from "../../lib/server-lifecycle.js";
 import { orderServers } from "../../lib/server-display-order.js";
 
-export const ARCHIVE_DIVIDER_NAME = "====archieve====";
+export const ARCHIVE_DIVIDER_NAME = "＝＝＝＝archieve＝＝＝＝";
 
 export function categoryChannelOrder({ channels, statusChannelId, dividerChannelId, servers, savedOrder = [] }) {
   const present = new Set(channels.map(channel => channel.id));
