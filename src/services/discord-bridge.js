@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { classifyRelayError } from "../lib/relay-errors.js";
 import { Client, Events, GatewayIntentBits, Partials, REST, Routes } from "discord.js";
 import { runHandlers } from "../lib/run-handlers.js";
 import {
@@ -7,7 +9,7 @@ import {
 } from "../lib/action-message-state.js";
 
 export class DiscordBridge {
-  constructor({ token, guildId, stateStore, logger, isWatchedChannel = () => true }) {
+  constructor({ token, guildId, stateStore, logger, isWatchedChannel = () => true, relayRequest = null }) {
     this.token = token;
     this.guildId = guildId;
     this.stateStore = stateStore;
@@ -22,6 +24,21 @@ export class DiscordBridge {
       ],
       partials: [Partials.Message, Partials.Channel, Partials.Reaction, Partials.User]
     });
+    this.pendingRelayRequests = new Map();
+    const request = relayRequest ?? this.client.rest.options.makeRequest;
+    // A separate REST client avoids changing retry behavior for administration.
+    // The guard runs after SDK rate-limit waits, at the actual network boundary.
+    this.relayRest = new REST({ version: "10", retries: 0, timeout: 15000, rejectOnRateLimit: () => true,
+      makeRequest: (url, options) => {
+        const nonce = JSON.parse(options.body).nonce;
+        const pending = this.pendingRelayRequests.get(nonce);
+        if (options.signal?.aborted) throw Object.assign(new Error("Relay request cancelled before dispatch"), { deliveryStatus: "not-sent" });
+        if (!pending?.isCurrent()) throw Object.assign(new Error("Relay route changed"), { deliveryStatus: "not-sent" });
+        pending.onDispatch();
+        pending.dispatched = true;
+        return request(url, options);
+      }
+    }).setToken(token);
     this.handlers = [];
     this.interactionHandlers = [];
     this.reactionHandlers = [];
@@ -31,6 +48,7 @@ export class DiscordBridge {
 
   onMessage(handler) {
     this.handlers.push(handler);
+    return () => { this.handlers = this.handlers.filter(entry => entry !== handler); };
   }
 
   onInteraction(handler) {
@@ -54,8 +72,8 @@ export class DiscordBridge {
     });
 
     this.client.on(Events.InteractionCreate, async (interaction) => {
-      if (!(interaction.isChatInputCommand() || interaction.isModalSubmit() || interaction.isButton() || interaction.isAutocomplete())
-        || interaction.guildId !== this.guildId) return;
+      if (!(interaction.isChatInputCommand() || interaction.isModalSubmit() || interaction.isButton() || interaction.isAutocomplete() || interaction.isAnySelectMenu?.())
+        || (this.guildId && interaction.guildId !== this.guildId)) return;
       await runHandlers(this.interactionHandlers, interaction, {
         logger: this.logger,
         label: `Discord interaction /${interaction.commandName}`
@@ -63,17 +81,20 @@ export class DiscordBridge {
     });
 
     this.client.on(Events.MessageCreate, async (message) => {
-      if (message.author.bot || !message.guild || message.guild.id !== this.guildId) {
+      if (message.author.bot || message.webhookId || !message.guild || message.guild.id !== this.guildId) {
         return;
       }
 
       const payload = {
+        messageId: message.id,
+        authorId: message.author.id,
+        sourcePlatform: "discord",
         authorName: message.member?.displayName ?? message.author.username,
         authorColor: message.member?.roles?.highest?.color
           ? message.member.roles.highest.hexColor
           : null,
         channelId: message.channelId,
-        content: message.content.trim()
+        content: String(message.content ?? "").trim()
       };
 
       await runHandlers(this.handlers, payload, {
@@ -90,7 +111,32 @@ export class DiscordBridge {
   }
 
   async stop() {
+    for (const pending of this.pendingRelayRequests.values()) pending.controller?.abort();
+    this.relayRest.clearHashSweeper();
+    this.relayRest.clearHandlerSweeper();
     await this.client.destroy();
+  }
+
+  async sendRelayText(channelId, content, { id, isCurrent = () => true, onDispatch = () => {} } = {}) {
+    try { await this.#getTextChannel(channelId); }
+    catch (error) { throw classifyRelayError(error); }
+    if (!isCurrent()) throw Object.assign(new Error("Relay route changed"), { deliveryStatus: "not-sent" });
+    const nonce = createHash("sha256").update(id ?? `${channelId}:${Date.now()}:${Math.random()}`).digest("hex").slice(0, 24);
+    const pending = { isCurrent, onDispatch, dispatched: false };
+    this.pendingRelayRequests.set(nonce, pending);
+    const controller = new AbortController();
+    pending.controller = controller;
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    try {
+      return await this.relayRest.post(Routes.channelMessages(channelId), {
+        body: { content, allowed_mentions: { parse: [], replied_user: false }, nonce, enforce_nonce: true },
+        signal: controller.signal
+      });
+    } catch (error) { throw classifyRelayError(error, { dispatched: pending.dispatched }); }
+    finally {
+      clearTimeout(timeout);
+      this.pendingRelayRequests.delete(nonce);
+    }
   }
 
   async sendMessage(channelId, content) {
@@ -241,16 +287,22 @@ export class DiscordBridge {
     }
   }
 
+  async claimGuild(guildId) {
+    if (this.guildId && this.guildId !== guildId) throw new Error("Installation already claimed");
+    this.guildId = guildId;
+    await this.#registerSlashCommands();
+  }
+
   async #registerSlashCommands() {
     try {
       const rest = new REST().setToken(this.token);
       const appId = this.client.application.id;
 
       // Wipe any global (non-guild) commands so stale entries don't show in the client.
-      await rest.put(Routes.applicationCommands(appId), { body: [] });
+      await rest.put(Routes.applicationCommands(appId), { body: this.guildId ? [] : this.slashCommands.filter((command) => command.name === "bridge").map((command) => ({ ...command, options: command.options.filter((option) => option.name === "setup") })) });
 
       // PUT replaces the full guild command list, removing any previously registered commands.
-      await rest.put(Routes.applicationGuildCommands(appId, this.guildId), { body: this.slashCommands });
+      if (this.guildId) await rest.put(Routes.applicationGuildCommands(appId, this.guildId), { body: this.slashCommands });
 
       this.logger.info(`Registered ${this.slashCommands.length} slash commands`);
     } catch (error) {

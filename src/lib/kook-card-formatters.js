@@ -66,6 +66,9 @@ function formatPlayers(snapshot) {
 }
 
 function formatPlayerCountLabel(snapshot) {
+  if (snapshot.playerCountReliable === false) {
+    return "Unknown — idle auto-stop paused";
+  }
   const playerCount = Number(snapshot.playerCount ?? 0);
   const maxPlayers = typeof snapshot.maxPlayers === "number" ? snapshot.maxPlayers : null;
 
@@ -81,6 +84,9 @@ function formatPlayerCountLabel(snapshot) {
 }
 
 function formatOnlinePlayers(snapshot) {
+  if (snapshot.playerCountReliable === false) {
+    return snapshot.onlinePlayers?.length ? `Last known: ${snapshot.onlinePlayers.join(", ")}` : "Unknown — player query unavailable";
+  }
   if (snapshot.playerNamesAvailable === false) {
     return "API 暂不可用";
   }
@@ -195,7 +201,7 @@ function buildServerInfoText(snapshot) {
 }
 
 function buildServerCard(snapshot, footerText) {
-  const status = getStatusMeta(snapshot.simplifiedStatus);
+  const status = snapshot.stale ? { emoji: "⚠️", label: "Unavailable — stale data; monitoring paused" } : getStatusMeta(snapshot.simplifiedStatus);
   const modules = [
     {
       type: "header",
@@ -231,6 +237,7 @@ function buildServerCard(snapshot, footerText) {
           kmarkdown([
             "**状态**",
             `${status.emoji} ${status.label}`,
+            ...(snapshot.stale ? [snapshot.lastSeenAt ? `Last successful update: ${snapshot.lastSeenAt}` : "No successful update available."] : []),
             "",
             "**玩家数量**",
             formatPlayerCountLabel(snapshot),
@@ -287,7 +294,7 @@ export function buildKookArchivePanel(servers) {
     ? "暂无已归档服务器。"
     : servers.map((server) => {
       const note = server.archiveNote ? ` — ${server.archiveNote}` : "";
-      return `• **${server.name}**${note}`;
+      return `• **${server.name}**${server.deleted ? " — Deleted (administrator marked)" : ""}${note}`;
     }).join("\n");
 
   return {

@@ -16,7 +16,7 @@ test("server discovery follows Client API pagination and keeps bearer tokens out
     }; } };
   };
   try {
-    const client = new PterodactylClient({ baseUrl: "https://panel.example.test", apiKey: "private-key" });
+    const client = new PterodactylClient({ commandIntervalMs: 0, baseUrl: "https://panel.example.test", apiKey: "private-key" });
     assert.deepEqual(await client.listAccessibleServers(), [
       { identifier: "server-1", name: "World 1", uuid: null, legacyIdentifier: null },
       { identifier: "server-2", name: "World 2", uuid: null, legacyIdentifier: null }
@@ -29,7 +29,7 @@ test("panel error bodies cannot leak a Client API key through thrown errors", as
   const originalFetch = global.fetch;
   global.fetch = async () => ({ ok: false, status: 403, async text() { return "private-key"; } });
   try {
-    const client = new PterodactylClient({ baseUrl: "https://panel.example.test", apiKey: "private-key" });
+    const client = new PterodactylClient({ commandIntervalMs: 0, baseUrl: "https://panel.example.test", apiKey: "private-key" });
     await assert.rejects(client.listAccessibleServers(), (error) =>
       error.message.includes("403") && !error.message.includes("private-key"));
   } finally { global.fetch = originalFetch; }
@@ -62,7 +62,7 @@ test("console subscriptions request logs only after reconnects", async () => {
   const sockets = [];
   const connectedEvents = [];
   const lines = [];
-  const client = new PterodactylClient({
+  const client = new PterodactylClient({ commandIntervalMs: 0,
     baseUrl: "https://panel.example.test",
     apiKey: "api-key",
     webSocketFactory() {
@@ -79,6 +79,7 @@ test("console subscriptions request logs only after reconnects", async () => {
 
   const unsubscribe = client.subscribeToConsole("server-id", {
     reconnectDelayMs: 0,
+    sendLogs: true,
     onConnected(event) {
       connectedEvents.push(event);
     },
@@ -126,7 +127,7 @@ test("console subscriptions request logs only after reconnects", async () => {
 
 test("runCommand reuses the subscribed console websocket and serializes commands", async () => {
   const sockets = [];
-  const client = new PterodactylClient({
+  const client = new PterodactylClient({ commandIntervalMs: 0,
     baseUrl: "https://panel.example.test",
     apiKey: "api-key",
     webSocketFactory() {
@@ -175,7 +176,7 @@ test("runCommand reuses the subscribed console websocket and serializes commands
 
 test("runCommand rejects while the console subscription is not ready without opening another websocket", async () => {
   const sockets = [];
-  const client = new PterodactylClient({
+  const client = new PterodactylClient({ commandIntervalMs: 0,
     baseUrl: "https://panel.example.test",
     apiKey: "api-key",
     webSocketFactory() {
@@ -201,7 +202,7 @@ test("runCommand rejects while the console subscription is not ready without ope
 test("onReady waits for reconnect backlog before allowing persistent commands", async () => {
   const sockets = [];
   const readyEvents = [];
-  const client = new PterodactylClient({
+  const client = new PterodactylClient({ commandIntervalMs: 0,
     baseUrl: "https://panel.example.test",
     apiKey: "api-key",
     webSocketFactory() {
@@ -218,6 +219,7 @@ test("onReady waits for reconnect backlog before allowing persistent commands", 
 
   const unsubscribe = client.subscribeToConsole("server-id", {
     reconnectDelayMs: 0,
+    sendLogs: true,
     onError() {},
     onReady(event) { readyEvents.push(event); }
   });
@@ -246,7 +248,7 @@ test("onReady waits for reconnect backlog before allowing persistent commands", 
 test("console subscriptions report authentication timeouts instead of leaving commands blocked", async () => {
   const sockets = [];
   const errors = [];
-  const client = new PterodactylClient({
+  const client = new PterodactylClient({ commandIntervalMs: 0,
     baseUrl: "https://panel.example.test",
     apiKey: "api-key",
     subscriptionAuthTimeoutMs: 5,
@@ -277,7 +279,7 @@ test("console subscriptions report authentication timeouts instead of leaving co
 
 test("console subscriptions tolerate malformed websocket payloads and remain connected", async () => {
   const sockets = [];
-  const client = new PterodactylClient({
+  const client = new PterodactylClient({ commandIntervalMs: 0,
     baseUrl: "https://panel.example.test",
     apiKey: "api-key",
     webSocketFactory() {
@@ -336,7 +338,7 @@ test("server allocations are normalized from the client API", async () => {
   };
 
   try {
-    const client = new PterodactylClient({
+    const client = new PterodactylClient({ commandIntervalMs: 0,
       baseUrl: "https://panel.example.test/",
       apiKey: "api-key"
     });
@@ -371,7 +373,7 @@ test("panel requests time out with a clear error instead of hanging forever", as
   });
 
   try {
-    const client = new PterodactylClient({
+    const client = new PterodactylClient({ commandIntervalMs: 0,
       baseUrl: "https://panel.example.test",
       apiKey: "ptlc_test",
       apiRequestTimeoutMs: 25
@@ -399,7 +401,7 @@ test("power requests carry the API credentials and abort signal", async () => {
   };
 
   try {
-    const client = new PterodactylClient({ baseUrl: "https://panel.example.test/", apiKey: "ptlc_test" });
+    const client = new PterodactylClient({ commandIntervalMs: 0, baseUrl: "https://panel.example.test/", apiKey: "ptlc_test" });
     await client.setPowerState("server-id", "stop");
 
     assert.equal(requests.length, 1);
@@ -411,4 +413,127 @@ test("power requests carry the API credentials and abort signal", async () => {
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+
+test("requests normalize trailing slashes restored by runtime configuration", async () => {
+  const previous = global.fetch;
+  const urls = [];
+  global.fetch = async (url) => { urls.push(url); return { ok: true, async json() { return { attributes: { current_state: "offline" }, data: [], meta: { pagination: { total_pages: 1 } } }; } }; };
+  try {
+    const client = new PterodactylClient({ commandIntervalMs: 0, baseUrl: "https://panel.example/", apiKey: "private" });
+    client.baseUrl = "https://panel.example///";
+    await client.getServerResources("server"); await client.listAccessibleServers();
+    assert.equal(urls[0], "https://panel.example/api/client/servers/server/resources");
+    assert.equal(new URL(urls[1]).pathname, "/api/client");
+  } finally { global.fetch = previous; }
+});
+
+for (const event of ["token expiring", "token expired", "jwt error"]) {
+  test(event + " invalidates console readiness and obtains fresh credentials before resuming commands", async () => {
+    const sockets = [];
+    let credentials = 0;
+    let readyEvents = 0;
+    const client = new PterodactylClient({ commandIntervalMs: 0,baseUrl:"https://panel.example.test",apiKey:"private-key",
+      webSocketFactory() { const socket=new FakeWebSocket(); sockets.push(socket); return socket; }});
+    client.getServerWebsocket = async () => {
+      credentials++;
+      return {socket:"wss://wings.example.test/ws",token:`token-${credentials}`,origin:"https://panel.example.test"};
+    };
+    const unsubscribe=client.subscribeToConsole("server-id",{sendLogs:false,reconnectDelayMs:0,onReady(){readyEvents++;},onError(){}});
+    try {
+      await nextTick(); sockets[0].emit("open"); emitMessage(sockets[0],{event:"auth success",args:[]});
+      client.websocketCredentialCache.set("server-id",{token:"old-token"});
+      const pending=client.runCommand("server-id","/players o",{captureMs:10000});
+      const rejected=assert.rejects(pending,/credentials need renewal/);
+      await nextTick(); emitMessage(sockets[0],{event,args:["private-token-error-must-not-be-logged"]});
+      assert.equal(client.isConsoleSessionReady("server-id"),false);
+      assert.equal(client.websocketCredentialCache.has("server-id"),false);
+      await rejected;
+      await nextTick(); await nextTick();
+      assert.equal(credentials,2);
+      sockets[1].emit("open"); emitMessage(sockets[1],{event:"auth success",args:[]});
+      assert.deepEqual(sockets[1].sent[0],{event:"auth",args:["token-2"]});
+      assert.equal(readyEvents,2);
+      // A late expiry event from the retired socket must not tear down its replacement.
+      emitMessage(sockets[0],{event:"token expired",args:[]});
+      sockets[0].emit("close",1000,Buffer.from("late close"));
+      assert.equal(client.isConsoleSessionReady("server-id"),true);
+      const recovered=client.runCommand("server-id","/players o",{captureMs:10});
+      await nextTick(); emitMessage(sockets[1],{event:"console output",args:["Online players (0):"]});
+      assert.deepEqual(await recovered,["Online players (0):"]);
+    } finally {unsubscribe();}
+  });
+}
+
+async function relayTransport(t, overrides = {}) {
+  const socket = new FakeWebSocket();
+  const client = new PterodactylClient({ baseUrl: "https://panel.example.test", apiKey: "key", commandIntervalMs: 0,
+    webSocketFactory: () => socket, ...overrides });
+  client.getServerWebsocket = async () => ({ socket: "wss://wings.example.test/ws", token: "token", origin: "https://panel.example.test" });
+  const unsubscribe = client.subscribeToConsole("world", { onError() {} });
+  t.after(unsubscribe);
+  await nextTick(); socket.emit("open"); emitMessage(socket, { event: "auth success" });
+  return { client, socket };
+}
+
+test("relay transport requires running status and rechecks policy after command queue waits", async t => {
+  const { client, socket } = await relayTransport(t);
+  let checkpoints = 0;
+  assert.equal((await client.runRelayCommand("world", "/say offline", { onDispatch() { checkpoints++; } })).status, "not-sent");
+  emitMessage(socket, { event: "status", args: ["running"] });
+  const query = client.runCommand("world", "/list", { captureMs: 10 });
+  let current = true;
+  const relay = client.runRelayCommand("world", "/say obsolete", { isCurrent: () => current, onDispatch() { checkpoints++; } });
+  current = false;
+  await query;
+  assert.equal((await relay).status, "not-sent");
+  assert.equal(checkpoints, 0);
+  assert.equal(socket.sent.some(event => event.args?.[0] === "/say obsolete"), false);
+});
+
+test("relay transport distinguishes a close after send from explicit throttling and daemon rejection", async t => {
+  for (const [event, expected] of [["throttled", "not-sent"], ["daemon error", "rejected"], ["close", "unknown"]]) {
+    const { client, socket } = await relayTransport(t);
+    emitMessage(socket, { event: "status", args: ["running"] });
+    let checkpoints = 0;
+    const relay = client.runRelayCommand("world", "/say hello", { onDispatch() { checkpoints++; } });
+    await nextTick();
+    if (event === "close") socket.emit("close", 1006, Buffer.from("lost"));
+    else emitMessage(socket, { event, args: ["send command"] });
+    assert.equal((await relay).status, expected);
+    assert.equal(checkpoints, 1);
+  }
+});
+
+test("relay checkpoint failure prevents the network send", async t => {
+  const { client, socket } = await relayTransport(t);
+  emitMessage(socket, { event: "status", args: ["running"] });
+  const outcome = await client.runRelayCommand("world", "/say cannot persist", { onDispatch() { throw new Error("disk failed"); } });
+  assert.equal(outcome.status, "not-sent");
+  assert.equal(socket.sent.some(event => event.event === "send command"), false);
+});
+
+test("all console commands share dispatch pacing", async t => {
+  const { client, socket } = await relayTransport(t, { commandIntervalMs: 30 });
+  const sentAt = [];
+  const originalSend = socket.send.bind(socket);
+  socket.send = payload => { if (JSON.parse(payload).event === "send command") sentAt.push(Date.now()); originalSend(payload); };
+  await Promise.all([client.runCommand("world", "/one", { captureMs: 1 }), client.runCommand("world", "/two", { captureMs: 1 })]);
+  assert.ok(sentAt[1] - sentAt[0] >= 25);
+});
+
+test("default live console subscriptions never request history after reconnect", async t => {
+  const sockets = [];
+  const client = new PterodactylClient({ baseUrl: "https://panel.example.test", apiKey: "key", commandIntervalMs: 0,
+    webSocketFactory() { const socket = new FakeWebSocket(); sockets.push(socket); return socket; } });
+  client.getServerWebsocket = async () => ({ socket: "wss://wings.example.test/ws", token: "token", origin: "https://panel.example.test" });
+  const ready = [];
+  const unsubscribe = client.subscribeToConsole("world", { reconnectDelayMs: 0, onReady: event => ready.push(event), onError() {} });
+  t.after(unsubscribe);
+  await nextTick(); sockets[0].emit("open"); emitMessage(sockets[0], { event: "auth success" });
+  sockets[0].emit("close", 1006, Buffer.from("lost")); await nextTick(); await nextTick();
+  sockets[1].emit("open"); emitMessage(sockets[1], { event: "auth success" });
+  assert.equal(sockets.flatMap(socket => socket.sent).some(event => event.event === "send logs"), false);
+  assert.deepEqual(ready, [{ isReconnect: false }, { isReconnect: true }]);
 });

@@ -21,6 +21,7 @@ export class SatisfactoryAdapter {
     this.satisfactoryClient = satisfactoryClient;
     this.logger = logger;
     this.playerCount = 0;
+    this.playerCountReliable = false;
     this.maxPlayers = serverConfig.maxPlayers;
     this.gameDurationMs = null;
     this.techTier = null;
@@ -38,6 +39,7 @@ export class SatisfactoryAdapter {
 
   onConfigReloaded() {
     this.playerCount = 0;
+    this.playerCountReliable = false;
     this.maxPlayers = this.serverConfig.maxPlayers;
     this.gameDurationMs = null;
     this.techTier = null;
@@ -48,6 +50,7 @@ export class SatisfactoryAdapter {
   async fetchSnapshot(resources) {
     if (resources.currentState !== "running") {
       this.playerCount = 0;
+      this.playerCountReliable = false;
       this.gameDurationMs = null;
       this.techTier = null;
       this.activeSchematic = "";
@@ -58,7 +61,8 @@ export class SatisfactoryAdapter {
 
     try {
       const serverState = await this.satisfactoryClient.queryServerState(this.serverConfig);
-      this.playerCount = serverState.numConnectedPlayers ?? 0;
+      this.playerCountReliable = Number.isInteger(serverState.numConnectedPlayers) && serverState.numConnectedPlayers >= 0;
+      if (this.playerCountReliable) this.playerCount = serverState.numConnectedPlayers;
       this.maxPlayers = serverState.playerLimit ?? this.serverConfig.maxPlayers;
       this.techTier = serverState.techTier;
       this.activeSchematic = serverState.activeSchematic;
@@ -67,6 +71,7 @@ export class SatisfactoryAdapter {
         ? serverState.totalGameDuration * 1000
         : null;
     } catch (error) {
+      this.playerCountReliable = false;
       this.logger?.warn(
         `Failed querying Satisfactory API for ${this.serverConfig.name}; keeping the last known API state.`,
         error
@@ -118,6 +123,7 @@ export class SatisfactoryAdapter {
       currentState: resources.currentState,
       simplifiedStatus: simplifyStatus(resources.currentState),
       playerCount: this.playerCount,
+      playerCountReliable: resources.currentState !== "running" || this.playerCountReliable,
       onlinePlayers: this.playerCount > 0 ? null : [],
       playerNamesAvailable: false,
       cpuPercent: resources.cpuPercent,

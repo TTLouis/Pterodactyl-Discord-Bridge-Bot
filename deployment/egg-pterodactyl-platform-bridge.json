@@ -1,0 +1,114 @@
+{
+  "_comment": "Generated release image must match package.json. Actual Panel/Wings validation is pending.",
+  "meta": {
+    "version": "PTDL_v2",
+    "update_url": null
+  },
+  "exported_at": "2026-10-01T00:00:00+00:00",
+  "name": "Pterodactyl Platform Bridge",
+  "author": "ttlouis@users.noreply.github.com",
+  "description": "Discord bridge for Factorio, Minecraft and Satisfactory, with optional KOOK. Node 24 packaged image; private data persists in data/. Complete configuration through /bridge setup. Pterodactyl live acceptance pending.",
+  "features": [],
+  "docker_images": {
+    "Bridge 0.3.0-beta.1": "ghcr.io/ttlouis/pterodactyl-discord-bridge-bot:0.3.0-beta.1"
+  },
+  "file_denylist": [
+    "data/*"
+  ],
+  "startup": "node /app/src/index.js",
+  "config": {
+    "files": "{}",
+    "startup": "{\"done\": \"Bridge ready\"}",
+    "logs": "{}",
+    "stop": "^C"
+  },
+  "scripts": {
+    "installation": {
+      "script": "#!/bin/sh\nset -eu\necho \"Application is packaged in the pinned image. Existing server files are preserved.\"\n",
+      "container": "node:24-bookworm-slim",
+      "entrypoint": "sh"
+    }
+  },
+  "variables": [
+    {
+      "name": "Deployment mode",
+      "description": "Required storage layout; administrator-managed.",
+      "env_variable": "BRIDGE_DEPLOYMENT",
+      "default_value": "pterodactyl",
+      "user_viewable": false,
+      "user_editable": false,
+      "rules": "required|in:pterodactyl",
+      "field_type": "text"
+    },
+    {
+      "name": "Discord bot token",
+      "description": "Private credential. Visible to authorized Panel administrators and server users with startup-variable access; never share console or startup screenshots.",
+      "env_variable": "DISCORD_TOKEN",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string",
+      "field_type": "text"
+    },
+    {
+      "name": "Enable KOOK",
+      "description": "",
+      "env_variable": "KOOK_ENABLED",
+      "default_value": "false",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|in:true,false",
+      "field_type": "text"
+    },
+    {
+      "name": "KOOK token",
+      "description": "Optional private KOOK credential.",
+      "env_variable": "KOOK_TOKEN",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string",
+      "field_type": "text"
+    },
+    {
+      "name": "Wings hostname override",
+      "description": "Leave empty to use the endpoint supplied by the Panel.",
+      "env_variable": "PTERODACTYL_WINGS_FQDN",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string",
+      "field_type": "text"
+    },
+    {
+      "name": "Wings websocket scheme",
+      "description": "",
+      "env_variable": "PTERODACTYL_WINGS_WS_SCHEME",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|in:ws,wss",
+      "field_type": "text"
+    },
+    {
+      "name": "Wings websocket port",
+      "description": "",
+      "env_variable": "PTERODACTYL_WINGS_WS_PORT",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|integer|between:1,65535",
+      "field_type": "text"
+    },
+    {
+      "name": "Console diagnostics",
+      "description": "Temporarily enable connection diagnostics; review logs before sharing.",
+      "env_variable": "PTERODACTYL_CONSOLE_DIAGNOSTICS",
+      "default_value": "false",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|in:true,false",
+      "field_type": "text"
+    }
+  ]
+}

@@ -1,4 +1,5 @@
 export const CoreEvents = {
+  ADMINISTRATION_CONFIGURATION_CHANGED: "administration-configuration-changed",
   STATUS_PANEL_UPDATED: "status-panel-updated",
   SERVER_ACTION_MESSAGE: "server-action-message",
   SERVER_ACTION_MESSAGE_DELETE: "server-action-message-delete",
@@ -22,6 +23,11 @@ export class CoreEventBus {
         this.listeners.delete(eventName);
       }
     };
+  }
+
+  async emitSettled(eventName, payload) {
+    const listeners = Array.from(this.listeners.get(eventName) ?? []);
+    return Promise.allSettled(listeners.map(listener => Promise.resolve().then(() => listener(payload))));
   }
 
   async emit(eventName, payload) {

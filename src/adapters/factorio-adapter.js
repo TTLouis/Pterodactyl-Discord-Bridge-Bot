@@ -127,6 +127,7 @@ export class FactorioAdapter {
     this.pterodactylClient = pterodactylClient;
     this.logger = logger;
     this.onlinePlayers = null;
+    this.playerCountReliable = false;
     this.playerEventRevision = 0;
     this.gameDurationMs = null;
     this.gameDurationFetchedAt = null;
@@ -161,6 +162,7 @@ export class FactorioAdapter {
   async fetchSnapshot(resources, { forcePlayerRefresh = false } = {}) {
     if (resources.currentState !== "running") {
       this.onlinePlayers = null;
+      this.playerCountReliable = false;
       this.playerEventRevision += 1;
       this.gameDurationMs = null;
       this.gameDurationFetchedAt = null;
@@ -187,10 +189,11 @@ export class FactorioAdapter {
     try {
       if (this.playerListRefreshPromise) {
         await this.playerListRefreshPromise;
-      } else if (this.onlinePlayers === null || forcePlayerRefresh) {
+      } else if (this.onlinePlayers === null || !this.playerCountReliable || forcePlayerRefresh) {
         await this.refreshOnlinePlayers();
       }
     } catch (error) {
+      this.playerCountReliable = false;
       this.onlinePlayers ??= [];
       this.logger?.warn(`Factorio console is not ready for ${this.serverConfig.name}; using the last available player snapshot until it reconnects.`, error);
     }
@@ -209,6 +212,7 @@ export class FactorioAdapter {
       currentState: resources.currentState,
       simplifiedStatus: simplifyStatus(resources.currentState),
       playerCount,
+      playerCountReliable: this.playerCountReliable,
       onlinePlayers: [...this.onlinePlayers],
       cpuPercent: resources.cpuPercent,
       memoryBytes: resources.memoryBytes,
@@ -241,6 +245,9 @@ export class FactorioAdapter {
       // Discard the result if a join or leave landed while the command was in flight.
       if (parsed && this.playerEventRevision === eventRevisionAtStart) {
         this.onlinePlayers = parsed.players;
+        this.playerCountReliable = true;
+      } else {
+        this.playerCountReliable = false;
       }
       if (this.onlinePlayers === null) {
         this.onlinePlayers = [];
@@ -250,6 +257,9 @@ export class FactorioAdapter {
 
     try {
       return await this.playerListRefreshPromise;
+    } catch (error) {
+      this.playerCountReliable = false;
+      throw error;
     } finally {
       this.playerListRefreshPromise = null;
     }
@@ -341,7 +351,7 @@ export class FactorioAdapter {
   }
 
   parseConsoleChatLine(line) {
-    const normalized = normalizeConsoleLine(line);
+    const normalized = unwrapFactorioConsoleValue(normalizeConsoleLine(line));
     const match = normalized.match(FACTORIO_CHAT_LINE_PATTERN);
     if (!match) {
       return null;
@@ -350,7 +360,7 @@ export class FactorioAdapter {
     const rawAuthorName = match[1].trim();
     const authorName = normalizeChatAuthorName(rawAuthorName);
     const content = match[2].trim();
-    if (!authorName || !content || isPlatformRelayName(authorName) || isPlatformRelayContent(content) || isGpsOnlyContent(content)) {
+    if (!authorName || !content || isPlatformRelayName(authorName) || (/^(?:server|console|server console)$/i.test(authorName) && isPlatformRelayContent(content)) || isGpsOnlyContent(content)) {
       return null;
     }
 

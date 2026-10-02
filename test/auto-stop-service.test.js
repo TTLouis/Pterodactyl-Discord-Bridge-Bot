@@ -128,7 +128,7 @@ function createStartCommandService(autoStopState) {
 function unauthorizedStartInteraction() {
   return {
     ...interactionWith({ roles: [{ id: "member-role", name: "Member" }] }),
-    user: { username: "Test User" },
+    user: { id: "user-123", username: "Test User" },
     async reply() {},
     async followUp() {}
   };
@@ -516,7 +516,15 @@ test("accepted start requests trigger an immediate forced status sync", async ()
   service.syncOnce = async (options) => syncCalls.push(options);
 
   await service.start();
-  await getInteractionHandler()({ commandName: "start-server", channelId: "server-channel" });
+  let confirmationId;
+  await getInteractionHandler()({
+    commandName: "start-server", channelId: "server-channel", user: { id: "starter" },
+    async reply(payload) { confirmationId = payload.components[0].toJSON().components[0].custom_id; }
+  });
+  assert.deepEqual(syncCalls, [undefined], "requesting start alone must not issue power or refresh");
+  await getInteractionHandler()({
+    customId: confirmationId, channelId: "server-channel", user: { id: "starter" }, async reply() {}
+  });
   await service.stop();
 
   assert.deepEqual(syncCalls, [undefined, { force: true }]);
@@ -528,7 +536,15 @@ test("rejected or no-op start requests do not trigger an extra status sync", asy
   service.syncOnce = async (options) => syncCalls.push(options);
 
   await service.start();
-  await getInteractionHandler()({ commandName: "start-server", channelId: "server-channel" });
+  let confirmationId;
+  await getInteractionHandler()({
+    commandName: "start-server", channelId: "server-channel", user: { id: "starter" },
+    async reply(payload) { confirmationId = payload.components[0].toJSON().components[0].custom_id; }
+  });
+  assert.deepEqual(syncCalls, [undefined], "requesting start alone must not issue power or refresh");
+  await getInteractionHandler()({
+    customId: confirmationId, channelId: "server-channel", user: { id: "starter" }, async reply() {}
+  });
   await service.stop();
 
   assert.deepEqual(syncCalls, [undefined]);
@@ -563,8 +579,8 @@ test("KOOK channel messages relay to the matching game server", async () => {
     },
     eventBus: {
       async emit(name, payload) {
-        emittedEvents.push({ name, payload });
-        return [];
+        emittedEvents.push({ name, payload: { server: payload.server, sourcePlatform: payload.sourcePlatform, authorName: payload.authorName, content: payload.content } });
+        return [{ platform: payload.destinationPlatform }];
       }
     },
     pterodactylClient: { isConsoleSessionReady() { return true; } },
@@ -614,6 +630,7 @@ function createLogCommandService({ onRestartRequested = null, restartDelayMs = 1
   const service = new StatusSyncService({
     config: {
       discord: {
+        guildId: "guild",
         statusChannelId: "status",
         logChannelId: "logs",
         displayTimeZone: "UTC"
@@ -653,6 +670,8 @@ test("refresh-status command in the log channel forces a manual status sync", as
   await service.start();
   await getInteractionHandler()({
     commandName: "refresh-status",
+    guildId: "guild",
+    memberPermissions: { has: () => true },
     channelId: "logs",
     member: { displayName: "Operator" },
     user: { username: "operator" },
@@ -679,6 +698,8 @@ test("refresh-status command outside the log channel is rejected", async () => {
   await service.start();
   await getInteractionHandler()({
     commandName: "refresh-status",
+    guildId: "guild",
+    memberPermissions: { has: () => true },
     channelId: "server-channel",
     async reply(payload) {
       reply = payload;
@@ -708,6 +729,8 @@ test("restart-bot command in the log channel requests a process restart", async 
   await service.start();
   await getInteractionHandler()({
     commandName: "restart-bot",
+    guildId: "guild",
+    memberPermissions: { has: () => true },
     channelId: "logs",
     member: { displayName: "Operator" },
     user: { username: "operator" },
@@ -742,6 +765,8 @@ test("restart-bot command outside the log channel is rejected", async () => {
   await service.start();
   await getInteractionHandler()({
     commandName: "restart-bot",
+    guildId: "guild",
+    memberPermissions: { has: () => true },
     channelId: "server-channel",
     async reply(payload) {
       reply = payload;
@@ -1065,7 +1090,7 @@ test("Satisfactory count changes emit generic join and leave notifications", asy
   ]);
 });
 
-test("console relay forwards live chat during websocket warmup", async () => {
+test("console relay forwards live chat immediately and ignores reconnect history", async () => {
   let lineHandler = null;
   const relayedMessages = [];
   const server = {
@@ -1090,9 +1115,9 @@ test("console relay forwards live chat during websocket warmup", async () => {
     eventBus: {
       async emit(name, payload) {
         if (name === CoreEvents.GAME_CHAT_RELAY) {
-          relayedMessages.push(payload);
+          relayedMessages.push({ server: payload.server, authorName: payload.authorName, content: payload.content });
         }
-        return [];
+        return [{ platform: payload.destinationPlatform }];
       }
     },
     pterodactylClient: {
@@ -1154,17 +1179,13 @@ test("console relay forwards live chat during websocket warmup", async () => {
   });
   await new Promise((resolve) => setTimeout(resolve, 0));
 
-  assert.equal(relayedMessages.length, 2);
+  assert.equal(relayedMessages.length, 1);
   assert.deepEqual(relayedMessages[0], {
     server,
     authorName: "TTLouis",
     content: "那里了"
   });
-  assert.deepEqual(relayedMessages[1], {
-    server,
-    authorName: "TTLouis",
-    content: "reconnect message"
-  });
+
   await service.stop();
 });
 
@@ -1269,7 +1290,7 @@ test("expired relay queue entries emit one batch notice and are removed", async 
 
   await service.syncOnce({ force: true });
   assert.deepEqual(queue, []);
-  assert.deepEqual(notices, [{ kind: "relay-queue-expired", server, expiredCount: 1 }]);
+  assert.deepEqual(notices, [{ kind: "relay-queue-expired", server, expiredCount: 1, target: "game:factory-id" }]);
 });
 
 test("Satisfactory power-state events trigger a debounced status refresh", async () => {
@@ -1547,4 +1568,74 @@ test("starting power-state events do not offer restart and override stale offlin
     startedAt: null
   });
   await service.stop();
+});
+
+
+test("paused lifecycle states block both manual starts and idle stops", async () => {
+  for (const flags of [{ active: false }, { archived: true }, { deleted: true }, { unavailable: true }]) {
+    const { service, powerRequests } = createAutoStopService({
+      autoStopState: { lastNonEmptyAt: Date.now() - 24 * 3600 * 1000 }
+    });
+    const server = {
+      name: "Paused", pterodactylServerId: "paused",
+      autoStop: { enabled: true, emptyTimeoutHours: 1, warningMinutesBefore: 5 },
+      ...flags
+    };
+    await service.onRunningSnapshot(server, 0);
+    assert.equal(await service.handleStartCommand(server, unauthorizedStartInteraction()), false);
+    assert.deepEqual(powerRequests, []);
+  }
+});
+
+test("power actions produce safe audit fields and audit failures do not undo accepted requests", async () => {
+  const { service, powerRequests } = createAutoStopService();
+  const audit = [];
+  service.onAudit = (entry) => { audit.push(entry); throw new Error("audit disk unavailable"); };
+  const server = { name: "Test", pterodactylServerId: "audit-id" };
+  assert.equal(await service.handleStartCommand(server, unauthorizedStartInteraction()), true);
+  assert.equal(powerRequests.length, 1);
+  assert.deepEqual(audit, [{ user: "user-123", server: "audit-id", action: "start", outcome: "accepted" }]);
+});
+
+test("a start preflight panel failure pauses access and emits safe persistence diagnostics", async () => {
+  const { service, powerRequests } = createAutoStopService();
+  service.pterodactylClient.getServerResources = async () => { throw new Error("404"); };
+  const marked = [];
+  service.onServerUnavailable = (server, diagnostics) => marked.push({ server, diagnostics });
+  const server = { name: "Test", pterodactylServerId: "missing" };
+  assert.equal(await service.handleStartCommand(server, unauthorizedStartInteraction()), false);
+  assert.equal(server.unavailable, true);
+  assert.equal(marked.length, 1);
+  assert.equal(powerRequests.length, 0);
+});
+
+
+test("failed power audit keeps actor IDs separate from requester display names", async () => {
+  const { service } = createAutoStopService({ powerError: new Error("panel refused start") });
+  const audit = [];
+  service.onAudit = (entry) => audit.push(entry);
+  const interaction = unauthorizedStartInteraction();
+  interaction.member.displayName = "Admin With Spaces";
+  const server = { name: "Test", pterodactylServerId: "server-id" };
+  assert.equal(await service.handleStartCommand(server, interaction), false);
+  assert.deepEqual(audit, [{ user: "user-123", server: "server-id", action: "start", outcome: "failed" }]);
+});
+
+
+test("unavailable start preflight clears the old idle deadline before recovery", async () => {
+  const { service, state, powerRequests } = createAutoStopService({
+    autoStopState: { lastNonEmptyAt: Date.now() - 3 * 3600 * 1000, warningSentAt: Date.now() - 30 * 60 * 1000 }
+  });
+  service.pterodactylClient.getServerResources = async () => { throw new Error("panel inaccessible"); };
+  const server = {
+    name: "Test", pterodactylServerId: "server-id",
+    autoStop: { enabled: true, emptyTimeoutHours: 1, warningMinutesBefore: 5 }
+  };
+  await service.handleStartCommand(server, unauthorizedStartInteraction());
+  assert.deepEqual(state, {});
+  server.unavailable = false;
+  const beforeRecovery = Date.now();
+  await service.onRunningSnapshot(server, 0);
+  assert.ok(state.lastNonEmptyAt >= beforeRecovery);
+  assert.deepEqual(powerRequests, []);
 });

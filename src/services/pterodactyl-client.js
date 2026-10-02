@@ -1,4 +1,5 @@
 import WebSocket from "ws";
+import { CHAT_RELAY_CAPTURE_MS, CONSOLE_COMMAND_INTERVAL_MS } from "../lib/relay-limits.js";
 import { nextReconnectDelayMs } from "../lib/reconnect-backoff.js";
 import { logger } from "../lib/logger.js";
 
@@ -36,6 +37,7 @@ export class PterodactylClient {
     subscriptionAuthTimeoutMs = SUBSCRIPTION_AUTH_TIMEOUT_MS,
     backlogReadyTimeoutMs = BACKLOG_READY_TIMEOUT_MS,
     consoleDiagnostics = isConsoleDiagnosticsEnabled(),
+    commandIntervalMs = CONSOLE_COMMAND_INTERVAL_MS,
     webSocketFactory = (url, options) => new WebSocket(url, options)
   }) {
     this.baseUrl = baseUrl.replace(/\/+$/, "");
@@ -49,6 +51,8 @@ export class PterodactylClient {
     this.consoleDiagnostics = consoleDiagnostics;
     this.webSocketFactory = webSocketFactory;
     this.commandQueues = new Map();
+    this.commandDispatchedAt = new Map();
+    this.commandIntervalMs = commandIntervalMs;
     this.consoleSessions = new Map();
     this.websocketCredentialCache = new Map();
 
@@ -77,15 +81,16 @@ export class PterodactylClient {
   // status update rather than only the request that hung.
   async #request(pathname, init, errorLabel) {
     try {
-      return await fetch(`${this.baseUrl}${pathname}`, {
+      return await fetch(`${this.baseUrl.replace(/\/+$/, "")}${pathname}`, {
         ...init,
         headers: this.#apiHeaders(),
         signal: AbortSignal.timeout(this.apiRequestTimeoutMs)
       });
     } catch (error) {
       if (error?.name === "TimeoutError") {
-        throw new Error(`Pterodactyl ${errorLabel} request timed out after ${this.apiRequestTimeoutMs}ms`);
+        throw Object.assign(new Error(`Pterodactyl ${errorLabel} request timed out after ${this.apiRequestTimeoutMs}ms`), { retryable: true });
       }
+      error.retryable = true;
       throw error;
     }
   }
@@ -95,7 +100,7 @@ export class PterodactylClient {
 
     if (!response.ok) {
       // A panel error body can echo request details, including a credential.
-      throw new Error(`Pterodactyl ${errorLabel} request failed with ${response.status}`);
+      throw Object.assign(new Error(`Pterodactyl ${errorLabel} request failed with ${response.status}`), { status: response.status, retryable: response.status >= 500 || response.status === 429 });
     }
 
     return response.json();
@@ -245,7 +250,7 @@ export class PterodactylClient {
     onError,
     onStatusChange,
     onReady,
-    sendLogs = true,
+    sendLogs = false,
     reconnectDelayMs = 5000
   } = {}) {
     let ws = null;
@@ -262,6 +267,7 @@ export class PterodactylClient {
     let readySocket = null;
     let activeCommand = null;
     let state = "connecting";
+    let currentPowerState = null;
     let connectionNumber = 0;
 
     const setState = (nextState) => {
@@ -319,8 +325,10 @@ export class PterodactylClient {
       command.settled = true;
       if (command.timeoutHandle) clearTimeout(command.timeoutHandle);
       if (activeCommand === command) activeCommand = null;
-      if (error) command.reject(error);
-      else command.resolve(command.lines);
+      if (error) {
+        error.deliveryStatus ??= command.dispatched ? "unknown" : "not-sent";
+        command.reject(error);
+      } else command.resolve(command.lines);
     };
 
     const rejectActiveCommand = (error) => {
@@ -334,15 +342,20 @@ export class PterodactylClient {
       onReady?.({ isReconnect: currentConnectionIsReconnect });
     };
 
-    const sendCommand = (command, { captureMs = 2500, queueDelayMs = null } = {}) => new Promise((resolve, reject) => {
-      if (!isReady() || activeCommand) {
-        reject(new Error(`Pterodactyl console session is not ready for server ${serverId}`));
+    const sendCommand = (command, { captureMs = 2500, queueDelayMs = null, relay = false, isCurrent = () => true, onDispatch = () => {} } = {}) => new Promise((resolve, reject) => {
+      if (!isReady() || activeCommand || !isCurrent() || (relay && currentPowerState !== "running")) {
+        reject(Object.assign(new Error(`Pterodactyl console session is not ready for server ${serverId}`), { deliveryStatus: "not-sent" }));
         return;
       }
 
-      const queuedCommand = { command, captureMs, resolve, reject, lines: [], settled: false, timeoutHandle: null };
+      const queuedCommand = { command, captureMs, resolve, reject, lines: [], settled: false, timeoutHandle: null, dispatched: false, relay };
       activeCommand = queuedCommand;
       try {
+        onDispatch();
+        // Once send() is entered, an exception/close cannot prove the command
+        // was not received. The relay must not retry that uncertain outcome.
+        queuedCommand.dispatched = true;
+        this.commandDispatchedAt.set(serverId, Date.now());
         authenticatedSocket.send(JSON.stringify({ event: "send command", args: [command] }));
         logger.info("Pterodactyl command dispatched", {
           serverId,
@@ -387,6 +400,7 @@ export class PterodactylClient {
           headers: { Origin: origin }
         });
         ws = nextSocket;
+        currentPowerState = null;
         setState("connecting");
         clearAuthTimeout();
         authTimeoutHandle = setTimeout(() => {
@@ -399,6 +413,7 @@ export class PterodactylClient {
         }, this.subscriptionAuthTimeoutMs);
 
         nextSocket.on("open", () => {
+          if (stopped || ws !== nextSocket) return;
           this.#diagnoseConsole("socket opened", {
             serverId,
             connectionId,
@@ -414,6 +429,7 @@ export class PterodactylClient {
         });
 
         nextSocket.on("message", (buffer) => {
+          if (stopped || ws !== nextSocket) return;
           let payload;
           try {
             payload = JSON.parse(buffer.toString());
@@ -422,16 +438,20 @@ export class PterodactylClient {
             return;
           }
 
-          if (payload.event === "auth error") {
+          if (["auth error", "jwt error", "token expiring", "token expired"].includes(payload.event)) {
             clearAuthTimeout();
             clearBacklogTimeout();
             authenticatedSocket = null;
             setState("disconnected");
-            rejectActiveCommand(new Error(`Pterodactyl websocket auth failed for server ${serverId}`));
+            rejectActiveCommand(new Error(`Pterodactyl console credentials need renewal for server ${serverId}`));
             this.#invalidateWebsocketCredentials(serverId);
-            onError?.(new Error(`Pterodactyl websocket auth failed for server ${serverId}`));
+            // Wings can leave an expired socket open while refusing console
+            // events. Renew through the panel rather than trusting socket state.
+            const renewing = payload.event === "token expiring" || payload.event === "token expired";
+            this.#diagnoseConsole("credential renewal requested", { serverId, connectionId, trigger: payload.event });
+            if (!renewing) onError?.(new Error(`Pterodactyl websocket auth failed for server ${serverId}`));
             closeSocket();
-            scheduleReconnect({ connectionId, trigger: "auth-error" });
+            scheduleReconnect({ connectionId, trigger: payload.event });
             return;
           }
 
@@ -474,12 +494,31 @@ export class PterodactylClient {
 
           if (payload.event === "ping") {
             this.#diagnoseConsole("panel heartbeat received", { serverId, connectionId });
-            nextSocket.send(JSON.stringify({ event: "pong", args: [] }));
+            try { nextSocket.send(JSON.stringify({ event: "pong", args: [] })); }
+            catch (error) {
+              setState("disconnected");
+              rejectActiveCommand(error);
+              onError?.(error);
+              closeSocket();
+              scheduleReconnect({ connectionId, trigger: "heartbeat-send-failed" });
+            }
+            return;
+          }
+
+          if (payload.event === "throttled" && payload.args?.[0] === "send command") {
+            if (activeCommand) finishCommand(activeCommand, Object.assign(new Error("Console command was throttled"), { deliveryStatus: "not-sent" }));
+            return;
+          }
+          if (["daemon error", "error"].includes(payload.event)) {
+            if (activeCommand) finishCommand(activeCommand, Object.assign(new Error("Console command was rejected by the daemon"), { deliveryStatus: "rejected", permanent: true }));
+            onError?.(new Error("Wings reported a daemon error"));
             return;
           }
 
           if (payload.event === "status") {
             const newState = Array.isArray(payload.args) ? payload.args[0] : null;
+            currentPowerState = newState;
+            if (newState !== "running" && activeCommand?.relay) rejectActiveCommand(new Error("Game stopped during relay dispatch"));
             this.#diagnoseConsole("power state received", { serverId, connectionId, state: newState });
             if (newState) onStatusChange?.(newState);
             return;
@@ -503,6 +542,8 @@ export class PterodactylClient {
         });
 
         nextSocket.on("error", (error) => {
+          if (stopped || ws !== nextSocket) return;
+          rejectActiveCommand(error);
           if (authenticatedSocket === nextSocket) {
             authenticatedSocket = null;
             setState("disconnected");
@@ -514,9 +555,12 @@ export class PterodactylClient {
             message: error?.message ?? String(error)
           });
           onError?.(error);
+          closeSocket();
+          scheduleReconnect({ connectionId, trigger: "socket-error" });
         });
 
         nextSocket.on("close", (code, reason) => {
+          if (ws !== nextSocket) return;
           clearAuthTimeout();
           clearBacklogTimeout();
           const stateBeforeClose = state;
@@ -537,8 +581,8 @@ export class PterodactylClient {
           });
           rejectActiveCommand(new Error(`Pterodactyl websocket closed before command completed: ${code} ${reason.toString()}`));
           if (ws === nextSocket) ws = null;
-          if (stopped || code === 1000) return;
-          onError?.(new Error(`Pterodactyl websocket closed unexpectedly: ${code} ${reason.toString()}`));
+          if (stopped) return;
+          if (code !== 1000) onError?.(new Error(`Pterodactyl websocket closed unexpectedly: ${code} ${reason.toString()}`));
           scheduleReconnect({ connectionId, trigger: `close-${code}` });
         });
       } catch (error) {
@@ -578,9 +622,11 @@ export class PterodactylClient {
     const current = this.commandQueues.get(serverId) ?? Promise.resolve();
     const queuedAt = Date.now();
     const next = current.catch(() => {}).then(async () => {
+      const delayMs = Math.max(0, (this.commandDispatchedAt.get(serverId) ?? 0) + this.commandIntervalMs - Date.now());
+      if (delayMs) await new Promise(resolve => setTimeout(resolve, delayMs));
       const session = this.consoleSessions.get(serverId);
       if (!session?.isReady()) {
-        throw new Error(`Pterodactyl console session is not ready for server ${serverId}`);
+        throw Object.assign(new Error(`Pterodactyl console session is not ready for server ${serverId}`), { deliveryStatus: "not-sent" });
       }
       return session.sendCommand(command, {
         ...options,
@@ -589,6 +635,15 @@ export class PterodactylClient {
     });
     this.commandQueues.set(serverId, next.then(() => {}, () => {}));
     return next;
+  }
+
+  async runRelayCommand(serverId, command, options = {}) {
+    try {
+      await this.runCommand(serverId, command, { ...options, relay: true, captureMs: CHAT_RELAY_CAPTURE_MS });
+      return { status: "dispatched" };
+    } catch (error) {
+      return { status: error.deliveryStatus ?? "unknown", permanent: error.permanent };
+    }
   }
 
   isConsoleSessionReady(serverId) {

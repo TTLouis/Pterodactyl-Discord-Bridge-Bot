@@ -1,3 +1,4 @@
+import { classifyRelayError } from "../lib/relay-errors.js";
 import { getKookStatePath } from "../lib/kook-config.js";
 import { nextReconnectDelayMs } from "../lib/reconnect-backoff.js";
 import { runHandlers } from "../lib/run-handlers.js";
@@ -97,6 +98,7 @@ export class KookBridge {
 
   onMessage(handler) {
     this.handlers.push(handler);
+    return () => { this.handlers = this.handlers.filter(entry => entry !== handler); };
   }
 
   onInteraction(handler) {
@@ -153,6 +155,13 @@ export class KookBridge {
       socket.removeAllListeners?.();
       socket.close?.();
     }
+  }
+
+  async sendRelayText(channelId, content, { isCurrent = () => true, onDispatch = () => {} } = {}) {
+    if (!isCurrent()) throw Object.assign(new Error("Relay route changed"), { deliveryStatus: "not-sent" });
+    onDispatch();
+    try { return await this.sendMessage(channelId, content); }
+    catch (error) { throw classifyRelayError(error, { dispatched: true }); }
   }
 
   async sendMessage(channelId, content) {
@@ -516,7 +525,10 @@ export class KookBridge {
       const body = await response.json().catch(() => null);
       if (!response.ok || body?.code !== 0) {
         const message = body?.message ?? response.statusText;
-        throw new Error(`${endpoint} failed (${response.status}): ${message}`);
+        throw Object.assign(new Error(`${endpoint} failed (${response.status}): ${message}`), {
+          httpStatus: response.status, apiCode: body?.code,
+          ...(response.ok && typeof body?.code === "number" && body.code !== 0 ? { deliveryStatus: "rejected", permanent: true } : {})
+        });
       }
 
       return body.data ?? {};
@@ -544,7 +556,10 @@ export class KookBridge {
       const body = await response.json().catch(() => null);
       if (!response.ok || body?.code !== 0) {
         const message = body?.message ?? response.statusText;
-        throw new Error(`${endpoint} failed (${response.status}): ${message}`);
+        throw Object.assign(new Error(`${endpoint} failed (${response.status}): ${message}`), {
+          httpStatus: response.status, apiCode: body?.code,
+          ...(response.ok && typeof body?.code === "number" && body.code !== 0 ? { deliveryStatus: "rejected", permanent: true } : {})
+        });
       }
 
       return body.data ?? {};

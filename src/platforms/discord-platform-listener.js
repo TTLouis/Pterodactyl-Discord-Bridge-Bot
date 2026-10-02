@@ -1,3 +1,4 @@
+import { formatPlatformRelay } from "../lib/chat-relay-formatters.js";
 import { CoreEvents } from "../core/core-events.js";
 import {
   buildActivityCancelledEmbed,
@@ -16,15 +17,6 @@ import {
 } from "../lib/formatters.js";
 import { buildActionMessageMeta } from "../lib/action-message-state.js";
 import { CANCEL_AUTO_STOP_REACTION, RESTART_SERVER_REACTION } from "../services/auto-stop-service.js";
-
-function formatDiscordRelayMessage(message) {
-  return `**${message.authorName}**: ${message.content}`;
-}
-
-function formatDiscordGroupRelayMessage(message) {
-  const platform = message.sourcePlatform === "kook" ? "KOOK" : "Chat";
-  return `[${platform}] **${message.authorName}**: ${message.content}`;
-}
 
 function buildDiscordActionMessage(event) {
   switch (event.kind) {
@@ -70,10 +62,28 @@ function buildDiscordActionMessage(event) {
 const LOG_CHANNEL_NOTICE_KINDS = new Set([
   "relay-queue-expired",
   "relay-queue-overflow",
+  "relay-failed",
+  "relay-uncertain",
+  "relay-cancelled",
+  "relay-restored-discarded",
+  "relay-persistence-failed",
   "auto-stop-failed"
 ]);
 
 function formatDiscordServerNotice(event) {
+  if (event.kind === "server-archived" || event.kind === "server-unarchived") {
+    const name = String(event.server.name).replace(/[`*_~<>@\r\n]/g, " ");
+    const power = event.stopOutcome === "accepted" ? "An administrator requested a stop; the request was accepted and shutdown may still be in progress."
+      : event.stopRequested ? "The administrator's stop request could not be confirmed. Check the server's power state in Pterodactyl."
+      : "The game server's power state is unchanged.";
+    return event.kind === "server-archived"
+      ? `📦 ${name} has been archived. Monitoring, chat relay and idle auto-stop are paused. This channel and its message history are retained. ${power}`
+      : `📂 ${name} has been unarchived. Previous state restored: monitoring ${event.server.active ? "enabled" : "paused"}; main status page ${event.server.published ? "listed" : "not listed"}. This channel and its message history are retained. The game server's power state is unchanged.`;
+  }
+  if (["relay-uncertain", "relay-cancelled", "relay-restored-discarded", "relay-persistence-failed"].includes(event.kind)) {
+    return `${event.server.name}: ${event.message}`;
+  }
+
   if (event.kind === "satisfactory-player-count") {
     const noun = event.changedPlayers === 1 ? "player" : "players";
     return `${event.changedPlayers} ${noun} ${event.action} **${event.server.name}**. (${event.playerCount}/${event.maxPlayers})`;
@@ -195,27 +205,29 @@ export class DiscordPlatformListener {
   }
 
   async #handleGameChatRelay(event) {
-    if (!event.server.discordChannelId) {
-      return null;
-    }
-
-    const message = await this.discordBridge.sendMessage(event.server.discordChannelId, formatDiscordRelayMessage(event));
-    return {
-      platform: "discord",
-      message
-    };
+    return this.#sendRelay(event);
   }
 
   async #handleGroupChatRelay(event) {
-    if (event.sourcePlatform === "discord" || !event.server.discordChannelId) {
-      return null;
-    }
+    if (event.sourcePlatform === "discord") return null;
+    return this.#sendRelay(event);
+  }
 
-    const message = await this.discordBridge.sendMessage(event.server.discordChannelId, formatDiscordGroupRelayMessage(event));
-    return {
-      platform: "discord",
-      message
-    };
+  async #sendRelay(event) {
+    if (event.destinationPlatform && event.destinationPlatform !== "discord") return null;
+    const channelId = event.server.discordChannelId;
+    if (!channelId) return null;
+    const parts = event.formattedContent ? [event.formattedContent] : formatPlatformRelay(event, "discord");
+    let message;
+    for (const content of parts) {
+      if (event.isCurrent && !event.isCurrent()) throw Object.assign(new Error("Relay route changed"), { deliveryStatus: "not-sent" });
+      if (this.discordBridge.sendRelayText) message = await this.discordBridge.sendRelayText(channelId, content, event);
+      else {
+        event.onDispatch?.();
+        message = await this.discordBridge.sendMessage(channelId, content);
+      }
+    }
+    return { platform: "discord", message };
   }
 
   async #handleServerNotice(event) {

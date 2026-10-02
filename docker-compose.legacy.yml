@@ -1,0 +1,57 @@
+services:
+  discord-bot:
+    image: pterodactyl-platform-bridge:latest
+    build:
+      context: .
+    restart: unless-stopped
+    init: true
+
+    # Give NPM / Pterodactyl / DNS time to come up after VM reboot
+    command: sh -c "echo 'Waiting 30s before starting platform bridge...'; sleep 30; exec node src/index.js"
+
+    env_file:
+      - .env
+
+    environment:
+      CONFIG_PATH: /config/servers.json
+      STATE_PATH: /data/runtime-state.json
+      PERSISTENT_CONFIG_PATH: /data/persistent-config.json
+      PERSISTENT_SECRETS_PATH: /data/persistent-secrets.json
+      KOOK_STATE_PATH: /data/kook-runtime-state.json
+      HEARTBEAT_PATH: /data/heartbeat
+      SYNC_HEALTH_PATH: /data/sync-health.json
+
+    volumes:
+      - ./servers.json:/config/servers.json:ro
+      - bot_data:/data
+
+    mem_limit: 256m
+    cpus: "0.50"
+    pids_limit: 128
+
+    # Reports whether the poll loop is still completing passes. Note that Docker
+    # does not restart unhealthy containers on its own; this surfaces the state
+    # for "docker ps" and any external watchdog.
+    healthcheck:
+      test: ["CMD", "node", "src/healthcheck.js"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
+    security_opt:
+      - no-new-privileges:true
+
+    cap_drop:
+      - ALL
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    stop_grace_period: 30s
+
+volumes:
+  bot_data:

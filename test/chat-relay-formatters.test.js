@@ -90,3 +90,34 @@ test("built game chat commands are bounded even for oversized input", () => {
   assert.ok(command.startsWith("/say "));
   assert.equal(command.slice("/say ".length).length, MAX_RELAY_CONTENT_LENGTH);
 });
+
+test("relay replacements treat dollars and placeholder-like user values literally", () => {
+  const server = { game: { type: "minecraft", chatCommandTemplate: "/say [{platform}] {author}: {content}" } };
+  for (const content of ["$&", "$`", "$'", "{author} {platform} {content}"]) {
+    assert.equal(buildGameChatCommand(server, { authorName: "{content}", content }), `/say [Discord] {content}: ${content}`);
+  }
+  const factorio = { game: { type: "factorio", chatCommandTemplate: "/shout {platform}<{author}>: {content}" } };
+  assert.match(buildGameChatCommand(factorio, { authorName: "$&", content: "$&" }), /<\$&>/);
+});
+
+test("Unicode truncation never cuts a surrogate pair and rendered commands have byte limits", () => {
+  const content = "x".repeat(498) + "😀" + "tail";
+  const truncated = truncateRelayContent(content);
+  assert.equal(truncated, "x".repeat(498) + "…");
+  assert.throws(() => buildGameChatCommand({ game: { type: "minecraft", chatCommandTemplate: "/say " + "x".repeat(2048) + "{content}" } }, { content: "hello" }), /transport limit/);
+  assert.throws(() => buildGameChatCommand({ game: { type: "minecraft", chatCommandTemplate: "/say " + "{content}".repeat(10) } }, { content: "😀".repeat(250) }), /transport limit/);
+});
+
+test("platform formatting escapes mentions and names and safely splits long Unicode text", async () => {
+  const { formatPlatformRelay, normalizeRelayText } = await import("../src/lib/chat-relay-formatters.js");
+  assert.equal(normalizeRelayText("<@123> <@&456> <#789> <:wave:123>", "discord"), "@user @role #channel :wave:");
+  assert.equal(normalizeRelayText("(met)123(met) (rol)456(rol) (chn)789(chn)", "kook"), "@user @role #channel");
+  const parts = formatPlatformRelay({ authorName: "**@everyone**", content: "😀".repeat(2000) + " @everyone (met)all(met)", sourcePlatform: "discord" }, "kook");
+  assert.ok(parts.length > 1);
+  for (const part of parts) {
+    assert.ok(part.length <= 1900);
+    assert.equal(/@everyone|\(met\)all\(met\)/.test(part), false);
+    assert.equal(/[\uD800-\uDBFF]$/.test(part), false);
+  }
+  assert.equal(parts.join("").split("😀").length - 1, 2000);
+});

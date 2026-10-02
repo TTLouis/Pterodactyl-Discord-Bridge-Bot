@@ -94,6 +94,20 @@
         "**Main factory world**",
         "Use the current experimental game version."
       ]
+    },
+    {
+      "name": "Source Main",
+      "pterodactylServerId": "s1r2c3d4",
+      "discordChannelId": "SOURCE_DISCORD_CHANNEL_ID",
+      "kookChannelId": "SOURCE_KOOK_CHANNEL_ID",
+      "publicAddress": "source.example.com",
+      "publicPort": 27015,
+      "maxPlayers": 24,
+      "game": {
+        "type": "source",
+        "playerListRefreshIntervalSeconds": 900
+      },
+      "description": ["Source 1 server with standard console logging enabled."]
     }
   ]
 }

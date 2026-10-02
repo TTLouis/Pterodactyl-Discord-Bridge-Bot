@@ -41,7 +41,7 @@ test("servers.example.json validates as shipped", () => {
   assert.ok(config.servers.length > 0);
   assert.deepEqual(
     config.servers.map((server) => server.game.type).sort(),
-    ["factorio", "minecraft", "satisfactory"]
+    ["factorio", "minecraft", "satisfactory", "source"]
   );
 });
 
@@ -50,7 +50,7 @@ test("the example covers every supported game type", () => {
   const types = new Set(config.servers.map((server) => server.game.type));
 
   // If a new game type is added, the template should demonstrate it.
-  for (const type of ["factorio", "minecraft", "satisfactory"]) {
+  for (const type of ["factorio", "minecraft", "satisfactory", "source"]) {
     assert.ok(types.has(type), `servers.example.json should include a ${type} server`);
   }
 });

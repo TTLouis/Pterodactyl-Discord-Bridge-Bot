@@ -343,3 +343,52 @@ test("playerListRefreshIntervalSeconds defaults to 900 and rejects invalid value
     /game\.playerListRefreshIntervalSeconds must be a positive number/
   );
 });
+
+test("missing legacy file starts Discord setup mode with only the bot token", () => {
+  const previous = { CONFIG_PATH: process.env.CONFIG_PATH, DISCORD_TOKEN: process.env.DISCORD_TOKEN, KOOK_ENABLED: process.env.KOOK_ENABLED };
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-empty-"));
+  try {
+    process.env.CONFIG_PATH = path.join(directory, "missing.json");
+    process.env.DISCORD_TOKEN = "bot-token";
+    process.env.KOOK_ENABLED = "false";
+    const runtime = loadConfig();
+    assert.equal(runtime.setupMode, true);
+    assert.equal(runtime.managed, true);
+    assert.deepEqual(runtime.config.servers, []);
+    assert.equal(runtime.discordToken, "bot-token");
+  } finally {
+    for (const [key, value] of Object.entries(previous)) if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("managed configuration keeps unavailable and deleted published records without active credentials", () => {
+  const runtime = loadConfig({ requireRuntimeTokens: false, managed: true, rawConfig: {
+    discord: { guildId: "guild", statusChannelId: "status" },
+    pterodactyl: { baseUrl: "https://panel", apiKey: "key" },
+    servers: [{ name: "Retained", pterodactylServerId: "id", active: false, published: true,
+      archived: true, unavailable: true, deleted: true, game: { type: "satisfactory" } }]
+  } });
+  assert.equal(runtime.setupMode, false);
+  assert.equal(runtime.config.servers[0].active, false);
+  assert.equal(runtime.config.servers[0].deleted, true);
+  assert.equal(runtime.config.servers[0].unavailable, true);
+  assert.deepEqual(runtime.config.publicDisplay, { archived: "marked", deleted: "marked" });
+});
+
+test("relay template validation rejects multiline commands and missing Minecraft content placeholders", () => {
+  for (const type of ["factorio", "minecraft"]) {
+    assert.throws(() => loadFactorioConfig({ type, chatCommandTemplate: "/say {content}\n/second" }), /single-line/);
+    assert.throws(() => loadFactorioConfig({ type, chatCommandTemplate: "/say {content}\u0000" }), /single-line/);
+  }
+  assert.throws(() => loadFactorioConfig({ type: "minecraft", chatCommandTemplate: "/say {author}" }), /content.*placeholder/);
+});
+
+test("Source game config has console chat defaults and validates refresh settings", () => {
+  const { config } = loadFactorioConfig({ type: "source" });
+  assert.equal(config.servers[0].game.type, "source");
+  assert.equal(config.servers[0].game.chatCommandTemplate, 'say "[{platform}] {author}: {content}"');
+  assert.equal(config.servers[0].game.playerListRefreshIntervalSeconds, 900);
+  assert.throws(() => loadFactorioConfig({ type: "source", playerListRefreshIntervalSeconds: -1 }), /playerListRefreshIntervalSeconds/);
+  assert.throws(() => loadFactorioConfig({ type: "source", chatCommandTemplate: 'say {author}' }), /content.*placeholder/);
+});
