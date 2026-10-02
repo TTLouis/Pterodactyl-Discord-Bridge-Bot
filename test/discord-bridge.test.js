@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
-import { ChannelType } from "discord.js";
+import { ChannelType, Events, REST, Routes } from "discord.js";
 import { DiscordBridge } from "../src/services/discord-bridge.js";
 
 function createDeferred() {
@@ -91,7 +91,8 @@ test("Discord inbound messages include the highest colored role", async () => {
   bridge.onMessage((message) => messages.push(message));
   await bridge.start();
   client.emit("messageCreate", {
-    author: { bot: false, username: "louis" },
+    id: "source-message",
+    author: { id: "source-author", bot: false, username: "louis" },
     guild: { id: "guild" },
     member: {
       displayName: "Louis",
@@ -102,6 +103,9 @@ test("Discord inbound messages include the highest colored role", async () => {
   });
 
   assert.deepEqual(messages, [{
+    messageId: "source-message",
+    authorId: "source-author",
+    sourcePlatform: "discord",
     authorName: "Louis",
     authorColor: "#12ab34",
     channelId: "channel",
@@ -352,4 +356,98 @@ test("reactions outside configured server channels are ignored without API calls
   assert.deepEqual(memberFetches, [{ channelId: "factory-channel", userId: "user-1" }]);
 
   await bridge.stop();
+});
+
+test("unclaimed Discord bootstrap registers only global setup and claim moves commands into the chosen guild", async (t) => {
+  const requests = [];
+  const globalRegistered = createDeferred();
+  t.mock.method(REST.prototype, "put", async function(route, options) {
+    requests.push({ route, body: options.body }); globalRegistered.resolve(); return [];
+  });
+  const bridge = new DiscordBridge({ token: "token", guildId: null, stateStore: {}, logger: { info() {}, warn() {}, error() {} } });
+  const client = new EventEmitter();
+  Object.assign(client, { application: { id: "application" }, user: { tag: "bot" }, login: async () => {}, destroy: async () => {} });
+  bridge.client = client;
+  bridge.setSlashCommands([{ name: "bridge", description: "Bridge", options: [{ type: 1, name: "setup", description: "Setup" }, { type: 1, name: "import", description: "Import" }] }, { name: "status", description: "Status" }]);
+  await bridge.start();
+  client.emit(Events.ClientReady);
+  await globalRegistered.promise;
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].route, Routes.applicationCommands("application"));
+  assert.deepEqual(requests[0].body.map((command) => command.name), ["bridge"]);
+  assert.deepEqual(requests[0].body[0].options.map((option) => option.name), ["setup"]);
+  await bridge.claimGuild("guild");
+  assert.equal(bridge.guildId, "guild");
+  assert.deepEqual(requests[1], { route: Routes.applicationCommands("application"), body: [] });
+  assert.equal(requests[2].route, Routes.applicationGuildCommands("application", "guild"));
+  assert.deepEqual(requests[2].body, bridge.slashCommands);
+  await assert.rejects(bridge.claimGuild("other"), /already claimed/);
+  assert.equal(requests.length, 3);
+  await bridge.stop();
+});
+
+test("unclaimed Discord receives setup interactions and claimed installations ignore other guilds", async () => {
+  const bridge = new DiscordBridge({ token: "token", guildId: null, stateStore: {}, logger: { info() {}, warn() {}, error() {} } });
+  const client = new EventEmitter(); client.login = async () => {}; client.destroy = async () => {};
+  bridge.client = client;
+  const received = [];
+  bridge.onInteraction((interaction) => received.push(interaction.guildId));
+  await bridge.start();
+  function interaction(guildId) { return { guildId, commandName: "bridge", isChatInputCommand: () => true }; }
+  client.emit(Events.InteractionCreate, interaction("first"));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(received, ["first"]);
+  bridge.guildId = "first";
+  client.emit(Events.InteractionCreate, interaction("other"));
+  client.emit(Events.InteractionCreate, interaction("first"));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(received, ["first", "first"]);
+  await bridge.stop();
+});
+
+test("Discord relay uses a stable nonce, suppresses mentions, and checkpoints at the network boundary", async () => {
+  const requests = [];
+  let checkpoints = 0;
+  const bridge = new DiscordBridge({ token: "token", guildId: "guild", logger: { info() {}, warn() {}, error() {} },
+    relayRequest: async (_url, options) => {
+      requests.push(JSON.parse(options.body));
+      assert.equal(checkpoints, requests.length);
+      return new Response(JSON.stringify({ id: "message" }), { headers: { "Content-Type": "application/json" } });
+    } });
+  bridge.client.channels.fetch = async () => ({ isTextBased: () => true, isDMBased: () => false });
+  try {
+    const options = { id: "persisted-relay-id", onDispatch() { checkpoints++; } };
+    await bridge.sendRelayText("channel", "@everyone literal", options);
+    await bridge.sendRelayText("channel", "@everyone literal", options);
+    assert.equal(requests[0].nonce, requests[1].nonce);
+    assert.equal(requests[0].enforce_nonce, true);
+    assert.deepEqual(requests[0].allowed_mentions, { parse: [], replied_user: false });
+  } finally { await bridge.stop(); }
+});
+
+test("Discord relay does not send an obsolete route after an SDK queue wait", async () => {
+  let requests = 0;
+  let checkpoints = 0;
+  const bridge = new DiscordBridge({ token: "token", guildId: "guild", logger: { info() {}, warn() {}, error() {} },
+    relayRequest: async () => { requests++; return new Response("{}", { headers: { "Content-Type": "application/json" } }); } });
+  bridge.client.channels.fetch = async () => ({ isTextBased: () => true, isDMBased: () => false });
+  let checks = 0;
+  try {
+    await assert.rejects(bridge.sendRelayText("channel", "obsolete", {
+      id: "obsolete", isCurrent: () => ++checks === 1, onDispatch() { checkpoints++; }
+    }), error => error.deliveryStatus === "not-sent");
+    assert.equal(requests, 0);
+    assert.equal(checkpoints, 0);
+  } finally { await bridge.stop(); }
+});
+
+test("Discord timeout after dispatch is uncertain and receives no automatic network retry", async () => {
+  let requests = 0;
+  const bridge = new DiscordBridge({ token: "token", guildId: "guild", logger: { info() {}, warn() {}, error() {} },
+    relayRequest: async () => { requests++; throw Object.assign(new Error("request timed out"), { code: "ECONNRESET" }); } });
+  bridge.client.channels.fetch = async () => ({ isTextBased: () => true, isDMBased: () => false });
+  try {
+    await assert.rejects(bridge.sendRelayText("channel", "hello", { id: "uncertain" }), error => error.deliveryStatus === "unknown");
+    assert.equal(requests, 1);
+  } finally { await bridge.stop(); }
 });

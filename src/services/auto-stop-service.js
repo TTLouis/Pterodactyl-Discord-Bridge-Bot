@@ -1,3 +1,4 @@
+import { isServerActionsEnabled } from "../lib/server-lifecycle.js";
 import { MessageFlags, PermissionFlagsBits } from "discord.js";
 import { CoreEvents } from "../core/core-events.js";
 import { buildStartRequestedEmbed } from "../lib/formatters.js";
@@ -37,17 +38,19 @@ function describeExternalRestartAccess(discordConfig) {
 }
 
 export class AutoStopService {
-  constructor({ config, pterodactylClient, eventBus, stateStore, logger }) {
+  constructor({ config, pterodactylClient, eventBus, stateStore, logger, onAudit = null, onServerUnavailable = null }) {
     this.config = config;
     this.pterodactylClient = pterodactylClient;
     this.eventBus = eventBus;
     this.stateStore = stateStore;
     this.logger = logger;
+    this.onAudit = onAudit;
+    this.onServerUnavailable = onServerUnavailable;
   }
 
   // Called from StatusSyncService after each successful poll for a running server.
   async onRunningSnapshot(server, playerCount) {
-    if (!server.autoStop?.enabled) return;
+    if (!this.#canOperate(server) || !server.autoStop?.enabled) return;
 
     const now = Date.now();
     const state = this.stateStore.getAutoStopState(server.pterodactylServerId);
@@ -119,6 +122,7 @@ export class AutoStopService {
    * that server until it next came online, which it never would.
    */
   async #autoStopServer(server, { idleMs, state, now }) {
+    if (!this.#canOperate(server)) return;
     const serverId = server.pterodactylServerId;
 
     if (state.lastStopAttemptAt && now - state.lastStopAttemptAt < STOP_RETRY_COOLDOWN_MS) {
@@ -129,7 +133,9 @@ export class AutoStopService {
 
     try {
       await this.pterodactylClient.setPowerState(serverId, "stop");
+      await this.#audit(server, "system", "auto-stop", "accepted");
     } catch (error) {
+      await this.#audit(server, "system", "auto-stop", "failed");
       this.logger.error(`Failed to auto-stop ${server.name}`, error);
       this.stateStore.setAutoStopState(serverId, { lastStopAttemptAt: now });
       try {
@@ -199,6 +205,7 @@ export class AutoStopService {
     const requestedBy = interaction.member?.displayName ?? interaction.user.username;
     const started = await this.#requestServerStart(server, {
       requestedBy,
+      userId: interaction.user?.id ?? null,
       member: interaction.member,
       onAlreadyRunning: async () => {
         await interaction.reply({ content: "The server is already running.", flags: MessageFlags.Ephemeral });
@@ -231,6 +238,7 @@ export class AutoStopService {
     await this.#removeReaction(reaction);
     const started = await this.#requestServerStart(server, {
       requestedBy: reaction.displayName,
+      userId: reaction.userId ?? reaction.user?.id ?? null,
       member: reaction.member,
       onAlreadyRunning: async () => {},
       onPanelUnavailable: async () => {},
@@ -243,6 +251,7 @@ export class AutoStopService {
 
   async #requestServerStart(server, {
     requestedBy,
+    userId = null,
     member,
     onAlreadyRunning,
     onPanelUnavailable,
@@ -250,15 +259,20 @@ export class AutoStopService {
     onAccepted,
     onFailure
   }) {
+    if (!this.#canOperate(server)) { await onPanelUnavailable(); return false; }
     let resources;
     try {
       resources = await this.pterodactylClient.getServerResources(server.pterodactylServerId);
     } catch (error) {
+      if (error.retryable) { server.accessUncertain = true; this.stateStore.clearAutoStopState?.(server.pterodactylServerId); }
+      else await this.#markUnavailable(server);
+      await this.#audit(server, userId, "start", "failed");
       this.logger.error(`Failed to fetch resources for ${server.name} during /start-server`, error);
       await onPanelUnavailable();
       return false;
     }
 
+    if (!this.#canOperate(server)) { await onPanelUnavailable(); return false; }
     if (resources.currentState === "running" || resources.currentState === "starting") {
       await onAlreadyRunning();
       return false;
@@ -282,10 +296,13 @@ export class AutoStopService {
         requestedBy
       });
       this.#recordPendingStart(server, { requestedBy, requestedAt });
+      if (!this.#canOperate(server)) throw new Error("Server monitoring was disabled.");
       await this.pterodactylClient.setPowerState(server.pterodactylServerId, "start");
+      await this.#audit(server, userId, "start", "accepted");
       this.stateStore.clearAutoStopState(server.pterodactylServerId);
       return true;
     } catch (error) {
+      await this.#audit(server, userId, "start", "failed");
       this.#clearPendingStart(server);
       this.logger.error(`Failed to start ${server.name} via /start-server`, error);
       await onFailure();
@@ -295,7 +312,7 @@ export class AutoStopService {
 
   // Handler for the /cancel-stop slash command.
   async handleCancelStopCommand(server, interaction) {
-    if (!server.autoStop?.enabled) {
+    if (!this.#canOperate(server) || !server.autoStop?.enabled) {
       await interaction.reply({ content: "Auto-stop is not enabled for this server.", flags: MessageFlags.Ephemeral });
       return;
     }
@@ -320,7 +337,7 @@ export class AutoStopService {
       return false;
     }
 
-    if (!server.autoStop?.enabled) {
+    if (!this.#canOperate(server) || !server.autoStop?.enabled) {
       await this.#removeReaction(reaction);
       return false;
     }
@@ -418,6 +435,28 @@ export class AutoStopService {
       startedBy: null,
       startedAt: null
     };
+  }
+
+  #canOperate(server) {
+    return isServerActionsEnabled(server) && (!this.config.servers || this.config.servers.includes(server));
+  }
+
+  async #markUnavailable(server) {
+    server.unavailable = true;
+    this.stateStore.clearAutoStopState?.(server.pterodactylServerId);
+    try {
+      await this.onServerUnavailable?.(server, { reason: "Panel access failed; check connectivity and permissions, then reactivate." });
+    } catch (error) {
+      this.logger.warn?.("Failed persisting unavailable server state", error);
+    }
+  }
+
+  async #audit(server, user, action, outcome) {
+    try {
+      await this.onAudit?.({ user: user == null ? null : String(user).slice(0, 100), server: server.pterodactylServerId, action, outcome });
+    } catch (error) {
+      this.logger.warn?.("Failed recording power action audit", error);
+    }
   }
 
   async #publishActionMessage(server, event) {

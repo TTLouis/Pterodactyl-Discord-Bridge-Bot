@@ -277,7 +277,7 @@ test("KOOK routes relay queue notices to its log channel, matching Discord", asy
   assert.match(calls[1].content, /上限 100 条/);
 });
 
-test("player-facing notices still go to the server channel on both platforms", async () => {
+test("relay failure notices go to operator log channels on both platforms", async () => {
   const eventBus = new CoreEventBus();
   const discordCalls = [];
   const kookCalls = [];
@@ -299,8 +299,8 @@ test("player-facing notices still go to the server channel on both platforms", a
   discord.stop();
   kook.stop();
 
-  assert.deepEqual(discordCalls.map((call) => call.channelId), ["discord-server"]);
-  assert.deepEqual(kookCalls.map((call) => call.channelId), ["kook-server"]);
+  assert.deepEqual(discordCalls.map((call) => call.channelId), ["discord-log"]);
+  assert.deepEqual(kookCalls.map((call) => call.channelId), ["kook-log"]);
 });
 
 function makeSnapshots(count) {
@@ -361,4 +361,29 @@ test("neither platform warns while every server fits", async () => {
   kook.stop();
 
   assert.deepEqual(warnings, []);
+});
+
+test("archive notices reach linked channels on both platforms and report the power choice", async () => {
+  const eventBus = new CoreEventBus();
+  const calls = [];
+  const discord = new DiscordPlatformListener({ eventBus, config: createConfig(),
+    discordBridge: { async sendMessage(channel, content) { calls.push({ channel, content }); return { id: "notice" }; } } });
+  const kook = new KookPlatformListener({ eventBus, config: createConfig(), logger: { warn() {} },
+    kookBridge: { async sendMessage(channel, content) { calls.push({ channel, content }); } } });
+  discord.start(); kook.start();
+  for (const outcome of [undefined, "accepted", "failed"]) {
+    calls.length = 0;
+    await eventBus.emit(CoreEvents.SERVER_NOTICE, { kind: "server-archived", server: { ...server, name: "<@123> @everyone" },
+      stopRequested: outcome !== undefined, stopOutcome: outcome });
+    assert.deepEqual(calls.map(c => c.channel), ["discord-server", "kook-server"]);
+    assert.match(calls[0].content, /has been archived/);
+    assert.match(calls[1].content, /已归档/);
+    assert.equal(calls.some(c => c.content.includes("@")), false);
+    assert.match(calls[0].content, outcome === "accepted" ? /request was accepted/ : outcome === "failed" ? /could not be confirmed/ : /power state is unchanged/);
+  }
+  calls.length = 0;
+  await eventBus.emit(CoreEvents.SERVER_NOTICE, { kind: "server-unarchived", server: { ...server, active: true, published: true } });
+  assert.match(calls[0].content, /monitoring enabled; main status page listed/);
+  assert.match(calls[1].content, /监控已启用/);
+  discord.stop(); kook.stop();
 });

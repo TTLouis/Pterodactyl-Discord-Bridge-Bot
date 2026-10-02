@@ -35,3 +35,8 @@ Thumbs.db
 # Local assistant/tooling state
 .claude/
 .fallow/
+
+# Private deployment backups (configuration and credentials)
+backups/
+docker-compose.override.yml
+DONATIONWARE_MEMORY.md

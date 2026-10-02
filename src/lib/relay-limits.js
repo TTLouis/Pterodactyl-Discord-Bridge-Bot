@@ -24,3 +24,10 @@ export const MAX_RELAY_QUEUE_LENGTH = 100;
  * command's captured lines.
  */
 export const CHAT_RELAY_CAPTURE_MS = 250;
+
+export const RELAY_QUEUE_TTL_MS = 24 * 60 * 60 * 1000;
+export const MAX_RELAY_AUTHOR_LENGTH = 64;
+export const MAX_RELAY_COMMAND_BYTES = 2048;
+export const MAX_RELAY_FRAME_BYTES = 4096;
+export const MAX_RELAY_RECEIPTS = 10000;
+export const CONSOLE_COMMAND_INTERVAL_MS = 1000;

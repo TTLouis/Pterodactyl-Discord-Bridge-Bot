@@ -81,6 +81,7 @@ export class MinecraftAdapter {
     this.serverConfig = serverConfig;
     this.pterodactylClient = pterodactylClient;
     this.onlinePlayers = null;
+    this.playerCountReliable = false;
     this.onlinePlayerCount = null;
     this.playerEventRevision = 0;
     this.gameDurationMs = null;
@@ -116,6 +117,7 @@ export class MinecraftAdapter {
   async fetchSnapshot(resources, { forcePlayerRefresh = false } = {}) {
     if (resources.currentState !== "running") {
       this.onlinePlayers = null;
+      this.playerCountReliable = false;
       this.onlinePlayerCount = null;
       this.playerEventRevision += 1;
       this.gameDurationMs = null;
@@ -140,10 +142,15 @@ export class MinecraftAdapter {
       };
     }
 
-    if (this.playerListRefreshPromise) {
-      await this.playerListRefreshPromise;
-    } else if (this.onlinePlayers === null || forcePlayerRefresh) {
-      await this.refreshOnlinePlayers();
+    try {
+      if (this.playerListRefreshPromise) {
+        await this.playerListRefreshPromise;
+      } else if (this.onlinePlayers === null || !this.playerCountReliable || forcePlayerRefresh) {
+        await this.refreshOnlinePlayers();
+      }
+    } catch {
+      this.playerCountReliable = false;
+      this.onlinePlayers ??= [];
     }
 
     const playerCount = this.onlinePlayerCount ?? this.onlinePlayers.length;
@@ -160,6 +167,7 @@ export class MinecraftAdapter {
       currentState: resources.currentState,
       simplifiedStatus: simplifyStatus(resources.currentState),
       playerCount,
+      playerCountReliable: this.playerCountReliable,
       onlinePlayers: [...this.onlinePlayers],
       cpuPercent: resources.cpuPercent,
       memoryBytes: resources.memoryBytes,
@@ -195,6 +203,9 @@ export class MinecraftAdapter {
       if (parsed && this.playerEventRevision === eventRevisionAtStart) {
         this.onlinePlayers = parsed.players;
         this.onlinePlayerCount = parsed.playerCount;
+        this.playerCountReliable = true;
+      } else {
+        this.playerCountReliable = false;
       }
       if (this.onlinePlayers === null) {
         this.onlinePlayers = [];
@@ -205,6 +216,9 @@ export class MinecraftAdapter {
 
     try {
       return await this.playerListRefreshPromise;
+    } catch (error) {
+      this.playerCountReliable = false;
+      throw error;
     } finally {
       this.playerListRefreshPromise = null;
     }
@@ -259,7 +273,7 @@ export class MinecraftAdapter {
     const authorName = match[1].trim();
     const content = match[2].trim();
     if (!authorName || !content) return null;
-    if (MC_PLATFORM_RELAY_PATTERN.test(authorName) || MC_PLATFORM_RELAY_PATTERN.test(content)) return null;
+    if (MC_PLATFORM_RELAY_PATTERN.test(authorName) || (/^(?:server|console|server console)$/i.test(authorName) && MC_PLATFORM_RELAY_PATTERN.test(content))) return null;
 
     return { authorName, content };
   }

@@ -1,3 +1,4 @@
+import { getDefaultChatCommandTemplate } from "./chat-relay-formatters.js";
 import fs from "node:fs";
 import path from "node:path";
 import { isKookEnabled, normalizeKookConfigId } from "./kook-config.js";
@@ -119,7 +120,7 @@ export function normalizeDescription(server) {
 function normalizeFactorioGame(server) {
   return {
     type: "factorio",
-    chatCommandTemplate: server.game?.chatCommandTemplate ?? "/shout {platform}<{author}>: {content}",
+    chatCommandTemplate: server.game?.chatCommandTemplate ?? getDefaultChatCommandTemplate("factorio"),
     playerListRefreshIntervalSeconds: requirePositiveNumber(
       server.game?.playerListRefreshIntervalSeconds,
       900,
@@ -140,10 +141,10 @@ export function deriveSatisfactoryApiUrl(server) {
   return `https://${server.publicAddress}:${server.publicPort}/api/v1`;
 }
 
-function normalizeMinecraftGame(server) {
+function normalizeMinecraftGame(server, type = "minecraft") {
   return {
-    type: "minecraft",
-    chatCommandTemplate: server.game?.chatCommandTemplate ?? "/say [{platform}] {author}: {content}",
+    type,
+    chatCommandTemplate: server.game?.chatCommandTemplate ?? getDefaultChatCommandTemplate(type),
     playerListRefreshIntervalSeconds: requirePositiveNumber(
       server.game?.playerListRefreshIntervalSeconds,
       900,
@@ -218,13 +219,18 @@ export function normalizeServer(server) {
     kookChannelId: normalizeKookConfigId(server.kookChannelId),
     pterodactylServerId: server.pterodactylServerId,
     archived: normalizeArchived(server),
+    active: server.active !== false,
+    deleted: server.deleted === true,
+    unavailable: server.unavailable === true,
+    lastSuccessAt: server.lastSuccessAt ?? null,
+    chatRelay: server.chatRelay !== false && server.chatRelay?.enabled !== false,
     published: server.published !== false,
     channelManaged: server.channelManaged === true,
     archiveNote: normalizeOptionalString(server.archiveNote),
     game: gameType === "satisfactory"
       ? normalizeSatisfactoryGame(server)
-      : gameType === "minecraft"
-        ? normalizeMinecraftGame(server)
+      : ["minecraft", "source"].includes(gameType)
+        ? normalizeMinecraftGame(server, gameType)
         : normalizeFactorioGame(server),
     autoStop: normalizeAutoStop(server)
   };
@@ -241,16 +247,16 @@ function normalizeKookConfig(kookConfig) {
   };
 }
 
-function validateConfig(config) {
-  if (!config.discord?.guildId) {
+function validateConfig(config, { managed = false } = {}) {
+  if (!managed && !config.discord?.guildId) {
     throw new Error("Config must include discord.guildId");
   }
 
-  if (!config.discord?.statusChannelId) {
+  if (!managed && !config.discord?.statusChannelId) {
     throw new Error("Config must include discord.statusChannelId");
   }
 
-  if (!config.pterodactyl?.baseUrl || !config.pterodactyl?.apiKey) {
+  if (!managed && (!config.pterodactyl?.baseUrl || !config.pterodactyl?.apiKey)) {
     throw new Error("Config must include pterodactyl.baseUrl and pterodactyl.apiKey");
   }
 
@@ -269,13 +275,24 @@ function validateConfig(config) {
     throw new Error(`PTERODACTYL_WINGS_WS_SCHEME must be "ws" or "wss" if set. Received: ${scheme}`);
   }
 
-  if (!Array.isArray(config.servers) || config.servers.length === 0) {
+  if (!Array.isArray(config.servers) || (!managed && config.servers.length === 0)) {
     throw new Error("Config must include at least one server");
   }
 
   for (const server of config.servers) {
+    if (managed && !server.active) continue;
     if (!server.name || !server.discordChannelId || !server.pterodactylServerId) {
       throw new Error("Each server requires name, discordChannelId, and pterodactylServerId");
+    }
+
+    const template = server.game?.chatCommandTemplate;
+    if (template !== null && template !== undefined && template !== "") {
+      if (typeof template !== "string" || /[\r\n\u0000-\u001F\u007F]/.test(template)) {
+        throw new Error(`Server "${server.name}" chatCommandTemplate must be a single-line string`);
+      }
+      if (server.game.type !== "factorio" && !template.includes("{content}")) {
+        throw new Error(`Server "${server.name}" chatCommandTemplate must include the {content} placeholder`);
+      }
     }
 
     if (server.game?.type === "factorio") {
@@ -283,7 +300,7 @@ function validateConfig(config) {
       continue;
     }
 
-    if (server.game?.type === "minecraft") {
+    if (["minecraft", "source"].includes(server.game?.type)) {
       continue;
     }
 
@@ -295,7 +312,7 @@ function validateConfig(config) {
       continue;
     }
 
-    throw new Error(`Unsupported server type: ${server.game?.type}. Supported types are factorio, minecraft, and satisfactory.`);
+    throw new Error(`Unsupported server type: ${server.game?.type}. Supported types are factorio, minecraft, satisfactory, and source.`);
   }
 
   validateUniqueServerMappings(config.servers);
@@ -308,7 +325,7 @@ function validateUniqueServerMappings(servers) {
 
   for (const server of servers) {
     assertUniqueServerMapping(seenServerIds, server.pterodactylServerId, server, "Pterodactyl server ID");
-    if (server.archived) continue;
+    if (server.archived || !server.active) continue;
 
     assertUniqueServerMapping(seenDiscordChannels, server.discordChannelId, server, "Discord channel ID");
     if (server.kookChannelId) {
@@ -332,13 +349,11 @@ export function getConfigPath() {
   return path.resolve(process.cwd(), process.env.CONFIG_PATH ?? "./servers.json");
 }
 
-export function loadConfig({ requireRuntimeTokens = true } = {}) {
+export function loadConfig({ requireRuntimeTokens = true, rawConfig: suppliedConfig = null, managed = false } = {}) {
   const configPath = getConfigPath();
-  if (!fs.existsSync(configPath)) {
-    throw new Error(`Config file not found at ${configPath}`);
-  }
-
-  const rawConfig = readJsonFile(configPath);
+  const missing = !suppliedConfig && !fs.existsSync(configPath);
+  const rawConfig = suppliedConfig ?? (missing ? { discord: {}, pterodactyl: {}, servers: [] } : readJsonFile(configPath));
+  managed ||= missing;
   const config = {
     discord: {
       ...rawConfig.discord,
@@ -360,15 +375,19 @@ export function loadConfig({ requireRuntimeTokens = true } = {}) {
       wingsWsScheme: process.env.PTERODACTYL_WINGS_WS_SCHEME || null,
       wingsWsPort: process.env.PTERODACTYL_WINGS_WS_PORT || null
     },
-    servers: rawConfig.servers.map(normalizeServer)
+    publicDisplay: { archived: "marked", deleted: "marked", ...rawConfig.publicDisplay },
+    servers: (rawConfig.servers ?? []).map(normalizeServer)
   };
 
-  validateConfig(config);
+  validateConfig(config, { managed });
+  config.setupMode = !(config.discord.guildId && config.discord.statusChannelId && config.pterodactyl.baseUrl && config.pterodactyl.apiKey);
 
   return {
     discordToken: requireRuntimeTokens ? assertRequiredEnv("DISCORD_TOKEN") : null,
     kookToken: requireRuntimeTokens && isKookEnabled() ? assertRequiredEnv("KOOK_TOKEN") : process.env.KOOK_TOKEN ?? null,
     config,
-    rawConfig
+    rawConfig,
+    managed,
+    setupMode: config.setupMode
   };
 }

@@ -1,3 +1,4 @@
+import { formatPlatformRelay } from "../lib/chat-relay-formatters.js";
 import { CoreEvents } from "../core/core-events.js";
 import { buildActionMessageMeta } from "../lib/action-message-state.js";
 import {
@@ -7,19 +8,32 @@ import {
   MAX_STATUS_PANEL_SERVERS
 } from "../lib/kook-card-formatters.js";
 
-function formatKookGroupRelayMessage(message) {
-  const platform = message.sourcePlatform === "discord" ? "Discord" : "聊天";
-  return `[${platform}] **${message.authorName}**: ${message.content}`;
-}
-
 // Mirrors the Discord listener: relay-queue notices are operator-facing.
 const LOG_CHANNEL_NOTICE_KINDS = new Set([
   "relay-queue-expired",
   "relay-queue-overflow",
+  "relay-failed",
+  "relay-uncertain",
+  "relay-cancelled",
+  "relay-restored-discarded",
+  "relay-persistence-failed",
   "auto-stop-failed"
 ]);
 
 function formatKookServerNotice(event) {
+  if (event.kind === "server-archived" || event.kind === "server-unarchived") {
+    const name = String(event.server.name).replace(/[`*_~<>@\r\n]/g, " ");
+    const power = event.stopOutcome === "accepted" ? "管理员已请求停止服务器，请求已接受，关闭过程可能仍在进行。"
+      : event.stopRequested ? "无法确认管理员的停止请求，请在 Pterodactyl 面板检查服务器运行状态。"
+      : "游戏服务器的运行状态不变。";
+    return event.kind === "server-archived"
+      ? `📦 ${name} 已归档。监控、聊天转发和空闲自动停止已暂停。本频道及消息历史保留。${power}`
+      : `📂 ${name} 已取消归档，恢复归档前的设置：监控${event.server.active ? "已启用" : "暂停"}，主状态页面${event.server.published ? "已列出" : "未列出"}。本频道及消息历史保留，游戏服务器的运行状态不变。`;
+  }
+  if (["relay-uncertain", "relay-cancelled", "relay-restored-discarded", "relay-persistence-failed"].includes(event.kind)) {
+    return `${event.server.name}: ${event.message}`;
+  }
+
   if (event.kind === "satisfactory-player-count") {
     const action = event.action === "joined" ? "加入" : "离开";
     return `${event.changedPlayers} 名玩家${action} **${event.server.name}**。(${event.playerCount}/${event.maxPlayers})`;
@@ -60,8 +74,8 @@ export class KookPlatformListener {
     this.unsubscribers = [
       this.eventBus.on(CoreEvents.STATUS_PANEL_UPDATED, (event) => this.#handleSafely("upsert status panel", () => this.#handleStatusPanelUpdated(event))),
       this.eventBus.on(CoreEvents.SERVER_ACTION_MESSAGE, (event) => this.#handleSafely("replace action message", () => this.#handleServerActionMessage(event))),
-      this.eventBus.on(CoreEvents.GAME_CHAT_RELAY, (event) => this.#handleSafely("send game chat relay", () => this.#handleGameChatRelay(event))),
-      this.eventBus.on(CoreEvents.GROUP_CHAT_RELAY, (event) => this.#handleSafely("send group chat relay", () => this.#handleGroupChatRelay(event))),
+      this.eventBus.on(CoreEvents.GAME_CHAT_RELAY, (event) => this.#handleGameChatRelay(event)),
+      this.eventBus.on(CoreEvents.GROUP_CHAT_RELAY, (event) => this.#handleGroupChatRelay(event)),
       this.eventBus.on(CoreEvents.SERVER_NOTICE, (event) => this.#handleSafely("send server notice", () => this.#handleServerNotice(event)))
     ];
   }
@@ -131,23 +145,29 @@ export class KookPlatformListener {
   }
 
   async #handleGameChatRelay(event) {
-    const kookChannelId = event.server.kookChannelId;
-    if (!kookChannelId) {
-      return null;
-    }
-
-    await this.kookBridge.sendMessage(kookChannelId, `**${event.authorName}**: ${event.content}`);
-    return { platform: "kook" };
+    return this.#sendRelay(event);
   }
 
   async #handleGroupChatRelay(event) {
-    const kookChannelId = event.server.kookChannelId;
-    if (event.sourcePlatform === "kook" || !kookChannelId) {
-      return null;
-    }
+    if (event.sourcePlatform === "kook") return null;
+    return this.#sendRelay(event);
+  }
 
-    await this.kookBridge.sendMessage(kookChannelId, formatKookGroupRelayMessage(event));
-    return { platform: "kook" };
+  async #sendRelay(event) {
+    if (event.destinationPlatform && event.destinationPlatform !== "kook") return null;
+    const channelId = event.server.kookChannelId;
+    if (!channelId) return null;
+    const parts = event.formattedContent ? [event.formattedContent] : formatPlatformRelay(event, "kook");
+    let message;
+    for (const content of parts) {
+      if (event.isCurrent && !event.isCurrent()) throw Object.assign(new Error("Relay route changed"), { deliveryStatus: "not-sent" });
+      if (this.kookBridge.sendRelayText) message = await this.kookBridge.sendRelayText(channelId, content, event);
+      else {
+        event.onDispatch?.();
+        message = await this.kookBridge.sendMessage(channelId, content);
+      }
+    }
+    return { platform: "kook", message };
   }
 
   async #handleServerNotice(event) {

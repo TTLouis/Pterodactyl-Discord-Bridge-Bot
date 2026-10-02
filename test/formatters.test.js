@@ -167,3 +167,25 @@ test("server online embeds identify panel-originated starts", () => {
 
   assert.match(embed.description, /Started from the Pterodactyl panel/);
 });
+
+
+test("unavailable snapshots visibly label stale values and the last successful update", () => {
+  const snapshot = {
+    ...createSnapshot("Retained"),
+    simplifiedStatus: "Unavailable",
+    stale: true,
+    lastSeenAt: "2026-09-30T12:00:00.000Z"
+  };
+  const panel = buildStatusPanel([snapshot], { displayTimeZone: "UTC" });
+  const statusField = panel.embeds[0].toJSON().fields[1].value;
+  assert.match(statusField, /Unavailable.*stale data/);
+  assert.match(statusField, /2026-09-30T12:00:00.000Z/);
+});
+
+
+test("unknown player counts do not present cached zero as an empty server", () => {
+  const snapshot = { ...createSnapshot(""), playerCountReliable: false };
+  const value = buildStatusPanel([snapshot], { displayTimeZone: "UTC" }).embeds[0].toJSON().fields[1].value;
+  assert.match(value, /Unknown — idle auto-stop paused/);
+  assert.doesNotMatch(value, /😴 0/);
+});

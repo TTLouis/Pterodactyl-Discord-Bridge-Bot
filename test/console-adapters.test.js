@@ -412,3 +412,79 @@ test("Minecraft does not relay bridged messages back into chat", () => {
   assert.equal(adapter.parseConsoleChatLine("<Server> [Discord] Louis: hello"), null);
   assert.equal(adapter.parseConsoleChatLine("<[KOOK] Louis> hello"), null);
 });
+
+
+for (const [game, createAdapter, command, occupied, empty] of [
+  ["Factorio", createFactorioAdapter, "/players o", ["Players (1):", "Alice (online)"], ["Players (0):"]],
+  ["Minecraft", createMinecraftAdapter, "/list", ["There are 1 of a max of 20 players online: Alice"], ["There are 0 of a max of 20 players online:"]]
+]) {
+  test(game + " treats unrecognized and failed initial player queries as unknown, not authoritative zero", async () => {
+    for (const query of [async () => [], async () => { throw new Error("console reconnecting"); }]) {
+      const adapter = createAdapter(query);
+      const snapshot = await adapter.fetchSnapshot(runningResources);
+      assert.equal(snapshot.playerCountReliable, false);
+      assert.deepEqual(snapshot.onlinePlayers, []);
+    }
+  });
+
+  test(game + " retains cached player names after failed refresh while requiring a new authoritative count", async () => {
+    let response = occupied;
+    let fail = false;
+    const adapter = createAdapter(async (_id, requested) => {
+      if (requested !== command) return [];
+      if (fail) throw new Error("console disconnected");
+      return response;
+    });
+    const known = await adapter.fetchSnapshot(runningResources);
+    assert.equal(known.playerCountReliable, true);
+    assert.equal(known.playerCount, 1);
+    fail = true;
+    const cached = await adapter.fetchSnapshot(runningResources, { forcePlayerRefresh: true });
+    assert.equal(cached.playerCountReliable, false);
+    assert.equal(cached.playerCount, 1);
+    assert.deepEqual(cached.onlinePlayers, ["Alice"]);
+    fail = false;
+    response = [];
+    assert.equal((await adapter.fetchSnapshot(runningResources, { forcePlayerRefresh: true })).playerCountReliable, false);
+    response = empty;
+    const recovered = await adapter.fetchSnapshot(runningResources, { forcePlayerRefresh: true });
+    assert.equal(recovered.playerCountReliable, true);
+    assert.equal(recovered.playerCount, 0);
+  });
+}
+
+for (const [game, createAdapter, command, response] of [
+  ["Factorio", createFactorioAdapter, "/players o", ["/players o", "Online players (1):", "mmfelix (online)"]],
+  ["Minecraft", createMinecraftAdapter, "/list", ["There are 1 of a max of 20 players online: Alice"]]
+]) {
+  test(game + " retries an unknown player query on the next ordinary snapshot", async () => {
+    let ready = false;
+    let queries = 0;
+    const adapter = createAdapter(async (_id, requested) => {
+      if (requested !== command) return [];
+      queries++;
+      if (!ready) throw new Error("console backlog is not ready");
+      return response;
+    });
+    assert.equal((await adapter.fetchSnapshot(runningResources)).playerCountReliable, false);
+    ready = true;
+    const recovered = await adapter.fetchSnapshot(runningResources);
+    assert.equal(recovered.playerCountReliable, true);
+    assert.equal(recovered.playerCount, 1);
+    assert.equal(queries, 2);
+  });
+}
+
+test("ordinary players may quote platform relay text without being filtered as echoes", () => {
+  const factorio = createFactorioAdapter(async () => []);
+  assert.deepEqual(factorio.parseConsoleChatLine("[CHAT] Alice: Discord<Bob>: quote"), {
+    authorName: "Alice", content: "Discord<Bob>: quote"
+  });
+  assert.deepEqual(factorio.parseConsoleChatLine("[2026-09-13T14:35:46.215Z] [AIR] Factorio] [CHAT] Alice: wrapped"), {
+    authorName: "Alice", content: "wrapped"
+  });
+  const minecraft = createMinecraftAdapter(async () => []);
+  assert.deepEqual(minecraft.parseConsoleChatLine("<Alice> [Discord] Bob: quote"), {
+    authorName: "Alice", content: "[Discord] Bob: quote"
+  });
+});

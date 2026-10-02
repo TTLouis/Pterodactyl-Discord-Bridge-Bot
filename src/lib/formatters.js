@@ -1,6 +1,7 @@
 import { EmbedBuilder } from "discord.js";
 
 const STATUS_COLORS = {
+  Unavailable: 0x64748b,
   Online: 0x22c55e,
   Starting: 0xeab308,
   Stopping: 0xf97316,
@@ -16,6 +17,7 @@ const PLAYER_NAMES_MAX_LENGTH = 700;
 const DESCRIPTION_MAX_LENGTH = 850;
 const ARCHIVE_DESCRIPTION_MAX_LENGTH = 4096;
 const STATUS_META = {
+  Unavailable: { emoji: "⚠️", label: "Unavailable — monitoring paused" },
   Online: { emoji: "🟢", label: "Online" },
   Starting: { emoji: "🟡", label: "Starting" },
   Stopping: { emoji: "🟠", label: "Stopping" },
@@ -37,6 +39,9 @@ function formatPlayers(snapshot) {
 }
 
 function formatPlayerCountLabel(snapshot) {
+  if (snapshot.playerCountReliable === false) {
+    return "Unknown — idle auto-stop paused";
+  }
   const playerCount = Number(snapshot.playerCount ?? 0);
   const maxPlayers = typeof snapshot.maxPlayers === "number" ? snapshot.maxPlayers : null;
 
@@ -52,6 +57,9 @@ function formatPlayerCountLabel(snapshot) {
 }
 
 function formatOnlinePlayers(snapshot) {
+  if (snapshot.playerCountReliable === false) {
+    return snapshot.onlinePlayers?.length ? `Last known: ${snapshot.onlinePlayers.join(", ")}` : "Unknown — player query unavailable";
+  }
   if (snapshot.playerNamesAvailable === false) {
     return "Unavailable from API";
   }
@@ -184,10 +192,12 @@ function formatAsciiBlock(snapshot) {
 }
 
 function buildServerEmbed(snapshot, footerText) {
-  const status = snapshot.autoStopped === true
+  const status = snapshot.stale
+    ? { emoji: "⚠️", label: snapshot.retrying ? "Panel temporarily unreachable — retrying; stale data" : "Unavailable — stale data; monitoring paused" }
+    : snapshot.autoStopped === true
     ? { emoji: "🟣", label: "Auto-stopped" }
     : getStatusMeta(snapshot.simplifiedStatus);
-  const color = snapshot.autoStopped === true
+  const color = snapshot.stale ? STATUS_COLORS.Unavailable : snapshot.autoStopped === true
     ? STATUS_COLORS.AutoStopped
     : getStatusColor(snapshot.simplifiedStatus);
   const address = formatAddress(snapshot);
@@ -208,6 +218,7 @@ function buildServerEmbed(snapshot, footerText) {
         value: truncate(
           [
             `${status.emoji} ${status.label}`,
+            ...(snapshot.stale ? [snapshot.lastSeenAt ? `Last successful update: ${snapshot.lastSeenAt}` : "No successful update available."] : []),
             "",
             "**Player Number**",
             formatPlayerCountLabel(snapshot),
@@ -252,13 +263,13 @@ export function buildArchivePanel(servers) {
     : servers.map((server) => {
       const name = String(server.name ?? "Unnamed server").replace(/`/g, "'");
       const note = server.archiveNote ? ` — ${String(server.archiveNote)}` : "";
-      return `• **${name}**${note}`;
+      return `• **${name}**${server.deleted ? " — Deleted (administrator marked)" : ""}${note}`;
     });
 
   return {
     embeds: [new EmbedBuilder()
       .setColor(0x64748b)
-      .setTitle("Archived Servers")
+      .setTitle(servers.some((server) => server.deleted) ? "Archived and Deleted Servers" : "Archived Servers")
       .setDescription(truncate(lines.join("\n"), ARCHIVE_DESCRIPTION_MAX_LENGTH))]
   };
 }

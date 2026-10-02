@@ -1,6 +1,6 @@
 {
   "name": "pterodactyl-platform-bridge",
-  "version": "0.2.1",
+  "version": "0.3.0-beta.1",
   "description": "Multi-platform bot that syncs Pterodactyl game-server status and events into chat platforms.",
   "type": "module",
   "main": "src/index.js",
@@ -19,7 +19,7 @@
     "test": "node scripts/run-tests.js"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   },
   "dependencies": {
     "discord.js": "^14.19.3",
@@ -27,6 +27,6 @@
     "ws": "^8.21.0"
   },
   "overrides": {
-    "undici": "6.28.0"
+    "undici": "6.28.1"
   }
 }

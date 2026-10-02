@@ -1,16 +1,14 @@
 import { FactorioAdapter } from "../adapters/factorio-adapter.js";
+import { SourceAdapter } from "../adapters/source-adapter.js";
 import { MinecraftAdapter } from "../adapters/minecraft-adapter.js";
 import { SatisfactoryAdapter } from "../adapters/satisfactory-adapter.js";
 import { CoreEvents } from "../core/core-events.js";
-import { buildGameChatCommand, truncateRelayContent } from "../lib/chat-relay-formatters.js";
-import { MAX_RELAY_QUEUE_LENGTH } from "../lib/relay-limits.js";
+import { RelayService } from "./relay-service.js";
+import { isServerMonitoringEnabled, isServerRelayEnabled } from "../lib/server-lifecycle.js";
 import { DiscordInputController } from "./discord-input-controller.js";
 
 const DEBOUNCE_MS = 500;
-const CONSOLE_RELAY_WARMUP_MS = 5000;
 const POWER_STATE_OVERRIDE_TTL_MS = 10 * 60 * 1000;
-const RECENT_RELAY_LINE_TTL_MS = 10 * 60 * 1000;
-const RELAY_QUEUE_TTL_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_POLL_INTERVAL_SECONDS = 60;
 const DEFAULT_ACTIVE_PLAYER_POLL_INTERVAL_SECONDS = 15;
 
@@ -25,20 +23,17 @@ export function getStatusRefreshIntervalMs(config, hasActivePlayers) {
   return (Number.isFinite(seconds) && seconds > 0 ? seconds : fallbackSeconds) * 1000;
 }
 
+function adapterConfigKey(server) {
+  const { lastSuccessAt, unavailableReason, lastDiscoveryAt, accessUncertain, ...settings } = server;
+  return JSON.stringify(settings);
+}
+
 function snapshotKey(snapshot) {
   const players = [...(snapshot.onlinePlayers ?? [])].sort().join(",");
   const satisfactoryState = snapshot.satisfactoryState
     ? `${snapshot.satisfactoryState.techTier}|${snapshot.satisfactoryState.activeSchematic}|${snapshot.satisfactoryState.gamePhase}|${snapshot.gameDurationMs}`
     : "";
-  return `${snapshot.currentState}|${snapshot.autoStopped === true}|${snapshot.playerCount}|${players}|${satisfactoryState}`;
-}
-
-function isConsoleRelayWarmingUp(connectedAt) {
-  if (!connectedAt) {
-    return false;
-  }
-
-  return Date.now() - connectedAt < CONSOLE_RELAY_WARMUP_MS;
+  return `${snapshot.currentState}|${snapshot.autoStopped === true}|${snapshot.playerCountReliable !== false}|${snapshot.playerCount}|${players}|${satisfactoryState}`;
 }
 
 function summarizeSnapshot(snapshot) {
@@ -91,6 +86,7 @@ export class StatusSyncService {
     logger,
     onRestartRequested = null,
     onSyncCompleted = null,
+    onServerUnavailable = null,
     restartDelayMs = 1000
   }) {
     this.config = config;
@@ -100,8 +96,15 @@ export class StatusSyncService {
     this.pterodactylClient = pterodactylClient;
     this.autoStopService = autoStopService;
     this.stateStore = stateStore;
+    for (const server of config.servers.filter((record) => !isServerMonitoringEnabled(record))) {
+      this.stateStore?.clearAutoStopState?.(server.pterodactylServerId);
+    }
     this.logger = logger;
     this.onSyncCompleted = onSyncCompleted;
+    this.onServerUnavailable = onServerUnavailable;
+    this.lastSnapshots = new Map();
+    this.adapterConfigKeys = new Map();
+    this.runtimeGeneration = 0;
     this.intervalHandle = null;
     this.debounceHandle = null;
     this.activeSync = null;
@@ -113,10 +116,12 @@ export class StatusSyncService {
     this.serverOnlineStates = new Map();
     this.serverPowerStates = new Map();
     this.lastSnapshotKeys = new Map();
-    this.recentRelayLines = new Map();
-    this.relayFlushPromises = new Map();
-    this.relayOverflowNotified = new Set();
-    this.inMemoryRelayQueues = new Map();
+    this.messageUnsubscribers = [];
+    this.messageInputsRegistered = false;
+    this.relayService = new RelayService({ config, stateStore, eventBus, pterodactylClient, logger,
+      kookEnabled: Boolean(kookBridge), getAdapter: id => this.adapters.get(id),
+      isCurrent: (server, adapter) => this.#isCurrentRuntime(server, adapter) });
+    this.relayOverflowNotified = this.relayService.overflowNotified;
     this.initialSnapshotLogged = false;
     this.livePanelInitialized = false;
     this.lastArchivePanelKey = null;
@@ -130,24 +135,33 @@ export class StatusSyncService {
       restartDelayMs
     });
     this.adapters = new Map(
-      config.servers.filter((server) => !server.archived).map((server) => [
+      config.servers.filter(isServerMonitoringEnabled).map((server) => [
         server.pterodactylServerId,
         this.#createAdapter(server)
       ])
     );
+    for (const server of config.servers.filter(isServerMonitoringEnabled)) {
+      this.adapterConfigKeys.set(server.pterodactylServerId, adapterConfigKey(server));
+    }
   }
 
   async start() {
+    if (this.started) return;
+    this.stopped = false;
     this.started = true;
     this.registerDiscordInputs();
 
-    this.discordBridge.onMessage(async (message) => {
-      await this.#handleMessage({ sourcePlatform: "discord", ...message });
-    });
-
-    this.kookBridge?.onMessage(async (message) => {
-      await this.#handleMessage({ sourcePlatform: "kook", ...message });
-    });
+    this.relayService.start();
+    if (!this.messageInputsRegistered) {
+      this.messageInputsRegistered = true;
+      for (const [bridge, sourcePlatform] of [[this.discordBridge, "discord"], [this.kookBridge, "kook"]]) {
+        if (!bridge) continue;
+        const unsubscribe = bridge.onMessage(message => {
+          if (this.started && !this.stopped) return this.relayService.accept({ ...message, sourcePlatform });
+        });
+        if (typeof unsubscribe === "function") this.messageUnsubscribers.push(unsubscribe);
+      }
+    }
 
     for (const adapter of this.adapters.values()) {
       adapter.start?.();
@@ -162,6 +176,8 @@ export class StatusSyncService {
   }
 
   async stop() {
+    this.stopped = true;
+    this.runtimeGeneration += 1;
     this.started = false;
     if (this.intervalHandle) {
       clearTimeout(this.intervalHandle);
@@ -182,6 +198,12 @@ export class StatusSyncService {
     }
 
     this.consoleUnsubscribers.clear();
+    if (this.messageUnsubscribers.length) {
+      for (const unsubscribe of this.messageUnsubscribers) unsubscribe();
+      this.messageUnsubscribers = [];
+      this.messageInputsRegistered = false;
+    }
+    await this.relayService.stop();
   }
 
   refreshPeriodicSchedule() {
@@ -189,39 +211,69 @@ export class StatusSyncService {
   }
 
   onConfigReloaded() {
-    const activeServerIds = new Set(
-      this.config.servers.filter((server) => !server.archived).map((server) => server.pterodactylServerId)
-    );
-
-    for (const [serverId, adapter] of this.adapters.entries()) {
-      if (activeServerIds.has(serverId)) {
+    this.runtimeGeneration += 1;
+    const enabledServers = this.config.servers.filter(isServerMonitoringEnabled);
+    const enabledIds = new Set(enabledServers.map((server) => server.pterodactylServerId));
+    const pausedIds = new Set(this.config.servers.filter((server) => !isServerMonitoringEnabled(server))
+      .map((server) => server.pterodactylServerId));
+    for (const serverId of this.adapters.keys()) if (!enabledIds.has(serverId)) pausedIds.add(serverId);
+    for (const serverId of pausedIds) this.stateStore?.clearAutoStopState?.(serverId);
+    for (const [serverId, adapter] of this.adapters) {
+      const server = enabledServers.find((entry) => entry.pterodactylServerId === serverId);
+      if (enabledIds.has(serverId) && this.adapterConfigKeys.get(serverId) === adapterConfigKey(server)) {
+        adapter.onConfigReloaded?.(server);
         continue;
       }
-
       adapter.stop?.();
       this.consoleUnsubscribers.get(serverId)?.();
       this.consoleUnsubscribers.delete(serverId);
       this.adapters.delete(serverId);
+      this.adapterConfigKeys.delete(serverId);
       this.serverPlayerCounts.delete(serverId);
       this.serverOnlineStates.delete(serverId);
       this.serverPowerStates.delete(serverId);
       this.lastSnapshotKeys.delete(serverId);
     }
-
-    for (const server of this.config.servers) {
-      if (server.archived || this.adapters.has(server.pterodactylServerId)) {
-        continue;
-      }
-
+    for (const server of enabledServers) {
+      const id = server.pterodactylServerId;
+      if (this.adapters.has(id)) continue;
       const adapter = this.#createAdapter(server);
-      this.adapters.set(server.pterodactylServerId, adapter);
-      adapter.start?.();
+      this.adapters.set(id, adapter);
+      this.adapterConfigKeys.set(id, adapterConfigKey(server));
+      if (this.started) adapter.start?.();
     }
+    this.relayService.reconcile();
+    this.livePanelInitialized = false;
+    this.lastArchivePanelKey = null;
+    this.hasActivePlayers = Array.from(this.serverPlayerCounts.values()).some((count) => count > 0);
+    this.refreshPeriodicSchedule();
+  }
 
-    for (const [serverId, adapter] of this.adapters.entries()) {
-      const server = this.config.servers.find((entry) => entry.pterodactylServerId === serverId);
-      adapter.onConfigReloaded?.(server);
-    }
+  #isCurrentRuntime(server, adapter) {
+    const current = this.config.servers.find((entry) => entry.pterodactylServerId === server.pterodactylServerId);
+    return !this.stopped && Boolean(current) && isServerMonitoringEnabled(current)
+      && this.adapters.get(server.pterodactylServerId) === adapter;
+  }
+
+  #staleSnapshot(server) {
+    const id = server.pterodactylServerId;
+    const cached = this.lastSnapshots.get(id) ?? this.stateStore?.getServerRuntimeState?.(id)?.lastSnapshot;
+    return {
+      ...cached,
+      name: server.name,
+      description: server.description,
+      publicAddress: server.publicAddress,
+      publicPort: server.publicPort,
+      maxPlayers: server.maxPlayers,
+      currentState: "unavailable",
+      simplifiedStatus: "Unavailable",
+      unavailable: true,
+      stale: true,
+      retrying: server.accessUncertain === true,
+      lastSeenAt: cached?.lastSeenAt ?? null,
+      onlinePlayers: cached?.onlinePlayers ?? [],
+      playerNamesAvailable: false
+    };
   }
 
   /**
@@ -230,6 +282,11 @@ export class StatusSyncService {
    * fire at once; overlapping runs raced each other over the status panel's
    * stored message IDs.
    */
+  requestSync(options = {}) {
+    if (this.stopped) return;
+    queueMicrotask(() => { if (!this.stopped) void this.syncOnce(options).catch(error => this.logger.error("Scheduled status refresh failed", error)); });
+  }
+
   async syncOnce(options = {}) {
     if (this.activeSync) {
       // Fold into a single follow-up run rather than building an unbounded chain.
@@ -254,9 +311,14 @@ export class StatusSyncService {
     let snapshotChanged = !this.livePanelInitialized;
     const failedServers = [];
 
-    const activeServers = this.config.servers.filter((server) => !server.archived);
-    const archivedServers = this.config.servers.filter((server) => server.archived);
-    const archivePanelKey = JSON.stringify(archivedServers.map((server) => [server.name, server.archiveNote]));
+    const activeServers = this.config.servers.filter(isServerMonitoringEnabled);
+    const unavailableServers = this.config.servers.filter((server) => server.unavailable && !server.archived && !server.deleted);
+    const archivedServers = this.config.servers.filter((server) =>
+      server.published !== false && (server.deleted
+        ? this.config.publicDisplay?.deleted !== "hidden"
+        : server.archived && this.config.publicDisplay?.archived !== "hidden"));
+    const archivePanelKey = JSON.stringify(archivedServers.map((server) => [server.name, server.archiveNote, server.deleted]));
+    const generation = this.runtimeGeneration;
     const archivePanelChanged = archivePanelKey !== this.lastArchivePanelKey;
     this.lastArchivePanelKey = archivePanelKey;
 
@@ -265,19 +327,29 @@ export class StatusSyncService {
     const results = await Promise.all(activeServers.map(async (server) => {
       const adapter = this.adapters.get(server.pterodactylServerId);
 
+      let fetchingResources = true;
       try {
         const rawResources = await this.pterodactylClient.getServerResources(server.pterodactylServerId);
+        fetchingResources = false;
+        server.accessUncertain = false;
+        if (!this.#isCurrentRuntime(server, adapter)) return null;
         const resources = this.#applyCachedPowerState(server, rawResources);
         this.#syncConsoleBridge(server, adapter, resources.currentState);
-        await this.#expireQueuedRelays(server);
+        this.relayService.expire(server);
         if (resources.currentState === "running") {
-          void this.#flushQueuedRelays(server, adapter);
+          void this.relayService.flush(server);
         }
         // A forced sync is used for both manual refreshes and the configured
         // active/idle polling cadence. Refresh game-derived state alongside
         // the panel so player lists cannot remain stale between polls.
         const rawSnapshot = await adapter.fetchSnapshot(resources, { forcePlayerRefresh: force });
-        const snapshot = this.#hydrateAutoStopStatus(server, this.#hydrateCachedSnapshot(server, rawSnapshot));
+        if (!this.#isCurrentRuntime(server, adapter)) return null;
+        const snapshot = {
+          ...this.#hydrateAutoStopStatus(server, this.#hydrateCachedSnapshot(server, rawSnapshot)),
+          lastSeenAt: new Date().toISOString()
+        };
+        this.lastSnapshots.set(server.pterodactylServerId, snapshot);
+        this.stateStore?.setServerRuntimeState?.(server.pterodactylServerId, { lastSnapshot: snapshot });
         const previousPlayerCount = this.serverPlayerCounts.get(server.pterodactylServerId);
         const previouslyOnline = this.serverOnlineStates.get(server.pterodactylServerId);
         this.serverPlayerCounts.set(server.pterodactylServerId, Number(snapshot.playerCount ?? 0));
@@ -295,29 +367,64 @@ export class StatusSyncService {
         });
         await this.#checkServerStateChange(server, snapshot.currentState);
         if (snapshot.currentState === "running") {
-          await this.autoStopService.onRunningSnapshot(server, snapshot.playerCount ?? 0);
+          if (snapshot.playerCountReliable !== false && typeof snapshot.playerCount === "number"
+            && Number.isFinite(snapshot.playerCount) && snapshot.playerCount >= 0) {
+            await this.autoStopService.onRunningSnapshot(server, snapshot.playerCount);
+          } else {
+            // Unknown player counts break the evidence of continuous inactivity.
+            this.stateStore?.clearAutoStopState?.(server.pterodactylServerId);
+          }
         }
 
         return snapshot;
       } catch (error) {
         failedServers.push(server.name);
         this.logger.error(`Failed syncing ${server.name}`, error);
-        return null;
+        if (fetchingResources && error.retryable && this.#isCurrentRuntime(server, adapter)) {
+          server.accessUncertain = true;
+          this.lastSnapshotKeys.delete(server.pterodactylServerId);
+          this.stateStore?.clearAutoStopState?.(server.pterodactylServerId);
+          this.consoleUnsubscribers.get(server.pterodactylServerId)?.();
+          this.consoleUnsubscribers.delete(server.pterodactylServerId);
+        }
+        if (fetchingResources && !error.retryable && this.#isCurrentRuntime(server, adapter)) {
+          server.unavailable = true;
+          this.stateStore?.clearAutoStopState?.(server.pterodactylServerId);
+          adapter.stop?.();
+          this.consoleUnsubscribers.get(server.pterodactylServerId)?.();
+          this.consoleUnsubscribers.delete(server.pterodactylServerId);
+          this.adapters.delete(server.pterodactylServerId);
+          this.adapterConfigKeys.delete(server.pterodactylServerId);
+          this.serverPlayerCounts.delete(server.pterodactylServerId);
+          this.serverOnlineStates.delete(server.pterodactylServerId);
+          this.serverPowerStates.delete(server.pterodactylServerId);
+          this.lastSnapshotKeys.delete(server.pterodactylServerId);
+          try {
+            await this.onServerUnavailable?.(server, { reason: "Panel access failed; check connectivity and permissions, then reactivate." });
+          } catch (persistError) {
+            this.logger.error("Failed persisting unavailable server state", persistError);
+          }
+        }
+        anyChanged = true;
+        return this.#staleSnapshot(server);
       }
     }));
 
-    const snapshots = results.filter((snapshot) => snapshot !== null);
+    if (generation !== this.runtimeGeneration) { if (!this.stopped) this.queuedSyncOptions = { force: true }; return; }
+    const snapshots = results.filter((snapshot) => snapshot !== null && !snapshot.stale);
     const publishedSnapshots = results.flatMap((snapshot, index) =>
       snapshot && activeServers[index].published !== false ? [snapshot] : []);
+    publishedSnapshots.push(...unavailableServers.filter((server) => server.published !== false).map((server) => this.#staleSnapshot(server)));
     // The loop finished, which is the liveness signal a healthcheck needs.
     // Per-server failures do not change that the bot is running and polling.
     const syncSummary = {
       completedAt: new Date().toISOString(),
       durationMs: Date.now() - startedAt,
-      configuredServerCount: activeServers.length,
+      configuredServerCount: activeServers.length + unavailableServers.length,
       successfulServerCount: snapshots.length,
       failedServers,
-      degraded: activeServers.length > 0 && snapshots.length === 0
+      unavailableServerCount: this.config.servers.filter((server) => server.unavailable).length,
+      degraded: activeServers.length + unavailableServers.length > 0 && snapshots.length === 0
     };
     this.onSyncCompleted?.(syncSummary);
 
@@ -403,6 +510,8 @@ export class StatusSyncService {
           serverConfig: server,
           pterodactylClient: this.pterodactylClient
         });
+      case "source":
+        return new SourceAdapter({ serverConfig: server, pterodactylClient: this.pterodactylClient });
       case "satisfactory":
         return new SatisfactoryAdapter({
           serverConfig: server,
@@ -514,6 +623,7 @@ export class StatusSyncService {
   }
 
   #syncConsoleBridge(server, adapter, currentState) {
+    if (!this.#isCurrentRuntime(server, adapter)) return;
     const serverId = server.pterodactylServerId;
     const existing = this.consoleUnsubscribers.get(serverId);
     const supportsConsole = Boolean(adapter?.supportsConsoleSubscription());
@@ -537,20 +647,20 @@ export class StatusSyncService {
       server: server.name,
       serverId,
       consoleRelayEnabled: supportsConsole,
-      requestedInitialLogs: supportsConsole
+      requestedInitialLogs: false
     });
 
     const unsubscribe = this.pterodactylClient.subscribeToConsole(serverId, {
-      onConnected: () => {
-        void this.#handleConsoleConnected(server, adapter);
-      },
       onReady: () => {
         this.logger.info("Console session ready", {
           server: server.name,
           serverId,
           game: server.game?.type ?? "unknown"
         });
-        void this.#flushQueuedRelays(server, adapter);
+        // Relay listens only to live output. Player queries refresh state after
+        // authentication; relay dispatch also requires a running-state event.
+        void this.#handleConsoleConnected(server, adapter);
+        void this.relayService.flush(server);
       },
       onLine: supportsConsole
         ? (line, metadata) => {
@@ -558,6 +668,7 @@ export class StatusSyncService {
           }
         : undefined,
       onStatusChange: (newState) => {
+        if (!this.#isCurrentRuntime(server, adapter)) return;
         this.logger.info(`${server.name} power state changed to: ${newState}`);
         this.#syncConsoleBridge(server, adapter, newState);
         void this.#handlePowerStateEvent(server, newState);
@@ -566,84 +677,42 @@ export class StatusSyncService {
       onError: (error) => {
         this.logger.warn(`Console bridge issue for ${server.name}`, error);
       },
-      sendLogs: supportsConsole
+      sendLogs: false
     });
 
     this.consoleUnsubscribers.set(serverId, unsubscribe);
   }
 
   async #handleConsoleConnected(server, adapter) {
-    if (!adapter.shouldRefreshOnlinePlayersOnConsoleConnect?.()) {
+    if (!this.#isCurrentRuntime(server, adapter) || !adapter.shouldRefreshOnlinePlayersOnConsoleConnect?.()) {
       return;
     }
 
     try {
       await adapter.refreshOnlinePlayers();
+      if (this.#isCurrentRuntime(server, adapter)) this.#scheduleUpdate();
     } catch (error) {
       this.logger.warn(`Failed refreshing online players after console reconnect for ${server.name}`, error);
     }
   }
 
-  async #handleConsoleLine(server, adapter, line, { connectedAt = null, isBacklog = false, isReconnect = false } = {}) {
-    if (isBacklog && !isReconnect) {
-      return;
-    }
-
-    const isWarmingUp = isConsoleRelayWarmingUp(connectedAt);
-    if (!isBacklog && !isWarmingUp && adapter.shouldRefreshOnlinePlayers(line)) {
+  async #handleConsoleLine(server, adapter, line, { isBacklog = false } = {}) {
+    if (!this.#isCurrentRuntime(server, adapter) || isBacklog) return;
+    if (adapter.shouldRefreshOnlinePlayers(line)) {
       adapter.applyPlayerEvent?.(line);
       this.#scheduleUpdate();
-      adapter.refreshOnlinePlayers().catch((error) => {
+      adapter.refreshOnlinePlayers().catch(error => {
         this.logger.warn(`Failed refreshing online players for ${server.name}`, error);
       });
     }
-
-    const relayMessage = adapter.parseConsoleChatLine(line);
-    if (!relayMessage) {
-      return;
-    }
-
-    if (this.#isDuplicateRelayLine(server, line)) {
-      return;
-    }
-    this.#rememberRelayLine(server, line);
-
+    if (!isServerRelayEnabled(server)) return;
+    const message = adapter.parseConsoleChatLine(line);
+    if (!message || this.relayService.isEcho(server.pterodactylServerId, message)) return;
     try {
-      await this.eventBus.emit(CoreEvents.GAME_CHAT_RELAY, {
-        server,
-        ...relayMessage
-      });
-      this.logger.info("Game console chat forwarded", {
-        server: server.name,
-        serverId: server.pterodactylServerId,
-        game: server.game?.type ?? "unknown",
-        authorName: relayMessage.authorName
-      });
+      this.relayService.acceptGame(server, message);
     } catch (error) {
-      this.logger.error(`Failed forwarding game chat for ${server.name}`, error);
+      this.logger.error(`Failed accepting game chat for ${server.name}`, error);
     }
-  }
-
-  #relayLineKey(server, line) {
-    return `${server.pterodactylServerId}|${String(line ?? "").trim()}`;
-  }
-
-  #pruneRecentRelayLines(now = Date.now()) {
-    for (const [key, seenAt] of this.recentRelayLines.entries()) {
-      if (now - seenAt > RECENT_RELAY_LINE_TTL_MS) {
-        this.recentRelayLines.delete(key);
-      }
-    }
-  }
-
-  #isDuplicateRelayLine(server, line) {
-    this.#pruneRecentRelayLines();
-    return this.recentRelayLines.has(this.#relayLineKey(server, line));
-  }
-
-  #rememberRelayLine(server, line) {
-    this.#pruneRecentRelayLines();
-    this.recentRelayLines.set(this.#relayLineKey(server, line), Date.now());
   }
 
   async #checkServerStateChange(server, currentState) {
@@ -663,6 +732,8 @@ export class StatusSyncService {
   }
 
   async #handlePowerStateEvent(server, currentState) {
+    server = this.config.servers.find((entry) => entry.pterodactylServerId === server.pterodactylServerId);
+    if (!server || this.stopped || !isServerMonitoringEnabled(server)) return;
     this.#cachePowerState(server, currentState);
     this.serverOnlineStates.set(server.pterodactylServerId, this.#isServerRunning(currentState));
     const previousState = this.serverPowerStates.get(server.pterodactylServerId);
@@ -779,186 +850,4 @@ export class StatusSyncService {
     }
   }
 
-  async #handleMessage(message) {
-    const sourcePlatform = message.sourcePlatform === "kook" ? "kook" : "discord";
-    const server = this.config.servers.find((entry) => !entry.archived && (
-      sourcePlatform === "kook"
-        ? entry.kookChannelId === message.channelId
-        : entry.discordChannelId === message.channelId
-    ));
-    if (!server || !message.content) {
-      return;
-    }
-
-    try {
-      await this.eventBus.emit(CoreEvents.GROUP_CHAT_RELAY, {
-        server,
-        sourcePlatform,
-        authorName: message.authorName,
-        content: message.content
-      });
-    } catch (error) {
-      this.logger.warn(`Failed cross-posting ${sourcePlatform.toUpperCase()} message for ${server.name}`, error);
-    }
-
-    const adapter = this.adapters.get(server.pterodactylServerId);
-    if (!adapter) return;
-
-    const relay = {
-      sourcePlatform,
-      authorName: message.authorName,
-      authorColor: message.authorColor ?? null,
-      platformColor: message.platformColor ?? null,
-      content: truncateRelayContent(message.content),
-      enqueuedAt: Date.now()
-    };
-    const command = buildGameChatCommand(server, relay);
-    if (!command) return;
-
-    const gameType = server.type ?? server.game?.type;
-    if (gameType === "factorio" || gameType === "minecraft") {
-      const queue = this.#getRelayQueue(server.pterodactylServerId);
-      queue.push(relay);
-      const droppedCount = Math.max(0, queue.length - MAX_RELAY_QUEUE_LENGTH);
-      if (droppedCount > 0) {
-        queue.splice(0, droppedCount);
-      }
-      this.#setRelayQueue(server.pterodactylServerId, queue);
-      this.logger.info("Game relay queued", { server: server.name, serverId: server.pterodactylServerId, queueLength: queue.length });
-      if (droppedCount > 0) {
-        await this.#publishRelayQueueOverflow(server);
-      }
-      await this.#expireQueuedRelays(server);
-      void this.#flushQueuedRelays(server, adapter);
-      return;
-    }
-
-    try {
-      await this.#deliverRelay(adapter, command, relay);
-    } catch (error) {
-      await this.#publishRelayFailure(server, sourcePlatform, error);
-    }
-  }
-
-  #getRelayQueue(serverId) {
-    if (typeof this.stateStore?.getRelayQueue === "function") {
-      return [...this.stateStore.getRelayQueue(serverId)];
-    }
-    return [...(this.inMemoryRelayQueues.get(serverId) ?? [])];
-  }
-
-  #setRelayQueue(serverId, queue) {
-    // Re-arm the overflow notice once the queue has room again, so a full queue
-    // reports once per episode instead of once per dropped message.
-    if (queue.length < MAX_RELAY_QUEUE_LENGTH) {
-      this.relayOverflowNotified.delete(serverId);
-    }
-
-    if (typeof this.stateStore?.setRelayQueue === "function") {
-      this.stateStore.setRelayQueue(serverId, queue);
-      return;
-    }
-    if (queue.length > 0) this.inMemoryRelayQueues.set(serverId, queue);
-    else this.inMemoryRelayQueues.delete(serverId);
-  }
-
-  async #publishRelayQueueOverflow(server) {
-    const serverId = server.pterodactylServerId;
-    this.logger.warn("Queued game relays dropped", {
-      server: server.name,
-      serverId,
-      limit: MAX_RELAY_QUEUE_LENGTH
-    });
-
-    if (this.relayOverflowNotified.has(serverId)) {
-      return;
-    }
-    this.relayOverflowNotified.add(serverId);
-
-    try {
-      await this.eventBus.emit(CoreEvents.SERVER_NOTICE, {
-        kind: "relay-queue-overflow",
-        server,
-        limit: MAX_RELAY_QUEUE_LENGTH
-      });
-    } catch (error) {
-      this.logger.warn(`Failed publishing relay queue overflow for ${server.name}`, error);
-    }
-  }
-
-  async #expireQueuedRelays(server, now = Date.now()) {
-    const queue = this.#getRelayQueue(server.pterodactylServerId);
-    const retained = queue.filter((relay) => Number(relay.enqueuedAt) + RELAY_QUEUE_TTL_MS > now);
-    const expiredCount = queue.length - retained.length;
-    if (!expiredCount) return;
-
-    this.#setRelayQueue(server.pterodactylServerId, retained);
-    this.logger.warn("Queued game relays expired", { server: server.name, serverId: server.pterodactylServerId, expiredCount });
-    try {
-      await this.eventBus.emit(CoreEvents.SERVER_NOTICE, {
-        kind: "relay-queue-expired",
-        server,
-        expiredCount
-      });
-    } catch (error) {
-      this.logger.warn(`Failed publishing relay queue expiry for ${server.name}`, error);
-    }
-  }
-
-  async #flushQueuedRelays(server, adapter) {
-    const serverId = server.pterodactylServerId;
-    if (this.relayFlushPromises.has(serverId)) return this.relayFlushPromises.get(serverId);
-    if (!this.pterodactylClient.isConsoleSessionReady?.(serverId)) return;
-
-    const flush = (async () => {
-      await this.#expireQueuedRelays(server);
-      let sent = 0;
-      while (this.pterodactylClient.isConsoleSessionReady?.(serverId)) {
-        const queue = this.#getRelayQueue(serverId);
-        const relay = queue[0];
-        if (!relay) break;
-        const command = buildGameChatCommand(server, relay);
-        if (!command) {
-          queue.shift();
-          this.#setRelayQueue(serverId, queue);
-          continue;
-        }
-        try {
-          await this.#deliverRelay(adapter, command, relay);
-        } catch (error) {
-          this.logger.warn("Queued game relay delivery will retry when the console is ready", {
-            server: server.name,
-            serverId,
-            error: error.message
-          });
-          break;
-        }
-        queue.shift();
-        this.#setRelayQueue(serverId, queue);
-        sent += 1;
-      }
-      if (sent) this.logger.info("Queued game relays flushed", { server: server.name, serverId, sent, remaining: this.#getRelayQueue(serverId).length });
-    })();
-    this.relayFlushPromises.set(serverId, flush);
-    try {
-      await flush;
-    } finally {
-      if (this.relayFlushPromises.get(serverId) === flush) this.relayFlushPromises.delete(serverId);
-    }
-  }
-
-  async #deliverRelay(adapter, command, relay) {
-    if (typeof adapter.handleChatCommand === "function") return adapter.handleChatCommand(command);
-    if (typeof adapter.handleChatMessage === "function") return adapter.handleChatMessage({ ...relay, command });
-    throw new Error(`Game adapter for ${adapter.serverConfig?.name ?? "unknown server"} cannot handle chat relay commands`);
-  }
-
-  async #publishRelayFailure(server, sourcePlatform, error) {
-    this.logger.error(`Failed processing ${sourcePlatform.toUpperCase()} message for ${server.name}`, error);
-    try {
-      await this.eventBus.emit(CoreEvents.SERVER_NOTICE, { kind: "relay-failed", server, message: error.message });
-    } catch (sendError) {
-      this.logger.warn(`Failed publishing relay error for ${server.name}`, sendError);
-    }
-  }
 }

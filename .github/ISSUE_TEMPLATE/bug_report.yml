@@ -1,0 +1,27 @@
+name: Bug report
+description: Report a setup, monitoring, relay, or recovery problem.
+body:
+  - type: markdown
+    attributes:
+      value: "Remove Discord tokens, API keys, credentials, private addresses, and player chat before attaching logs. Do not upload the data volume or .env."
+  - type: input
+    id: version
+    attributes:
+      label: Bridge release and Docker image tag
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Host OS, Docker/Node version, game and panel version
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps and expected versus actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Redacted diagnostics and logs
+      description: Include whether setup was fresh or migrated and whether restarting changes the symptom.

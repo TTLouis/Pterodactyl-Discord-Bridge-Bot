@@ -39,6 +39,7 @@ test("Satisfactory snapshots use the API player count and mark names unavailable
   const snapshot = await adapter.fetchSnapshot(runningResources);
 
   assert.equal(snapshot.playerCount, 3);
+  assert.equal(snapshot.playerCountReliable, true);
   assert.equal(snapshot.maxPlayers, 8);
   assert.equal(snapshot.gameDurationMs, 42000);
   assert.equal(snapshot.onlinePlayers, null);
@@ -72,6 +73,7 @@ test("Satisfactory snapshots retain the last known count during transient API fa
   const snapshot = await adapter.fetchSnapshot(runningResources);
 
   assert.equal(snapshot.playerCount, 2);
+  assert.equal(snapshot.playerCountReliable, false);
   assert.equal(snapshot.maxPlayers, 6);
   assert.equal(snapshot.gameDurationMs, 100000);
   assert.deepEqual(snapshot.satisfactoryState, {
@@ -127,4 +129,16 @@ test("Satisfactory config reload clears cached API state", async () => {
     activeSchematic: "",
     gamePhase: ""
   });
+});
+
+
+test("Satisfactory requires an explicit valid player count before reporting reliable inactivity", async () => {
+  for (const numConnectedPlayers of [undefined, null, -1, "0", Number.NaN]) {
+    const adapter = createAdapter(async () => ({ numConnectedPlayers }));
+    assert.equal((await adapter.fetchSnapshot(runningResources)).playerCountReliable, false);
+  }
+  const zero = createAdapter(async () => ({ numConnectedPlayers: 0 }));
+  assert.equal((await zero.fetchSnapshot(runningResources)).playerCountReliable, true);
+  const failed = createAdapter(async () => { throw new Error("game API offline"); });
+  assert.equal((await failed.fetchSnapshot(runningResources)).playerCountReliable, false);
 });

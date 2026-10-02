@@ -14,7 +14,9 @@ function createDefaultState() {
     actionMessages: {},
     serverRuntime: {},
     autoStop: {},
-    relayQueue: {}
+    relayQueue: {},
+    relayOutbox: {},
+    relayReceipts: {}
   };
 }
 
@@ -60,6 +62,8 @@ export class StateStore {
     this.state.serverRuntime ??= {};
     this.state.autoStop ??= {};
     this.state.relayQueue ??= {};
+    this.state.relayOutbox ??= {};
+    this.state.relayReceipts ??= {};
     return this.state;
   }
 
@@ -252,6 +256,14 @@ export class StateStore {
   clearAutoStopState(serverId) {
     delete this.state.autoStop[serverId];
     this.save();
+  }
+
+  getRelayOutbox() { return this.state.relayOutbox ?? {}; }
+  getRelayReceipts() { return this.state.relayReceipts ?? {}; }
+  setRelayOutbox(outbox, receipts) {
+    this.state.relayOutbox = outbox;
+    this.state.relayReceipts = receipts;
+    this.saveSoon();
   }
 
   getRelayQueue(serverId) {

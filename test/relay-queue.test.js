@@ -155,3 +155,22 @@ test("messages within the limit are queued unchanged", async () => {
     await harness.stop();
   }
 });
+
+test("relay input subscriptions are idempotent and removed across service restarts", async () => {
+  const harness = createRelayService();
+  const active = new Set();
+  let registrations = 0;
+  harness.service.discordBridge.onMessage = handler => {
+    registrations++; active.add(handler);
+    return () => active.delete(handler);
+  };
+  try {
+    await harness.start(); await harness.start();
+    assert.equal(registrations, 1);
+    assert.equal(active.size, 1);
+    await harness.stop(); assert.equal(active.size, 0);
+    await harness.start(); assert.equal(active.size, 1);
+    for (const handler of active) handler({ channelId: "factory-channel", authorName: "Louis", content: "once", messageId: "once" });
+    assert.equal(harness.queue().length, 1);
+  } finally { await harness.stop(); }
+});
