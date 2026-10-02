@@ -1,5 +1,7 @@
 # Pterodactyl Platform Bridge
 
+> **AI assistance:** I use OpenAI Codex to help develop and document this project. I maintain the project and make the release decisions.
+
 Manage your Pterodactyl game servers from Discord, with optional KOOK mirroring. See server status and players, relay game chat, control server power, and stop empty servers automatically.
 
 One installation connects **one Discord guild to one Pterodactyl panel**. All features are free under the [MIT License](LICENSE).
