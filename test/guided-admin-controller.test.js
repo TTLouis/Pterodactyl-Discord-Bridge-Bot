@@ -714,3 +714,38 @@ test("Settings exposes, persists and clears the archive message", async t => {
   const restarted=new PersistentConfigStore(f.paths);assert.equal(restarted.load(),true);assert.equal(restarted.getManagedServers()[0].archiveNote,"World preserved for the next season");assert.equal(f.config.servers[0].archiveNote,"World preserved for the next season");
   values.archive="";await f.controller.handleInteraction(submit);assert.equal(f.store.getManagedServers()[0].archiveNote,null);
 });
+
+
+test("Source server address can be edited from its admin card and persists across restarts", async (t) => {
+  const f = fixture(t); f.add({ active: true, discordChannelId: "retained", publicAddress: "Source UDP", publicPort: 37001, game: { type: "source" } });
+  const card = buildServerSetupCard({ identifier: "server", name: "L4D2" }, f.store.getManagedServers()[0]);
+  assert.ok(card.components.flatMap(row => row.components).some(button => button.data.custom_id === "bridge:card:server:network"));
+  assert.ok(card.components.every(row => row.components.length <= 5));
+  await f.controller.handleInteraction(f.interaction("bridge:card:server:network"));
+  const modal = f.replies.at(-1).modal.toJSON();
+  assert.equal(modal.custom_id, "bridge:card:server:save-network");
+  assert.deepEqual(modal.components.map(row => row.components[0].value), ["Source UDP", "37001"]);
+  const submit = f.interaction(modal.custom_id, { modal: true });
+  submit.fields = { getTextInputValue: key => ({ address: " play.example.com ", port: "37002" })[key] };
+  await f.controller.handleInteraction(submit);
+  assert.equal(f.config.servers[0].publicAddress, "play.example.com");
+  assert.equal(f.config.servers[0].publicPort, 37002);
+  assert.ok(f.calls.some(([method]) => method === "reconcile"));
+  const restarted = new PersistentConfigStore(f.paths); assert.equal(restarted.load(), true);
+  assert.equal(restarted.getManagedServers()[0].publicAddress, "play.example.com");
+  assert.equal(restarted.getManagedServers()[0].publicPort, 37002);
+  assert.equal(f.store.document.audit.at(-1).action, "server.network");
+});
+
+test("invalid server address edits keep the saved network configuration", async (t) => {
+  const f = fixture(t); f.add({ publicAddress: "play.example.com", publicPort: 37001 });
+  for (const [address, port] of [["Source UDP", "37001"], ["https://play.example.com", "37001"], ["play.example.com:37001", "37001"], ["", "37001"], ["play.example.com", "0"], ["play.example.com", "65536"], ["play.example.com", "37001.5"], ["play.example.com", "3e4"]]) {
+    const submit = f.interaction("bridge:card:server:save-network", { modal: true });
+    submit.fields = { getTextInputValue: key => ({ address, port })[key] };
+    await f.controller.handleInteraction(submit);
+    assert.match(f.replies.at(-1).content, /Enter a public hostname or IP/);
+    assert.equal(f.store.getManagedServers()[0].publicAddress, "play.example.com");
+    assert.equal(f.store.getManagedServers()[0].publicPort, 37001);
+  }
+  assert.equal(f.calls.some(([method]) => method === "reconcile"), false);
+});

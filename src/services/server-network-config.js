@@ -1,3 +1,4 @@
+import { isServerAddress } from "../lib/server-address.js";
 import { deriveSatisfactoryApiUrl } from "../lib/config.js";
 
 function hasConfiguredValue(value) {
@@ -5,11 +6,14 @@ function hasConfiguredValue(value) {
 }
 
 function normalizeAllocationAddress(allocation) {
-  return allocation?.ipAlias || allocation?.ip || null;
+  const alias = allocation?.ipAlias?.trim();
+  if (isServerAddress(alias)) return alias;
+  const ip = allocation?.ip?.trim();
+  return isServerAddress(ip) ? ip : null;
 }
 
 function needsNetworkHydration(server) {
-  return !hasConfiguredValue(server.publicAddress)
+  return !isServerAddress(server.publicAddress)
     || !hasConfiguredValue(server.publicPort)
     || (server.game?.type === "satisfactory" && !server.game.apiUrl);
 }
@@ -18,7 +22,7 @@ function applyAllocation(server, allocation) {
   const changes = [];
   const address = normalizeAllocationAddress(allocation);
 
-  if (!hasConfiguredValue(server.publicAddress) && address) {
+  if (!isServerAddress(server.publicAddress) && address) {
     server.publicAddress = address;
     changes.push("publicAddress");
   }
