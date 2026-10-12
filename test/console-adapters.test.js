@@ -2,6 +2,27 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { FactorioAdapter } from "../src/adapters/factorio-adapter.js";
 import { MinecraftAdapter } from "../src/adapters/minecraft-adapter.js";
+import { CHAT_RELAY_JOIN_HINT } from "../src/lib/chat-relay-hints.js";
+
+test("private join hints target literal Minecraft and Factorio players", () => {
+  const minecraft = createMinecraftAdapter(async () => []);
+  const factorio = createFactorioAdapter(async () => []);
+  assert.deepEqual(minecraft.parsePlayerEvent("[12:00:00] [Server thread/INFO]: Alice joined the game"), { authorName: "Alice", joined: true });
+  assert.deepEqual(minecraft.parsePlayerEvent("Alice left the game"), { authorName: "Alice", joined: false });
+  assert.deepEqual(factorio.parsePlayerEvent("2026-10-11 12:00:00 [JOIN] Alice joined the game"), { authorName: "Alice", joined: true });
+  assert.deepEqual(factorio.parsePlayerEvent("[2026-10-11T12:00:00Z] [AIR] Factorio] [LEAVE] Alice left the game"), { authorName: "Alice", joined: false });
+  assert.equal(factorio.parsePlayerEvent("[CHAT] Alice: [JOIN] Bob joined the game"), null);
+  assert.equal(factorio.parsePlayerEvent("[JOIN] Alice left the game"), null);
+  assert.equal(minecraft.parsePlayerEvent("<Alice> Bob joined the game"), null);
+  assert.equal(minecraft.buildPlayerJoinHintCommand("Alice"), `/tellraw Alice ${JSON.stringify({ text: CHAT_RELAY_JOIN_HINT })}`);
+  assert.equal(factorio.buildPlayerJoinHintCommand("Alice"), `/whisper Alice ${CHAT_RELAY_JOIN_HINT}`);
+  for (const name of ["@a", "Alice\n/stop", "Alice Bob", 'Alice"', ""]) {
+    assert.equal(minecraft.buildPlayerJoinHintCommand(name), null);
+  }
+  for (const name of ["Alice\n/quit", "Alice Bob", 'Alice"', ""]) {
+    assert.equal(factorio.buildPlayerJoinHintCommand(name), null);
+  }
+});
 
 const runningResources = {
   currentState: "running",

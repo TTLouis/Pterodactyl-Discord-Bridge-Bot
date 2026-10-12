@@ -1,4 +1,5 @@
 import { CHAT_RELAY_CAPTURE_MS } from "../lib/relay-limits.js";
+import { CHAT_RELAY_JOIN_HINT } from "../lib/chat-relay-hints.js";
 
 const ONLINE_PLAYERS_COMMAND = "/players o";
 const TIME_COMMAND = "/time";
@@ -323,6 +324,19 @@ export class FactorioAdapter {
 
   shouldRefreshOnlinePlayers(line) {
     return FACTORIO_PLAYER_EVENT_PATTERN.test(String(line ?? "").trim());
+  }
+
+  parsePlayerEvent(line) {
+    const match = unwrapFactorioConsoleValue(normalizeConsoleLine(line))
+      .match(/^(?:\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} )?\[(JOIN|LEAVE)\] (.+) (joined|left) the game$/);
+    if (!match || (match[1] === "JOIN") !== (match[3] === "joined")) return null;
+    return { authorName: match[2], joined: match[1] === "JOIN" };
+  }
+
+  buildPlayerJoinHintCommand(name) {
+    // Whisper takes a single player-name argument; never split or alter a name.
+    if (!name || /[\s\u0000-\u001F\u007F"\\]/u.test(name)) return null;
+    return `/whisper ${name} ${CHAT_RELAY_JOIN_HINT}`;
   }
 
   applyPlayerEvent(line) {

@@ -10,7 +10,7 @@
   "description": "Discord bridge for Factorio, Minecraft and Satisfactory, with optional KOOK. Node 24 packaged image; private data persists in data/. Complete configuration through /bridge setup. Pterodactyl live acceptance pending.",
   "features": [],
   "docker_images": {
-    "Bridge 0.3.0-beta.3": "ghcr.io/ttlouis/pterodactyl-discord-bridge-bot:0.3.0-beta.3"
+    "Bridge 0.3.0-beta.3.1": "ghcr.io/ttlouis/pterodactyl-discord-bridge-bot:0.3.0-beta.3.1"
   },
   "file_denylist": [
     "data/*"

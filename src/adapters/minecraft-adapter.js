@@ -1,4 +1,5 @@
 import { CHAT_RELAY_CAPTURE_MS } from "../lib/relay-limits.js";
+import { CHAT_RELAY_JOIN_HINT } from "../lib/chat-relay-hints.js";
 
 const LIST_COMMAND = "/list";
 const TIME_COMMAND = "/time query gametime";
@@ -238,6 +239,17 @@ export class MinecraftAdapter {
 
   shouldRefreshOnlinePlayers(line) {
     return MC_PLAYER_EVENT_PATTERN.test(normalizeConsoleLine(line));
+  }
+
+  parsePlayerEvent(line) {
+    const match = normalizeConsoleLine(line).match(MC_PLAYER_EVENT_PATTERN);
+    return match ? { authorName: match[1], joined: match[2] === "joined" } : null;
+  }
+
+  buildPlayerJoinHintCommand(name) {
+    // A literal Java player name must never be interpreted as a target selector.
+    if (!/^[A-Za-z0-9_]{1,16}$/.test(name)) return null;
+    return `/tellraw ${name} ${JSON.stringify({ text: CHAT_RELAY_JOIN_HINT })}`;
   }
 
   applyPlayerEvent(line) {

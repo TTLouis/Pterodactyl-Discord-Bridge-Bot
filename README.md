@@ -25,6 +25,8 @@ One installation connects **one Discord guild to one Pterodactyl panel**. All fe
 
 Compatibility depends on your game's console output or API. Source 2 and game-specific plugins may need additional compatibility work. To forward a message from Discord, KOOK, or in-game chat, start it with `#`, for example `#hello everyone`. The bridge removes the leading `#` before forwarding; messages without it and empty messages such as `#` alone stay local. Chat relay forwards new text messages; attachments, edits, deletions, and game chat sent while the bridge is disconnected are not recovered.
 
+When relay is enabled, joining Factorio and Minecraft players receive a private hint: "Start messages with # to send them to the linked chat channel."
+
 ## Before you install
 
 You need:

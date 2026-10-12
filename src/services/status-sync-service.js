@@ -75,6 +75,7 @@ function mergeSyncOptions(current, next) {
 }
 
 export class StatusSyncService {
+  playerJoinHints = new WeakMap();
   constructor({
     config,
     discordBridge,
@@ -176,6 +177,7 @@ export class StatusSyncService {
   }
 
   async stop() {
+    this.playerJoinHints = new WeakMap();
     this.stopped = true;
     this.runtimeGeneration += 1;
     this.started = false;
@@ -638,6 +640,7 @@ export class StatusSyncService {
     const shouldSubscribe = supportsConsole ? currentState === "running" : Boolean(adapter);
 
     if (!shouldSubscribe) {
+      this.playerJoinHints.delete(adapter);
       if (existing) {
         existing();
         this.consoleUnsubscribers.delete(serverId);
@@ -704,6 +707,7 @@ export class StatusSyncService {
 
   async #handleConsoleLine(server, adapter, line, { isBacklog = false } = {}) {
     if (!this.#isCurrentRuntime(server, adapter) || isBacklog) return;
+    this.#sendPlayerJoinHint(server, adapter, line);
     if (adapter.shouldRefreshOnlinePlayers(line)) {
       adapter.applyPlayerEvent?.(line);
       this.#scheduleUpdate();
@@ -719,6 +723,26 @@ export class StatusSyncService {
     } catch (error) {
       this.logger.error(`Failed accepting game chat for ${server.name}`, error);
     }
+  }
+
+  #sendPlayerJoinHint(server, adapter, line) {
+    const event = adapter.parsePlayerEvent?.(line);
+    if (!event) return;
+    const players = this.playerJoinHints.get(adapter) ?? new Set();
+    this.playerJoinHints.set(adapter, players);
+    if (!event.joined) { players.delete(event.authorName); return; }
+    if (!isServerRelayEnabled(server) || !(server.discordChannelId || server.kookChannelId)
+      || players.has(event.authorName)) return;
+    const command = adapter.buildPlayerJoinHintCommand?.(event.authorName);
+    if (!command) return;
+    players.add(event.authorName);
+    // Hints are best-effort and never replayed after a console reconnect.
+    void this.pterodactylClient.runCommand(server.pterodactylServerId, command, {
+      captureMs: 100,
+      isCurrent: () => this.#isCurrentRuntime(server, adapter) && isServerRelayEnabled(server)
+    }).catch(error => {
+      this.logger.warn(`Failed sending chat relay join hint for ${server.name}`, error);
+    });
   }
 
   async #checkServerStateChange(server, currentState) {
