@@ -70,7 +70,7 @@ function createRelayService() {
     server,
     notices,
     queue: () => queues.get("factory-id") ?? [],
-    send: (content) => messageHandler({ channelId: "factory-channel", authorName: "Louis", content }),
+    send: (content) => messageHandler({ channelId: "factory-channel", authorName: "Louis", content: `#${content}` }),
     async start() { await service.start(); },
     async stop() { await service.stop(); }
   };
@@ -170,7 +170,7 @@ test("relay input subscriptions are idempotent and removed across service restar
     assert.equal(active.size, 1);
     await harness.stop(); assert.equal(active.size, 0);
     await harness.start(); assert.equal(active.size, 1);
-    for (const handler of active) handler({ channelId: "factory-channel", authorName: "Louis", content: "once", messageId: "once" });
+    for (const handler of active) handler({ channelId: "factory-channel", authorName: "Louis", content: "#once", messageId: "once" });
     assert.equal(harness.queue().length, 1);
   } finally { await harness.stop(); }
 });

@@ -23,7 +23,9 @@ One installation connects **one Discord guild to one Pterodactyl panel**. All fe
 | Satisfactory | Player count | No standard chat relay | Game API token and reachable API endpoint |
 | Source 1 | Human player list | Supported | Pterodactyl console access; enable `log on` and `sv_logecho 1` in `server.cfg` |
 
-Compatibility depends on your game's console output or API. Source 2 and game-specific plugins may need additional compatibility work. Chat relay forwards new text messages; attachments, edits, deletions, and game chat sent while the bridge is disconnected are not recovered.
+Compatibility depends on your game's console output or API. Source 2 and game-specific plugins may need additional compatibility work. To forward a message from Discord, KOOK, or in-game chat, start it with `#`, for example `#hello everyone`. The bridge removes the leading `#` before forwarding; messages without it and empty messages such as `#` alone stay local. Chat relay forwards new text messages; attachments, edits, deletions, and game chat sent while the bridge is disconnected are not recovered.
+
+When relay is enabled, joining Factorio and Minecraft players receive a private hint: "Start messages with # to send them to the linked chat channel."
 
 ## Before you install
 
@@ -113,7 +115,7 @@ These steps are the same for all three installation methods.
 2. **Choose categories and access.** In the private administration channel, use **Categories / access role** or `/bridge categories` to select your private operations category, the destination category for published channels, and the role allowed to access those server channels. The private category must deny **View Channel** to `@everyone`. Selected categories keep their names and permissions; the server-access role is separate from the bridge administration role.
 3. **Connect your panel.** Run `/bridge connect` and enter your Panel URL and Client API key in the private modal. Use the Panel URL, rather than the Wings URL.
 4. **Choose a status channel.** Use the setup controls or `/bridge status-channel` to create a private status channel or select an existing one.
-5. **Add your servers.** Refresh discovery, choose each server's game, and import it. For Satisfactory, supply the game API token and check its endpoint/TLS settings through **Game API credentials**.
+5. **Add your servers.** Refresh discovery, choose each server's game, and import it. Use **Server address** on the imported card to set the public hostname/IP and game port. Monitoring fills missing addresses from the allocation's hostname alias or IP; descriptive aliases such as `Source UDP` use the IP instead. For Satisfactory, supply the game API token and check its endpoint/TLS settings through **Game API credentials**.
 6. **Start monitoring.** On each server card, select **Start monitoring** to create or reuse a private linked channel, or link an existing channel. Monitoring does not start the game server or publish it on the main status page.
 7. **Publish when ready.** Select **Publish status & channel** and review the confirmation. Publication lists the server on the status page and moves its linked channel to your selected destination, granting the selected server-access role and denying `@everyone`. It replaces other channel-specific access grants. A status channel created by the bridge also moves to the destination and uses that category's permissions. The administration channel and unpublished server channels stay private.
 8. **Enable optional features.** Use **Chat relay** and idle auto-stop settings on each server card. Standard relay commands are supplied automatically. Check player detection before enabling idle auto-stop.

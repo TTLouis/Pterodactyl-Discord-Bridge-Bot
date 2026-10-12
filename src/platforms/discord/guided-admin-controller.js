@@ -11,6 +11,7 @@ import { BridgeAdminController } from "./bridge-admin-controller.js";
 import { canAccessServer } from "../../core/administration/server-access.js";
 import { DiscordCategoryLayout } from "./category-layout.js";
 import { canRunBridgeSetup } from "./bridge-setup-controller.js";
+import { isServerAddress } from "../../lib/server-address.js";
 import { getConfigPath, loadConfig, normalizeServer } from "../../lib/config.js";
 
 export const GUIDED_ADMIN_COMMANDS = [
@@ -85,7 +86,7 @@ export class GuidedAdminController extends BridgeAdminController {
     const id = parts[1] === "card" ? parts[2] : pending?.serverId ?? interaction.options?.getString?.("server");
     const server = id ? this.configStore.getManagedServers().find((entry) => entry.pterodactylServerId === id) : null;
     const action = parts[1] === "card" ? parts[3] : parts[1] === "guide" ? parts[2] : pending ? pending.kind === "publish" ? "publish" : "activate" : interaction.options?.getSubcommand?.(false) ?? parts[1];
-    const descriptions = { activate: "Starting monitoring", confirm: "Starting monitoring", publish: "Publishing status and linked-channel access", settings: "Updating settings", disable: "Disabling monitoring", archive: "Updating archive state", refresh: "Refreshing discovery", relay: "Updating chat relay", "relay-set": "Updating chat relay", "relay-custom-save": "Updating custom relay command", "save-settings": "Updating server settings", connect: "Validating panel connection", import: "Importing server", "status-create": "Creating status channel", "status-channel": "Updating status channel", categories: "Updating channel categories" };
+    const descriptions = { activate: "Starting monitoring", confirm: "Starting monitoring", publish: "Publishing status and linked-channel access", settings: "Updating settings", disable: "Disabling monitoring", archive: "Updating archive state", refresh: "Refreshing discovery", relay: "Updating chat relay", "relay-set": "Updating chat relay", "relay-custom-save": "Updating custom relay command", "save-settings": "Updating server settings", "network": "Editing server address", "save-network": "Updating server address", connect: "Validating panel connection", import: "Importing server", "status-create": "Creating status channel", "status-channel": "Updating status channel", categories: "Updating channel categories" };
     return `${descriptions[action] ?? "Updating bridge configuration"}${server ? ` for **${label(server.name)}**` : ""}`;
   }
   busyMessage() { return `${this.currentOperation ?? "Refreshing discovery and administration cards"} is in progress. Wait for its result, then retry.`; }
@@ -137,8 +138,9 @@ export class GuidedAdminController extends BridgeAdminController {
     let discovered;
     try { discovered = await this.pterodactylClient.listAccessibleServers(); }
     catch {
-      if (checkAvailability && !this.locked) await this.markUnavailable(this.configStore.getManagedServers().filter((server) => server.active));
-      await this.upsert(channel, "connection-health", { content: "⚠️ Panel discovery failed. Check the panel URL, Client API access, and connectivity. Servers are not assumed deleted; inspect Diagnostics before reactivation.", components: [], allowedMentions: { parse: [] } });
+      // A failed discovery request provides no evidence about individual servers.
+      // Keep monitoring so a temporary panel outage can recover on the next poll.
+      await this.upsert(channel, "connection-health", { content: "⚠️ Panel discovery failed. Check the panel URL, Client API access, and connectivity. Existing monitoring settings are preserved; discovery will retry automatically.", components: [], allowedMentions: { parse: [] } });
       return;
     }
     this.discovery = { at: Date.now(), servers: discovered };
@@ -427,6 +429,25 @@ export class GuidedAdminController extends BridgeAdminController {
       return this.reply(interaction, "Game API settings saved privately. Reactivate if this record is paused.");
     }
     if (await this.relaySettings.handle(interaction, server, action)) return;
+    if (action === "network") {
+      const address = new TextInputBuilder().setCustomId("address").setLabel("Public hostname or IP (without port)").setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(253);
+      const port = new TextInputBuilder().setCustomId("port").setLabel("Public game port (1–65535)").setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(5);
+      if (server.publicAddress) address.setValue(server.publicAddress);
+      if (server.publicPort) port.setValue(String(server.publicPort));
+      return interaction.showModal(new ModalBuilder().setCustomId(`bridge:card:${id}:save-network`).setTitle("Server address").addComponents(row(address), row(port)));
+    }
+    if (action === "save-network") {
+      const publicAddress = interaction.fields.getTextInputValue("address").trim();
+      const port = interaction.fields.getTextInputValue("port").trim();
+      const publicPort = Number(port);
+      if (!isServerAddress(publicAddress) || !/^\d+$/.test(port) || !Number.isInteger(publicPort) || publicPort < 1 || publicPort > 65535) {
+        return this.reply(interaction, "Enter a public hostname or IP without a scheme or port, and a game port from 1 to 65535.");
+      }
+      await this.acknowledge(interaction);
+      this.configStore.updateManagedServer(id, { publicAddress, publicPort });
+      this.audit("server.network", interaction, id);
+      return this.reply(interaction, "Server address saved. Status messages will use the new public address.");
+    }
     if (action === "settings") {
       const fields = [ ["name", "Display name", server.name, TextInputStyle.Short], ["description", "Description (one line per entry)", (server.description ?? []).join("\n"), TextInputStyle.Paragraph], ["idle", "Idle hours; blank disables auto-stop", server.autoStop?.enabled ? String(server.autoStop.emptyTimeoutHours) : "", TextInputStyle.Short], ["warning", "Auto-stop warning in minutes", String(server.autoStop?.warningMinutesBefore ?? 60), TextInputStyle.Short], ["archive", "Archive message; blank uses default", server.archiveNote ?? "", TextInputStyle.Paragraph] ];
       const modal = new ModalBuilder().setCustomId(`bridge:card:${id}:save-settings`).setTitle("Server settings");

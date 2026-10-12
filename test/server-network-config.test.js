@@ -71,3 +71,23 @@ test("configured server network fields are not overwritten", async () => {
   assert.equal(config.servers[0].publicAddress, "manual.example.com");
   assert.equal(config.servers[0].publicPort, 25565);
 });
+
+for (const publicAddress of ["", "Source UDP"]) {
+  test(`Source allocation labels use the IP instead (saved address: ${publicAddress || "missing"})`, async () => {
+    const server = { name: "L4D2", pterodactylServerId: "source", publicAddress, publicPort: 37001, game: { type: "source" } };
+    await hydrateServerNetworkConfig({ config: { servers: [server] }, pterodactylClient: {
+      async getServerDefaultAllocation() { return { ip: "203.0.113.10", ipAlias: "Source UDP", port: 37001 }; }
+    } });
+    assert.equal(server.publicAddress, "203.0.113.10");
+    assert.equal(server.publicPort, 37001);
+  });
+}
+
+test("valid trimmed hostname aliases remain preferred to the allocation IP", async () => {
+  const server = { name: "L4D2", pterodactylServerId: "source", game: { type: "source" } };
+  await hydrateServerNetworkConfig({ config: { servers: [server] }, pterodactylClient: {
+    async getServerDefaultAllocation() { return { ip: "203.0.113.10", ipAlias: " play.example.com ", port: 37001 }; }
+  } });
+  assert.equal(server.publicAddress, "play.example.com");
+  assert.equal(server.publicPort, 37001);
+});
