@@ -10,6 +10,12 @@ const routeKey = server => JSON.stringify([
 const explicitlyDisabled = server => !server || server.archived || server.deleted
   || (server.active === false && !server.unavailable) || server.chatRelay === false || server.chatRelay?.enabled === false;
 
+function getPrefixedRelayContent(value, sourcePlatform) {
+  const text = String(value ?? "");
+  // Check before normalization: a channel mention must not become a relay prefix.
+  return text.startsWith("#") ? normalizeRelayText(text.slice(1), sourcePlatform) : "";
+}
+
 /** Persistent FIFO delivery, independent of status polling and platform latency. */
 export class RelayService {
   constructor({ config, stateStore, eventBus, pterodactylClient, getAdapter, isCurrent,
@@ -163,7 +169,7 @@ export class RelayService {
     const sourcePlatform = message.sourcePlatform === "kook" ? "kook" : "discord";
     const server = this.config.servers.find(entry => isServerRelayEnabled(entry) &&
       (sourcePlatform === "kook" ? entry.kookChannelId : entry.discordChannelId) === message.channelId);
-    const content = normalizeRelayText(message.content, sourcePlatform);
+    const content = getPrefixedRelayContent(message.content, sourcePlatform);
     if (!server || !content) return false; // Text-only; attachments/edits are outside relay scope.
     this.#pruneReceipts();
     const receipt = message.messageId ? JSON.stringify([sourcePlatform, message.channelId, message.messageId]) : null;
@@ -203,8 +209,10 @@ export class RelayService {
 
   acceptGame(server, message) {
     if (this.stopped || !isServerRelayEnabled(server)) return;
+    const content = getPrefixedRelayContent(message.content);
+    if (!content) return;
     const relay = { ...message, authorName: sanitizeAuthorName(message.authorName),
-      content: normalizeRelayText(message.content), id: randomUUID(), sourcePlatform: "game", enqueuedAt: this.now(),
+      content, id: randomUUID(), sourcePlatform: "game", enqueuedAt: this.now(),
       serverId: server.pterodactylServerId, route: routeKey(server), state: "pending" };
     const targets = this.#enqueuePlatforms(server, relay);
     try { this.#persist(); }

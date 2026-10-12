@@ -23,7 +23,7 @@ One installation connects **one Discord guild to one Pterodactyl panel**. All fe
 | Satisfactory | Player count | No standard chat relay | Game API token and reachable API endpoint |
 | Source 1 | Human player list | Supported | Pterodactyl console access; enable `log on` and `sv_logecho 1` in `server.cfg` |
 
-Compatibility depends on your game's console output or API. Source 2 and game-specific plugins may need additional compatibility work. Chat relay forwards new text messages; attachments, edits, deletions, and game chat sent while the bridge is disconnected are not recovered.
+Compatibility depends on your game's console output or API. Source 2 and game-specific plugins may need additional compatibility work. To forward a message from Discord, KOOK, or in-game chat, start it with `#`, for example `#hello everyone`. The bridge removes the leading `#` before forwarding; messages without it and empty messages such as `#` alone stay local. Chat relay forwards new text messages; attachments, edits, deletions, and game chat sent while the bridge is disconnected are not recovered.
 
 ## Before you install
 

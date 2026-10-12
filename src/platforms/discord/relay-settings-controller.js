@@ -18,7 +18,7 @@ export class DiscordRelaySettingsController {
     if (action === "relay") {
       const state = getAdministrationState(server);
       if (!state.relaySupported) return this.reply(interaction, "Chat relay is not supported by the standard integration for this game. Monitoring and power controls remain available.");
-      return this.reply(interaction, `Chat relay for ${label(server.name)} is ${server.chatRelay === false || server.chatRelay?.enabled === false ? "off" : "on"}. Standard commands are supplied automatically for this game.`, { components: [
+      return this.reply(interaction, `Chat relay for ${label(server.name)} is ${server.chatRelay === false || server.chatRelay?.enabled === false ? "off" : "on"}. Start a Discord, KOOK, or in-game message with # to forward it (for example, #hello). The prefix is removed before forwarding. Standard commands are supplied automatically for this game.`, { components: [
         row(new StringSelectMenuBuilder().setCustomId(`bridge:card:${id}:relay-set`).setPlaceholder("Enable or disable chat relay").addOptions([{ label: "Enable chat relay", value: "on" }, { label: "Disable chat relay", value: "off" }])),
         row(button(`bridge:card:${id}:relay-custom`, "Advanced: custom command", "⚙️"))
       ] });

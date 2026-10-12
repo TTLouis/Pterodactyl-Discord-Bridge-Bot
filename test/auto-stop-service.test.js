@@ -599,7 +599,7 @@ test("KOOK channel messages relay to the matching game server", async () => {
     sourcePlatform: "kook",
     channelId: "kook-channel",
     authorName: "Kai",
-    content: "hello"
+    content: "#hello"
   });
   await new Promise((resolve) => setTimeout(resolve, 0));
   await service.stop();
@@ -1159,20 +1159,20 @@ test("console relay forwards live chat immediately and ignores reconnect history
   assert.equal(typeof lineHandler, "function");
 
   const connectedAt = Date.now();
-  lineHandler("2026-07-02 10:52:00 [CHAT] TTLouis: 那里了", {
+  lineHandler("2026-07-02 10:52:00 [CHAT] TTLouis: #那里了", {
     connectedAt,
     isBacklog: false
   });
-  lineHandler("2026-07-02 10:52:01 [CHAT] TTLouis: old message", {
+  lineHandler("2026-07-02 10:52:01 [CHAT] TTLouis: #old message", {
     connectedAt,
     isBacklog: true
   });
-  lineHandler("2026-07-02 10:52:02 [CHAT] TTLouis: reconnect message", {
+  lineHandler("2026-07-02 10:52:02 [CHAT] TTLouis: #reconnect message", {
     connectedAt,
     isBacklog: true,
     isReconnect: true
   });
-  lineHandler("2026-07-02 10:52:02 [CHAT] TTLouis: reconnect message", {
+  lineHandler("2026-07-02 10:52:02 [CHAT] TTLouis: #reconnect message", {
     connectedAt,
     isBacklog: true,
     isReconnect: true
@@ -1244,7 +1244,7 @@ test("Factorio relays stay queued until the running console session is ready", a
   });
 
   await service.start();
-  await messageHandler({ channelId: "factory-channel", authorName: "Louis", content: "queued" });
+  await messageHandler({ channelId: "factory-channel", authorName: "Louis", content: "#queued" });
   assert.equal(queues.get("factory-id").length, 1);
   assert.deepEqual(commands, []);
 
