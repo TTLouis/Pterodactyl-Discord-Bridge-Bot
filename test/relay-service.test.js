@@ -68,9 +68,53 @@ function fixture(t, { ready = true, platformSend = null, gameSend = null, game =
     queue: () => state.getRelayQueue("world"),
     advance: ms => { clock += ms; },
     send: (content, messageId = undefined, sourcePlatform = "discord") => service.accept({
-      sourcePlatform, channelId: sourcePlatform === "discord" ? "discord" : "kook", authorName: "Alice", content, messageId
+      sourcePlatform, channelId: sourcePlatform === "discord" ? "discord" : "kook", authorName: "Alice", content: `#${content}`, messageId
     }) };
 }
+
+test("platform messages require a literal leading # and strip only that prefix", async t => {
+  const f = fixture(t);
+  for (const sourcePlatform of ["discord", "kook"]) {
+    const receipts = { ...f.state.getRelayReceipts() };
+    const send = content => f.service.accept({ sourcePlatform,
+      channelId: sourcePlatform, authorName: "Alice", content, messageId: content });
+    for (const content of ["hello", "hello #world", "", "#", "# \n\t", "<#123>", "(chn)123(chn)"]) {
+      assert.equal(send(content), false);
+    }
+    assert.equal(f.queue().length, 0);
+    assert.deepEqual(f.state.getRelayOutbox(), {});
+    assert.deepEqual(f.state.getRelayReceipts(), receipts);
+    assert.equal(send("# hello"), true);
+    assert.equal(send("##topic"), true);
+    await settle(f.service);
+  }
+  assert.deepEqual(f.calls.filter(call => call.platform === "game").map(call => call.command), [
+    "/say [Discord] Alice: hello", "/say [Discord] Alice: #topic",
+    "/say [KOOK] Alice: hello", "/say [KOOK] Alice: #topic"
+  ]);
+  for (const platform of ["discord", "kook"]) {
+    assert.deepEqual(f.calls.filter(call => call.platform === platform).map(call => call.content), ["hello", "#topic"]);
+  }
+});
+
+test("game messages stay local without # and forward stripped content to linked channels", async t => {
+  const f = fixture(t);
+  for (const content of ["hello", "hello #world", "", "#", "# \n\t"]) {
+    f.service.acceptGame(f.server, { authorName: "Player", content });
+  }
+  await settle(f.service);
+  assert.equal(f.calls.length, 0);
+  assert.deepEqual(f.state.getRelayOutbox(), {});
+  f.service.acceptGame(f.server, { authorName: "Player", content: "# hello" });
+  f.service.acceptGame(f.server, { authorName: "Player", content: "##topic" });
+  await settle(f.service);
+  for (const platform of ["discord", "kook"]) {
+    assert.deepEqual(f.calls.filter(call => call.platform === platform).map(call => call.formattedContent), [
+      "**Player**: hello", "**Player**: #topic"
+    ]);
+  }
+  assert.equal(f.calls.filter(call => call.platform === "game").length, 0);
+});
 
 test("new messages arriving during an in-flight send are retained and dispatched once", async t => {
   const hold = deferred();
@@ -170,7 +214,7 @@ test("one platform failure cannot block the other destination, and does not clai
     if (platform === "discord") throw Object.assign(new Error("network timeout"), { deliveryStatus: "unknown" });
     return { platform };
   } });
-  f.service.acceptGame(f.server, { authorName: "Player", content: "hello" });
+  f.service.acceptGame(f.server, { authorName: "Player", content: "#hello" });
   await settle(f.service);
   assert.deepEqual(f.calls.map(call => call.platform).sort(), ["discord", "kook"]);
   assert.equal(f.notices.filter(event => event.kind === "relay-uncertain").length, 1);
@@ -239,8 +283,8 @@ test("expired jobs are removed before capacity overflow is applied", async t => 
 
 test("live game repetitions survive while server-origin custom echoes are suppressed", async t => {
   const f = fixture(t);
-  f.service.acceptGame(f.server, { authorName: "Player", content: "same" });
-  f.service.acceptGame(f.server, { authorName: "Player", content: "same" });
+  f.service.acceptGame(f.server, { authorName: "Player", content: "#same" });
+  f.service.acceptGame(f.server, { authorName: "Player", content: "#same" });
   f.send("custom echo");
   await settle(f.service);
   assert.equal(f.calls.filter(call => call.platform === "discord").length, 2);
