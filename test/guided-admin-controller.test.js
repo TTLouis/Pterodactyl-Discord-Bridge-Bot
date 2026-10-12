@@ -124,6 +124,20 @@ test("saved cards update after restart and only missing messages are recreated",
   assert.equal(f.calls.filter(([method]) => method === "send").length, 3);
 });
 
+test("failed discovery preserves monitoring across an outage and recovery", async (t) => {
+  const f = fixture(t); f.add({ active: true, published: true, discordChannelId: "retained" });
+  const before = f.store.getManagedServers()[0];
+  f.setAccessible(Object.assign(new Error("Panel temporarily unavailable"), { retryable: true }));
+  await f.controller.refreshCards(f.guild, { checkAvailability: true });
+  assert.deepEqual(f.store.getManagedServers()[0], before);
+  assert.equal(f.calls.some(([method]) => method === "reconcile"), false);
+  assert.match(f.messages.get(f.store.getCardMessageId("connection-health")).content, /monitoring settings are preserved/);
+  f.setAccessible([{ identifier: "server", uuid: "server-uuid", name: "Returned" }]);
+  await f.controller.refreshCards(f.guild, { checkAvailability: true });
+  assert.deepEqual(f.store.getManagedServers()[0], before);
+  assert.equal(f.store.document.audit.some(entry => entry.action === "server.unavailable"), false);
+});
+
 test("lost access pauses monitoring, retains publication, and returning discovery requires reactivation", async (t) => {
   const f = fixture(t); f.add({ active: true, published: true, discordChannelId: "retained" });
   f.setAccessible([]);

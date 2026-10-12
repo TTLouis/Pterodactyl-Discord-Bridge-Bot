@@ -138,8 +138,9 @@ export class GuidedAdminController extends BridgeAdminController {
     let discovered;
     try { discovered = await this.pterodactylClient.listAccessibleServers(); }
     catch {
-      if (checkAvailability && !this.locked) await this.markUnavailable(this.configStore.getManagedServers().filter((server) => server.active));
-      await this.upsert(channel, "connection-health", { content: "⚠️ Panel discovery failed. Check the panel URL, Client API access, and connectivity. Servers are not assumed deleted; inspect Diagnostics before reactivation.", components: [], allowedMentions: { parse: [] } });
+      // A failed discovery request provides no evidence about individual servers.
+      // Keep monitoring so a temporary panel outage can recover on the next poll.
+      await this.upsert(channel, "connection-health", { content: "⚠️ Panel discovery failed. Check the panel URL, Client API access, and connectivity. Existing monitoring settings are preserved; discovery will retry automatically.", components: [], allowedMentions: { parse: [] } });
       return;
     }
     this.discovery = { at: Date.now(), servers: discovered };
