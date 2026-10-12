@@ -3,6 +3,58 @@ import test from "node:test";
 import { CoreEvents } from "../src/core/core-events.js";
 import { AutoStopService } from "../src/services/auto-stop-service.js";
 import { StatusSyncService } from "../src/services/status-sync-service.js";
+import { FactorioAdapter } from "../src/adapters/factorio-adapter.js";
+import { MinecraftAdapter } from "../src/adapters/minecraft-adapter.js";
+
+for (const [game, Adapter, join, leave] of [
+  ["factorio", FactorioAdapter, "[JOIN] Alice joined the game", "[LEAVE] Alice left the game"],
+  ["minecraft", MinecraftAdapter, "Alice joined the game", "Alice left the game"]
+]) {
+  test(`${game} join hints ignore backlog, duplicates, disabled relay and obsolete runtimes`, async t => {
+    const server = makeServer(game);
+    server.game.type = game;
+    const { service } = createService({ servers: [server],
+      async getServerResources() { return { currentState: "running", cpuPercent: 0, memoryBytes: 0 }; }
+    });
+    const commands = [];
+    let onLine;
+    service.pterodactylClient.subscribeToConsole = (_id, options) => { onLine = options.onLine; return () => {}; };
+    service.pterodactylClient.runCommand = async (id, command, options) => { commands.push({ id, command, options }); };
+    const adapter = service.adapters.get(server.pterodactylServerId);
+    Object.assign(adapter, {
+      supportsConsoleSubscription: () => true,
+      shouldRefreshOnlinePlayers: () => false,
+      parseConsoleChatLine: () => null,
+      parsePlayerEvent: Adapter.prototype.parsePlayerEvent,
+      buildPlayerJoinHintCommand: Adapter.prototype.buildPlayerJoinHintCommand
+    });
+    t.after(() => service.stop());
+    await service.start();
+    onLine(join, { isBacklog: true, isReconnect: true });
+    assert.equal(commands.length, 0);
+    onLine(join, { isBacklog: false });
+    onLine(join, { isBacklog: false });
+    assert.equal(commands.length, 1);
+    assert.equal(commands[0].id, server.pterodactylServerId);
+    assert.equal(commands[0].command, adapter.buildPlayerJoinHintCommand("Alice"));
+    assert.equal(commands[0].options.isCurrent(), true);
+    server.chatRelay = false;
+    assert.equal(commands[0].options.isCurrent(), false);
+    onLine(leave); onLine(join);
+    assert.equal(commands.length, 1);
+    server.chatRelay = true;
+    onLine(join);
+    assert.equal(commands.length, 2);
+    onLine(leave);
+    service.pterodactylClient.runCommand = async () => { throw new Error("console disconnected"); };
+    onLine(join);
+    await new Promise(resolve => setImmediate(resolve));
+    service.adapters.set(server.pterodactylServerId, {});
+    onLine(leave); onLine(join);
+    assert.equal(commands.length, 2);
+    assert.equal(commands[0].options.isCurrent(), false);
+  });
+}
 
 function createService({ servers, getServerResources, nativeAdapters = false }) {
   const panels = [];
