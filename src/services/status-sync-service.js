@@ -368,14 +368,13 @@ export class StatusSyncService {
           previouslyOnline
         });
         await this.#checkServerStateChange(server, snapshot.currentState);
-        if (snapshot.currentState === "running") {
-          if (snapshot.playerCountReliable !== false && typeof snapshot.playerCount === "number"
-            && Number.isFinite(snapshot.playerCount) && snapshot.playerCount >= 0) {
-            await this.autoStopService.onRunningSnapshot(server, snapshot.playerCount);
-          } else {
-            // Unknown player counts break the evidence of continuous inactivity.
-            this.stateStore?.clearAutoStopState?.(server.pterodactylServerId);
-          }
+        // Unknown counts pause decisions, but a brief console reconnect must
+        // not discard the idle deadline. A reliable reading resumes tracking
+        // or resets it when players are present.
+        if (snapshot.currentState === "running" && snapshot.playerCountReliable !== false
+          && typeof snapshot.playerCount === "number" && Number.isFinite(snapshot.playerCount)
+          && snapshot.playerCount >= 0) {
+          await this.autoStopService.onRunningSnapshot(server, snapshot.playerCount);
         }
 
         return snapshot;
@@ -385,7 +384,7 @@ export class StatusSyncService {
         if (fetchingResources && error.retryable && this.#isCurrentRuntime(server, adapter)) {
           server.accessUncertain = true;
           this.lastSnapshotKeys.delete(server.pterodactylServerId);
-          this.stateStore?.clearAutoStopState?.(server.pterodactylServerId);
+          // Retain idle history while access and automation are temporarily paused.
           this.consoleUnsubscribers.get(server.pterodactylServerId)?.();
           this.consoleUnsubscribers.delete(server.pterodactylServerId);
         }
