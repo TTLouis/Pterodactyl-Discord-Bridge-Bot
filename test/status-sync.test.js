@@ -511,7 +511,7 @@ test("disabled records loaded at startup clear saved idle tracking without reset
 });
 
 
-test("unknown player counts never reach idle automation and reset the idle window until reliable recovery", async () => {
+test("unknown player counts pause idle automation without clearing saved timers", async () => {
   const server = makeServer("alpha");
   const { service, panels } = createService({
     servers: [server], async getServerResources() { return { currentState: "running" }; }
@@ -530,11 +530,89 @@ test("unknown player counts never reach idle automation and reset the idle windo
   });
   await service.syncOnce({ force: true });
   assert.deepEqual(idleCalls, []);
-  assert.deepEqual(cleared, ["alpha-id"]);
+  assert.deepEqual(cleared, []);
   reliable = true;
   await service.syncOnce();
   assert.deepEqual(idleCalls, [0]);
   assert.equal(panels.length, 2, "reliability changes must refresh the visible panel even when count stays zero");
+});
+
+function createIdleRecoveryService(t) {
+  const server = { ...makeServer("idle"), autoStop: { enabled: true, emptyTimeoutHours: 1, warningMinutesBefore: 5 } };
+  const observation = { playerCount: 0, playerCountReliable: true, panelDown: false };
+  const { service } = createService({
+    servers: [server],
+    async getServerResources() {
+      if (observation.panelDown) throw Object.assign(new Error("504"), { retryable: true });
+      return { currentState: "running" };
+    }
+  });
+  t.after(() => service.stop());
+  const state = { lastNonEmptyAt: Date.now() - 2 * 3600000, warningSentAt: Date.now() - 3600000 };
+  service.stateStore.getAutoStopState = () => state;
+  service.stateStore.clearAutoStopState = () => { for (const key of Object.keys(state)) delete state[key]; };
+  service.stateStore.setAutoStopState = (_id, values) => Object.assign(state, values);
+  const power = [];
+  service.pterodactylClient.setPowerState = async (...args) => power.push(args);
+  service.autoStopService = new AutoStopService({
+    config: service.config, pterodactylClient: service.pterodactylClient,
+    stateStore: service.stateStore, eventBus: service.eventBus, logger: service.logger
+  });
+  service.adapters.set("idle-id", {
+    supportsConsoleSubscription() { return false; },
+    async fetchSnapshot() {
+      return { name: server.name, currentState: "running", simplifiedStatus: "Online", onlinePlayers: [],
+        playerCount: observation.playerCount, playerCountReliable: observation.playerCountReliable };
+    }
+  });
+  return { service, server, state, observation, power };
+}
+
+for (const failure of ["unknown players", "transient panel outage"]) {
+  test(`${failure} preserves overdue idle history and stops only after reliable empty recovery`, async t => {
+    const { service, state, observation, power } = createIdleRecoveryService(t);
+    const savedState = { ...state };
+    observation.playerCountReliable = failure !== "unknown players";
+    observation.panelDown = failure === "transient panel outage";
+    for (let attempt = 0; attempt < 3; attempt++) await service.syncOnce({ force: true });
+    assert.deepEqual(state, savedState, "temporary failures must preserve the idle deadline and warning");
+    assert.deepEqual(power, [], "an overdue timer must not stop a server while its player count or access is unknown");
+    observation.playerCountReliable = true;
+    observation.panelDown = false;
+    await service.syncOnce({ force: true });
+    assert.deepEqual(power, [["idle-id", "stop"]]);
+    assert.equal(state.stoppedByBot, true);
+    await service.syncOnce({ force: true });
+    assert.equal(power.length, 1, "recovery must not issue duplicate stops");
+  });
+
+  test(`${failure} resets idle history when recovery shows active players`, async t => {
+    const { service, state, observation, power } = createIdleRecoveryService(t);
+    observation.playerCountReliable = failure !== "unknown players";
+    observation.panelDown = failure === "transient panel outage";
+    await service.syncOnce({ force: true });
+    observation.playerCountReliable = true;
+    observation.panelDown = false;
+    observation.playerCount = 1;
+    const recoveredAt = Date.now();
+    await service.syncOnce({ force: true });
+    assert.ok(state.lastNonEmptyAt >= recoveredAt);
+    assert.equal(state.warningSentAt, null);
+    observation.playerCount = 0;
+    await service.syncOnce({ force: true });
+    assert.deepEqual(power, [], "a player observed on recovery must receive a fresh idle window");
+  });
+}
+
+test("invalid player counts cannot stop an overdue server or erase its idle timer", async t => {
+  const { service, state, observation, power } = createIdleRecoveryService(t);
+  const savedState = { ...state };
+  for (const count of [undefined, null, NaN, Infinity, -1, "0"]) {
+    observation.playerCount = count;
+    await service.syncOnce({ force: true });
+    assert.deepEqual(state, savedState);
+    assert.deepEqual(power, []);
+  }
 });
 
 
