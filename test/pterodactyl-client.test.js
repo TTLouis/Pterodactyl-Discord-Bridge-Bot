@@ -25,13 +25,16 @@ test("server discovery follows Client API pagination and keeps bearer tokens out
   } finally { global.fetch = originalFetch; }
 });
 
-test("panel error bodies cannot leak a Client API key through thrown errors", async () => {
+test("panel discovery and power errors omit response bodies", async () => {
   const originalFetch = global.fetch;
-  global.fetch = async () => ({ ok: false, status: 403, async text() { return "private-key"; } });
+  global.fetch = async () => new Response("Bearer private-key", { status: 403 });
   try {
     const client = new PterodactylClient({ commandIntervalMs: 0, baseUrl: "https://panel.example.test", apiKey: "private-key" });
     await assert.rejects(client.listAccessibleServers(), (error) =>
       error.message.includes("403") && !error.message.includes("private-key"));
+    await assert.rejects(client.setPowerState("server-id", "start"), {
+      message: "Pterodactyl power request failed with 403"
+    });
   } finally { global.fetch = originalFetch; }
 });
 

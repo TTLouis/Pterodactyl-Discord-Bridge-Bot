@@ -658,7 +658,9 @@ export class PterodactylClient {
     );
 
     if (!response.ok) {
-      throw new Error(`Pterodactyl power request failed with ${response.status}: ${await response.text()}`);
+      // Panel errors can echo credentials. Discard the body before reporting the status.
+      await response.body?.cancel().catch(() => {});
+      throw new Error(`Pterodactyl power request failed with ${response.status}`);
     }
   }
 

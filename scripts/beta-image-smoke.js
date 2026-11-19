@@ -9,6 +9,7 @@ if (process.env.SMOKE_PHASE === "fresh") {
   assert.equal(fs.existsSync("/app/servers.json"), false);
   assert.equal(fs.existsSync("/app/.env"), false);
   assert.equal(fs.existsSync("/app/docker-compose.override.yml"), false);
+  assert.equal(fs.existsSync("/app/docker-compose.yml"), false);
   store.initialize();
   const runtime = loadConfig({ rawConfig: store.getRuntimeConfig(), managed: true });
   assert.equal(runtime.config.setupMode, true);

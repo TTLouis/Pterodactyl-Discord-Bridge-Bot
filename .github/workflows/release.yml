@@ -10,6 +10,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -19,6 +21,7 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: node --input-type=module -e 'import fs from "node:fs"; const p=JSON.parse(fs.readFileSync("package.json")); if(process.env.RELEASE_TAG !== `v${p.version}` || !fs.existsSync(`docs/releases/${p.version}.md`)) process.exit(1);'
       - run: npm ci
+      - run: npm audit --omit=dev --audit-level=high
       - run: npm test
       - name: Validate public Compose
         run: |
@@ -26,7 +29,7 @@ jobs:
           BRIDGE_VERSION=ci docker compose -f docker-compose.yml config --quiet
       - name: Build and rehearse Egg image
         run: |
-          docker build -t bridge:release-check .
+          docker build --pull -t bridge:release-check .
           bash scripts/egg-image-smoke.sh bridge:release-check
   build:
     needs: validate
@@ -45,6 +48,8 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Build and push native image
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -56,7 +61,7 @@ jobs:
           version="${RELEASE_TAG#v}"
           printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
           trap 'docker logout ghcr.io' EXIT
-          docker build --platform "linux/$ARCHITECTURE" \
+          docker build --pull --platform "linux/$ARCHITECTURE" \
             --build-arg "BRIDGE_REVISION=$GITHUB_SHA" \
             --label "org.opencontainers.image.source=https://github.com/$REPOSITORY" \
             --label "org.opencontainers.image.version=$version" \
@@ -73,6 +78,8 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Publish multi-platform image and release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -22,11 +22,8 @@
     "node": ">=24"
   },
   "dependencies": {
-    "discord.js": "^14.19.3",
-    "dotenv": "^16.5.0",
-    "ws": "^8.21.0"
-  },
-  "overrides": {
-    "undici": "6.28.1"
+    "discord.js": "^14.28.1",
+    "dotenv": "^18.0.10",
+    "ws": "^8.23.0"
   }
 }

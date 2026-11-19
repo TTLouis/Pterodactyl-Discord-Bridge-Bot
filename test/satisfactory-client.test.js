@@ -28,6 +28,34 @@ function createServerConfig(apiUrl) {
   };
 }
 
+test("Satisfactory errors omit response content and URL credentials", async () => {
+  let status = 403;
+  let body = "Bearer test-token";
+  const api = await startApiServer((_request, response) => {
+    response.writeHead(status).end(body);
+  });
+
+  try {
+    const client = new SatisfactoryClient();
+    const config = createServerConfig(`${api.apiUrl}/api/v1?key=private-query`);
+    await assert.rejects(client.queryServerState(config), {
+      message: "Satisfactory API QueryServerState failed with status 403"
+    });
+
+    status = 200;
+    await assert.rejects(client.queryServerState(config), {
+      message: "Satisfactory API QueryServerState returned invalid JSON with status 200"
+    });
+
+    body = JSON.stringify({ errorCode: "test-token", errorMessage: "Bearer test-token" });
+    await assert.rejects(client.queryServerState(config), {
+      message: "Satisfactory API QueryServerState reported an error with status 200"
+    });
+  } finally {
+    await api.close();
+  }
+});
+
 test("QueryServerState reads the official PascalCase response fields", async () => {
   const api = await startApiServer((request, response) => {
     assert.equal(request.url, "/api/v1");

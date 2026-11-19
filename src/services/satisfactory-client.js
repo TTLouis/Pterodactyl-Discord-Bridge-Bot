@@ -14,7 +14,7 @@ function normalizeApiUrl(value) {
   return url;
 }
 
-function parseJsonResponse(text, url, statusCode) {
+function parseJsonResponse(text, functionName, statusCode) {
   if (!text) {
     return null;
   }
@@ -22,7 +22,7 @@ function parseJsonResponse(text, url, statusCode) {
   try {
     return JSON.parse(text);
   } catch {
-    throw new Error(`Satisfactory API at ${url} returned invalid JSON with status ${statusCode}: ${text}`);
+    throw new Error(`Satisfactory API ${functionName} returned invalid JSON with status ${statusCode}`);
   }
 }
 
@@ -61,7 +61,7 @@ function requestJson(url, { headers, body, allowInsecureTls, timeoutMs = DEFAULT
 
     request.on("error", reject);
     request.setTimeout(timeoutMs, () => {
-      request.destroy(new Error(`Satisfactory API request to ${url} timed out after ${timeoutMs}ms`));
+      request.destroy(new Error(`Satisfactory API request to ${url.host} timed out after ${timeoutMs}ms`));
     });
     request.write(body);
     request.end();
@@ -183,13 +183,14 @@ export class SatisfactoryClient {
       timeoutMs: serverConfig.game.apiRequestTimeoutMs
     });
 
-    const payload = parseJsonResponse(responseBody, url, statusCode);
-    if (payload?.errorCode) {
-      throw new Error(`Satisfactory API ${functionName} failed: ${payload.errorCode}${payload.errorMessage ? ` (${payload.errorMessage})` : ""}`);
+    // Error bodies may echo request data, including the API token.
+    if (statusCode < 200 || statusCode >= 300) {
+      throw new Error(`Satisfactory API ${functionName} failed with status ${statusCode}`);
     }
 
-    if (statusCode < 200 || statusCode >= 300) {
-      throw new Error(`Satisfactory API ${functionName} failed with status ${statusCode}: ${responseBody || "(empty response)"}`);
+    const payload = parseJsonResponse(responseBody, functionName, statusCode);
+    if (payload?.errorCode) {
+      throw new Error(`Satisfactory API ${functionName} reported an error with status ${statusCode}`);
     }
 
     return payload?.data ?? null;

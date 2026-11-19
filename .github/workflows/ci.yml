@@ -11,18 +11,21 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
       - run: npm ci
+      - run: npm audit --omit=dev --audit-level=high
       - run: npm test
       - name: Validate public Compose
         run: |
           cp .env.example .env
           BRIDGE_VERSION=ci docker compose -f docker-compose.yml config --quiet
       - name: Build release image
-        run: docker build -t bridge:ci .
+        run: docker build --pull -t bridge:ci .
       - name: Rehearse isolated install, restart and storage recovery
         run: |
           bridge_volume="bridge-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"

@@ -522,16 +522,7 @@ export class KookBridge {
         signal: controller.signal
       });
 
-      const body = await response.json().catch(() => null);
-      if (!response.ok || body?.code !== 0) {
-        const message = body?.message ?? response.statusText;
-        throw Object.assign(new Error(`${endpoint} failed (${response.status}): ${message}`), {
-          httpStatus: response.status, apiCode: body?.code,
-          ...(response.ok && typeof body?.code === "number" && body.code !== 0 ? { deliveryStatus: "rejected", permanent: true } : {})
-        });
-      }
-
-      return body.data ?? {};
+      return await this.#readApiResponse(endpoint, response);
     } finally {
       clearTimeout(timeout);
     }
@@ -553,18 +544,25 @@ export class KookBridge {
         signal: controller.signal
       });
 
-      const body = await response.json().catch(() => null);
-      if (!response.ok || body?.code !== 0) {
-        const message = body?.message ?? response.statusText;
-        throw Object.assign(new Error(`${endpoint} failed (${response.status}): ${message}`), {
-          httpStatus: response.status, apiCode: body?.code,
-          ...(response.ok && typeof body?.code === "number" && body.code !== 0 ? { deliveryStatus: "rejected", permanent: true } : {})
-        });
-      }
-
-      return body.data ?? {};
+      return await this.#readApiResponse(endpoint, response);
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  async #readApiResponse(endpoint, response) {
+    const body = await response.json().catch(() => null);
+    if (!response.ok || body?.code !== 0) {
+      // Keep numeric diagnostics without letting the remote error text reach logs.
+      const apiCode = Number.isInteger(body?.code) ? body.code : undefined;
+      const codeDetail = apiCode === undefined ? "" : `, KOOK code ${apiCode}`;
+      throw Object.assign(new Error(`${endpoint} failed (HTTP ${response.status}${codeDetail})`), {
+        httpStatus: response.status,
+        apiCode,
+        ...(response.ok && apiCode !== undefined ? { deliveryStatus: "rejected", permanent: true } : {})
+      });
+    }
+
+    return body.data ?? {};
   }
 }

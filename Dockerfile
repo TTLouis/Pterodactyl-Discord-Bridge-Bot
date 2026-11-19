@@ -16,7 +16,10 @@ ENV NODE_ENV=production \
 COPY --chown=container:container package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
-COPY --chown=container:container . .
+COPY --chown=container:container src/ ./src/
+COPY --chown=container:container scripts/validate-config.js ./scripts/validate-config.js
+COPY --chown=container:container deployment/egg-pterodactyl-platform-bridge.json ./deployment/egg-pterodactyl-platform-bridge.json
+COPY --chown=container:container LICENSE ./LICENSE
 RUN mkdir -p /data /config /home/container && chown container:container /data /config /home/container
 COPY deployment/entrypoint.sh /entrypoint.sh
 RUN chmod 755 /entrypoint.sh

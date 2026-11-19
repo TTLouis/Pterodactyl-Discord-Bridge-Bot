@@ -74,6 +74,27 @@ function makeJsonResponse(data) {
   };
 }
 
+test("KOOK message errors retain numeric diagnostics and omit remote error text", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({ code: 40000, message: "Bot test-token" });
+  try {
+    const bridge = new KookBridge({
+      token: "test-token",
+      stateStore: createMemoryStateStore(),
+      apiBaseUrl: "https://example.test/api/v3"
+    });
+    await assert.rejects(bridge.sendRelayText("channel", "message"), {
+      message: "/message/create failed (HTTP 200, KOOK code 40000)",
+      httpStatus: 200,
+      apiCode: 40000,
+      deliveryStatus: "rejected",
+      permanent: true
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("KOOK gateway text messages are normalized for message handlers", async () => {
   const originalFetch = globalThis.fetch;
   const sockets = [];

@@ -1,38 +1,9 @@
-node_modules
-coverage
-dist
-build
-*.log
-.codex
-.aws
-node_modules
-.git
-.github
-
-# Local secrets and runtime state; these are mounted or live in a volume.
-.env
-.env.*
-servers.json
-servers.json.*
-docker-compose.override.yml
-backups/
-*runtime-state.json
-persistent-config.json*
-persistent-secrets.json*
-heartbeat
-sync-health.json
-
-# Development-only material that never runs inside the image.
-test
-scripts/*
+# Send only files the Dockerfile uses. Local config and backups can have custom names.
+**
+!package.json
+!package-lock.json
+!LICENSE
+!src/**
 !scripts/validate-config.js
-*.md
-
-# Editor and assistant state.
-.vscode
-.idea
-.claude
-.fallow
-.agents
-.DS_Store
-npm-debug.log*
+!deployment/entrypoint.sh
+!deployment/egg-pterodactyl-platform-bridge.json
